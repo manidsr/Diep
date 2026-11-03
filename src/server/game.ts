@@ -1,7 +1,7 @@
 import {
   ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_STAT_LEVEL,
   PLAYER_PIERCE_COST, REGEN_DELAY_S, RESPAWN_PROTECTION_S, SHAPES, SHAPE_KINDS, SHAPE_TARGET_COUNT,
-  STAT_KEYS, VIEW_HALF,
+  SERVER_TICK_HZ, STAT_KEYS, VIEW_HALF,
 } from '../shared/config';
 import {
   classOptions, deriveStats, levelFromXp, statPointsEarned, totalXpForLevel, type DerivedStats,
@@ -11,7 +11,7 @@ import { SpatialGrid } from './grid';
 
 export interface Player {
   id: number; name: string;
-  x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
+  x: number; y: number; vx: number; vy: number; kvx: number; kvy: number; rvx: number; rvy: number;
   r: number; angle: number; hp: number; maxHp: number;
   level: number; xp: number; pts: number; stats: number[]; cls: string;
   alive: boolean; protT: number; lastDamageT: number;
@@ -32,6 +32,10 @@ export type GameEvent = { type: 'dead'; id: number; killer: string; score: numbe
 type Ent = { k: 0 | 1 | 2; o: Player | Shape | Bullet };
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
+// Recoil velocity loses 10% per server tick, matching Diep.io's smooth, lingering kick.
+const RECOIL_DECAY_PER_TICK = 0.9;
+// A standard 20-wide barrel should move the tank about 10 world units per isolated shot.
+const BASE_RECOIL_DISTANCE = 10;
 
 export class Game {
   tick = 0;
@@ -52,7 +56,7 @@ export class Game {
   addPlayer(name: string): Player | null {
     if (this.players.size >= MAX_PLAYERS) return null;
     const p: Player = {
-      id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, r: 26, angle: 0, hp: 50, maxHp: 0,
+      id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, r: 26, angle: 0, hp: 50, maxHp: 0,
       level: 1, xp: 0, pts: 0, stats: STAT_KEYS.map(() => 0), cls: 'basic', alive: true, protT: 0,
       lastDamageT: -99, lastHit: null, input: { mx: 0, my: 0, a: 0, f: false }, wasFiring: false, cd: [0],
       d: deriveStats(1, STAT_KEYS.map(() => 0), 'basic'),
@@ -70,7 +74,7 @@ export class Game {
     p.level = 1; p.xp = 0; p.stats = STAT_KEYS.map(() => 0); p.cls = 'basic'; p.maxHp = 0;
     p.x = 200 + this.rng() * (ARENA_SIZE - 400);
     p.y = 200 + this.rng() * (ARENA_SIZE - 400);
-    p.vx = p.vy = p.kvx = p.kvy = 0;
+    p.vx = p.vy = p.kvx = p.kvy = p.rvx = p.rvy = 0;
     p.alive = true; p.protT = RESPAWN_PROTECTION_S; p.lastHit = null; p.lastDamageT = -99;
     p.input = { mx: 0, my: 0, a: p.angle, f: false }; p.wasFiring = false;
     this.refresh(p);
@@ -128,10 +132,13 @@ export class Game {
     const k = 1 - Math.exp(-dt * 7);
     p.vx += (ix * p.d.moveSpeed - p.vx) * k;
     p.vy += (iy * p.d.moveSpeed - p.vy) * k;
-    p.x += (p.vx + p.kvx) * dt;
-    p.y += (p.vy + p.kvy) * dt;
+    p.x += (p.vx + p.kvx + p.rvx) * dt;
+    p.y += (p.vy + p.kvy + p.rvy) * dt;
     const dec = Math.exp(-dt * 6);
     p.kvx *= dec; p.kvy *= dec;
+    // Keep recoil separate from collision knockback so tuning one does not alter the other.
+    const recoilDecay = Math.pow(RECOIL_DECAY_PER_TICK, dt * SERVER_TICK_HZ);
+    p.rvx *= recoilDecay; p.rvy *= recoilDecay;
     p.x = Math.min(ARENA_SIZE - p.r, Math.max(p.r, p.x));
     p.y = Math.min(ARENA_SIZE - p.r, Math.max(p.r, p.y));
     if (p.protT > 0) p.protT -= dt;
@@ -155,13 +162,21 @@ export class Game {
       const da = p.angle + b.angle;
       const ang = da + (b.spread ? (this.rng() * 2 - 1) * b.spread : 0);
       const cx = Math.cos(da), cy = Math.sin(da);
+      const bulletRadius = b.width * 0.5 * sc;
       this.bullets.push({
         id: this.nextId++, owner: p.id,
         x: p.x + cx * b.length * sc - cy * b.offset * sc,
         y: p.y + cy * b.length * sc + cx * b.offset * sc,
         vx: Math.cos(ang) * p.d.bulletSpeed, vy: Math.sin(ang) * p.d.bulletSpeed,
-        r: b.width * 0.5 * sc, dmg: p.d.bulletDamage, hp: p.d.bulletHp, life: BULLET_LIFE_S, hit: new Set(),
+        r: bulletRadius, dmg: p.d.bulletDamage, hp: p.d.bulletHp, life: BULLET_LIFE_S, hit: new Set(),
       });
+      // Treat barrel width as projectile diameter: cross-sectional area scales with width squared.
+      // The impulse is opposite the actual shot direction, including any barrel spread.
+      const sizeRatio = b.width / 20;
+      const recoilDistance = BASE_RECOIL_DISTANCE * sizeRatio * sizeRatio;
+      const recoilImpulse = recoilDistance * SERVER_TICK_HZ * (1 - RECOIL_DECAY_PER_TICK);
+      p.rvx -= Math.cos(ang) * recoilImpulse;
+      p.rvy -= Math.sin(ang) * recoilImpulse;
       p.cd[i] = p.d.reload;
     }
   }
