@@ -32,7 +32,7 @@ function connect() {
     else if (m.t === 'lb') renderLeaderboard(m.top);
     else if (m.t === 'welcome') { selfId = m.id; playing = true; menu.classList.add('hide'); }
     else if (m.t === 'dead') {
-      playing = false; input.reset(); frames.length = 0;
+      playing = false; input.reset(); frames.length = 0; lastLv = 0;
       msgEl.textContent = `Destroyed by ${m.killer} — level ${m.level}, score ${m.score}`;
       playBtn.textContent = 'Play again'; menu.classList.remove('hide');
     } else if (m.t === 'err') { statusEl.textContent = m.msg; }
@@ -90,8 +90,10 @@ function sample(now: number): View | null {
 
 // ---------- HUD ----------
 const statsEl = $('stats'), rowsEl = $('rows'), ptsEl = $('pts'), classesEl = $('classes');
+const xpEl = $('xp'), toastEl = $('toast');
 const pipEls: HTMLElement[][] = [];
 const btnEls: HTMLButtonElement[] = [];
+const rowEls: HTMLElement[] = [];
 STAT_KEYS.forEach((k, i) => {
   const row = document.createElement('div'); row.className = 'row';
   const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = `${i + 1}. ${STAT_LABELS[k]}`;
@@ -100,47 +102,122 @@ STAT_KEYS.forEach((k, i) => {
   for (let j = 0; j < MAX_STAT_LEVEL; j++) { const p = document.createElement('span'); p.className = 'pip'; pips.append(p); pipEls[i].push(p); }
   const btn = document.createElement('button'); btn.textContent = '+'; btn.style.background = STAT_COLORS[i];
   btn.addEventListener('pointerdown', (e) => { e.preventDefault(); upgrade(i); });
-  btnEls[i] = btn;
+  btnEls[i] = btn; rowEls[i] = row;
   row.append(lbl, pips, btn); rowsEl.append(row);
 });
 function upgrade(i: number) { if (playing) send({ t: 'upgrade', stat: i }); }
 input.onUpgrade = upgrade;
 
+/** Restart a CSS animation class on an element. */
+function retrigger(el: HTMLElement, cls: string) {
+  el.classList.remove(cls);
+  void el.offsetWidth; // force reflow so the animation restarts
+  el.classList.add(cls);
+}
+
+let toastTimer = 0;
+function showToast(big: string, sub: string) {
+  $('toastbig').textContent = big;
+  $('toastsub').textContent = sub;
+  retrigger(toastEl, 'go');
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => toastEl.classList.remove('go'), 2100);
+}
+
 let hudKey = '', optKey = '';
+let lastLv = 0, lastPts = 0, lastStats: number[] = [];
 function updateHud(m: SelfSnap) {
   const span = Math.max(1, m.xpNext - m.xpCur);
   $('xpfill').style.width = `${m.xpNext === m.xpCur ? 100 : Math.min(100, ((m.xp - m.xpCur) / span) * 100)}%`;
+
+  // Level-up celebration (only while alive and after the first snapshot of a life).
+  if (!m.alive) { lastLv = 0; lastPts = 0; lastStats = []; }
+  else {
+    if (lastLv > 0 && m.lv > lastLv) {
+      retrigger(xpEl, 'lvl');
+      showToast(`LEVEL ${m.lv}`, m.pts > 0 ? `+${m.pts} upgrade point${m.pts > 1 ? 's' : ''} available` : '');
+    }
+    lastLv = m.lv;
+  }
+
   const key = `${m.lv}|${m.xp}|${m.pts}|${m.stats.join(',')}|${m.cls}`;
   if (key !== hudKey) {
     hudKey = key;
     $('xptxt').textContent = `Lv ${m.lv} ${CLASS_BY_ID[m.cls]?.name ?? ''} — ${m.xp} xp`;
     statsEl.classList.toggle('show', m.pts > 0);
     ptsEl.textContent = m.pts > 0 ? `(x${m.pts})` : '';
+    if (m.pts !== lastPts && m.pts > 0) retrigger(ptsEl, 'bump');
+    lastPts = m.pts;
     m.stats.forEach((v, i) => {
-      pipEls[i].forEach((p, j) => { p.style.background = j < v ? STAT_COLORS[i] : ''; });
+      const prev = lastStats[i] ?? v;
+      pipEls[i].forEach((p, j) => {
+        p.style.background = j < v ? STAT_COLORS[i] : '';
+        if (j === v - 1 && v > prev) retrigger(p, 'pop');
+      });
+      if (v > prev) retrigger(rowEls[i], 'flash');
       btnEls[i].disabled = m.pts <= 0 || v >= MAX_STAT_LEVEL;
     });
+    lastStats = m.stats.slice();
   }
+
   const ok = m.opts.join(',');
   if (ok !== optKey) {
     optKey = ok;
     classesEl.replaceChildren();
-    for (const id of m.opts) {
-      const b = document.createElement('button'); b.textContent = CLASS_BY_ID[id]?.name ?? id; b.style.background = '#2a8fd6';
+    if (m.opts.length) {
+      const evo = document.createElement('div'); evo.className = 'evo'; evo.textContent = 'EVOLVE!';
+      classesEl.append(evo);
+      if (lastLv > 0) showToast('EVOLUTION READY', 'Choose a new tank class');
+    }
+    m.opts.forEach((id, n) => {
+      const b = document.createElement('button'); b.textContent = CLASS_BY_ID[id]?.name ?? id;
+      b.style.animationDelay = `${n * 0.08}s, ${0.5 + n * 0.08}s`;
       b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (playing) send({ t: 'class', id }); });
       classesEl.append(b);
-    }
+    });
   }
 }
 
-function renderLeaderboard(top: { id: number; name: string; score: number }[]) {
-  const box = $('lbrows'); box.replaceChildren();
-  for (const e of top) {
-    const d = document.createElement('div'); if (e.id === selfId) d.className = 'me';
-    const n = document.createElement('span'); n.textContent = e.name;
-    const s = document.createElement('span'); s.textContent = String(e.score);
-    d.append(n, s); box.append(d);
-  }
+// ---------- Leaderboard (persistent rows that slide when ranks change) ----------
+interface LbRow { el: HTMLElement; bar: HTMLElement; rk: HTMLElement; nm: HTMLElement; lv: HTMLElement; sc: HTMLElement }
+const lbRows = new Map<number, LbRow>();
+const LB_ROW_H = 26;
+const fmtScore = (n: number) => (n >= 100000 ? `${(n / 1000).toFixed(0)}k` : n >= 10000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+function makeLbRow(): LbRow {
+  const el = document.createElement('div'); el.className = 'lrow';
+  const bar = document.createElement('div'); bar.className = 'bar';
+  const rk = document.createElement('span'); rk.className = 'rk';
+  const nm = document.createElement('span'); nm.className = 'nm';
+  const lv = document.createElement('span'); lv.className = 'lv';
+  const sc = document.createElement('span'); sc.className = 'sc';
+  el.append(bar, rk, nm, lv, sc);
+  return { el, bar, rk, nm, lv, sc };
+}
+
+function renderLeaderboard(top: { id: number; name: string; score: number; lv?: number }[]) {
+  const box = $('lbrows');
+  box.style.height = `${top.length * LB_ROW_H}px`;
+  const max = Math.max(1, top[0]?.score ?? 1);
+  const seen = new Set<number>();
+  top.forEach((e, i) => {
+    seen.add(e.id);
+    let r = lbRows.get(e.id);
+    if (!r) {
+      r = makeLbRow();
+      r.el.style.transform = `translateY(${i * LB_ROW_H}px)`;
+      box.append(r.el);
+      lbRows.set(e.id, r);
+    }
+    r.el.style.transform = `translateY(${i * LB_ROW_H}px)`;
+    r.el.className = `lrow${i < 3 ? ` r${i + 1}` : ''}${e.id === selfId ? ' me' : ''}`;
+    r.bar.style.width = `${Math.max(4, (e.score / max) * 100)}%`;
+    r.rk.textContent = String(i + 1);
+    r.nm.textContent = e.name;
+    r.lv.textContent = e.lv != null ? `Lv${e.lv}` : '';
+    r.sc.textContent = fmtScore(e.score);
+  });
+  for (const [id, r] of lbRows) if (!seen.has(id)) { r.el.remove(); lbRows.delete(id); }
 }
 
 // ---------- main loop ----------

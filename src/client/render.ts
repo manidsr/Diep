@@ -11,6 +11,15 @@ export interface View {
 const ME = { fill: '#00b2e1', stroke: '#0083a8' };
 const FOE = { fill: '#f14e54', stroke: '#b43a3f' };
 
+// ---- Tank look: tweak these to taste ----
+const BODY_STROKE = 4.5;          // body outline thickness
+const BARREL_STROKE = 4;          // barrel outline thickness
+const BARREL_FILL = '#999999';
+const BARREL_EDGE = '#727272';
+const BARREL_WIDTH_MUL = 1.15;    // makes barrels a little chunkier (render only)
+const NAME_GAP = 16;              // distance of name below the tank edge
+const HP_GAP = 10;                // distance of hp bar below the tank edge
+
 export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, cam: { x: number; y: number }, view: View, selfId: number) {
   const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000);
   ctx.fillStyle = '#b4b4b8';
@@ -35,9 +44,11 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, c
   for (const s of view.shapes) drawShape(ctx, s);
   for (const b of view.bullets) {
     const c = b[4] === selfId ? ME : FOE;
-    circle(ctx, b[1], b[2], b[3], c.fill, c.stroke, 2.5);
+    circle(ctx, b[1], b[2], b[3], c.fill, c.stroke, 3);
   }
-  for (const p of view.players) drawTank(ctx, p, p.id === selfId);
+  // Draw other tanks first, own tank on top.
+  for (const p of view.players) if (p.id !== selfId) drawTank(ctx, p, false);
+  for (const p of view.players) if (p.id === selfId) drawTank(ctx, p, true);
   ctx.restore();
 }
 
@@ -70,26 +81,41 @@ function drawTank(ctx: CanvasRenderingContext2D, p: PlayerSnap, mine: boolean) {
   const c = mine ? ME : FOE;
   const cls = CLASSES[p.cls] ?? CLASSES[0];
   const sc = p.r / PLAYER_BASE_RADIUS;
-  if (p.prot) ctx.globalAlpha = 0.55;
+
+  // Barrels (drawn first so the round body covers their base).
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(p.a);
+  ctx.lineJoin = 'round';
   for (const b of cls.barrels) {
     ctx.save();
     ctx.rotate(b.angle);
-    ctx.fillStyle = '#9a9a9f'; ctx.strokeStyle = '#6f6f74'; ctx.lineWidth = 3;
-    const w = b.width * sc;
-    ctx.fillRect(0, b.offset * sc - w / 2, b.length * sc, w);
-    ctx.strokeRect(0, b.offset * sc - w / 2, b.length * sc, w);
+    const w = b.width * sc * BARREL_WIDTH_MUL;
+    const len = b.length * sc;
+    ctx.fillStyle = BARREL_FILL; ctx.strokeStyle = BARREL_EDGE; ctx.lineWidth = BARREL_STROKE;
+    ctx.fillRect(0, b.offset * sc - w / 2, len, w);
+    ctx.strokeRect(0, b.offset * sc - w / 2, len, w);
     ctx.restore();
   }
   ctx.restore();
-  circle(ctx, p.x, p.y, p.r, c.fill, c.stroke, 3);
-  ctx.globalAlpha = 1;
-  ctx.font = 'bold 14px system-ui, sans-serif';
-  ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000a'; ctx.fillStyle = '#fff';
-  ctx.strokeText(p.name, p.x, p.y - p.r - 12); ctx.fillText(p.name, p.x, p.y - p.r - 12);
-  if (p.hp < p.mhp) hpBar(ctx, p.x, p.y + p.r + 12, p.r * 1.8, p.hp / p.mhp);
+
+  // Body
+  circle(ctx, p.x, p.y, p.r, c.fill, c.stroke, BODY_STROKE);
+
+  // Spawn protection: opaque tank plus a pulsing shield ring instead of see-through
+  if (p.prot) {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 7 + pulse * 3, 0, Math.PI * 2);
+    ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.4})`; ctx.stroke();
+  }
+
+  // Health bar (only when hurt) then name, both below the tank.
+  let y = p.y + p.r;
+  if (p.hp < p.mhp) { hpBar(ctx, p.x, y + HP_GAP, p.r * 1.8, p.hp / p.mhp); y += HP_GAP + 8; }
+  ctx.font = 'bold 15px system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = '#000b'; ctx.fillStyle = '#fff';
+  ctx.strokeText(p.name, p.x, y + NAME_GAP + 4);
+  ctx.fillText(p.name, p.x, y + NAME_GAP + 4);
 }
 
 /** Virtual joysticks (screen space). Faint hints are shown on touch devices before any touch. */

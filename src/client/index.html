@@ -6,51 +6,121 @@
 <meta name="theme-color" content="#1b1b1f">
 <title>Tank Arena (LAN)</title>
 <style>
-  :root { color-scheme: dark; --ui: #2b2b33; --ui2: #44444f; --fg: #f2f2f5; }
+  :root { color-scheme: dark; --ui: #2b2b33; --ui2: #44444f; --fg: #f2f2f5; --accent: #2a8fd6; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none;
     background: #1b1b1f; color: var(--fg); font: 14px/1.3 system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
   #c { position: fixed; inset: 0; width: 100%; height: 100dvh; display: block; touch-action: none; }
   .hud { position: fixed; pointer-events: none; }
-  #lb { top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); width: 170px; background: #0006; border-radius: 6px; padding: 6px 8px; font-size: 12px; }
-  #lb h4 { margin: 0 0 3px; font-size: 12px; text-align: center; }
-  #lb div { display: flex; justify-content: space-between; gap: 6px; white-space: nowrap; overflow: hidden; }
-  #lb .me { color: #7fd8ff; font-weight: 600; }
+
+  /* ---------- Leaderboard ---------- */
+  #lb { top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); width: 196px;
+    background: linear-gradient(160deg, #14141bcc, #1f1f2acc); border: 1px solid #ffffff22; border-radius: 10px;
+    padding: 8px 8px 6px; font-size: 12px; backdrop-filter: blur(4px); box-shadow: 0 4px 18px #0006; }
+  #lb h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .22em; text-align: center; font-weight: 800;
+    background: linear-gradient(90deg, #ffd86b, #ff9d5c, #ffd86b); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
+    color: transparent; animation: sheen 4s linear infinite; }
+  #lbrows { position: relative; }
+  .lrow { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 6px;
+    border-radius: 6px; overflow: hidden; transition: transform .45s cubic-bezier(.3,1.2,.4,1); animation: lbin .4s ease-out; }
+  .lrow .bar { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #ffffff30, #ffffff08);
+    transition: width .5s ease; border-radius: 6px; }
+  .lrow > span { position: relative; white-space: nowrap; }
+  .lrow .rk { width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; background: #ffffff1a; font-weight: 800; font-size: 11px; flex: none; }
+  .lrow .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; font-weight: 600; text-shadow: 0 1px 2px #000a; }
+  .lrow .lv { font-size: 10px; opacity: .75; padding: 1px 5px; border-radius: 8px; background: #0005; flex: none; }
+  .lrow .sc { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; flex: none; }
+  .lrow.r1 .rk { background: linear-gradient(135deg, #ffe27a, #e0a020); color: #3a2800; box-shadow: 0 0 8px #ffcc4daa; }
+  .lrow.r2 .rk { background: linear-gradient(135deg, #f0f0f5, #9a9aa8); color: #222; }
+  .lrow.r3 .rk { background: linear-gradient(135deg, #f0b27a, #a8642c); color: #2a1500; }
+  .lrow.r1 .bar { background: linear-gradient(90deg, #ffd35a66, #ffd35a10); }
+  .lrow.me { outline: 1.5px solid #7fd8ff; background: #7fd8ff18; }
+  .lrow.me .nm { color: #9fe3ff; }
+  @keyframes lbin { from { opacity: 0; margin-left: 20px; } to { opacity: 1; margin-left: 0; } }
+  @keyframes sheen { to { background-position: 200% 0; } }
+
+  /* ---------- XP bar ---------- */
   #xp { left: 50%; bottom: max(8px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(340px, 56vw); }
-  #xp .bar { height: 16px; border-radius: 8px; background: #0007; overflow: hidden; border: 2px solid #0009; }
-  #xp .fill { height: 100%; width: 0; background: #f5d94e; }
+  #xp .bar { height: 16px; border-radius: 8px; background: #0007; overflow: hidden; border: 2px solid #0009; position: relative; }
+  #xp .fill { height: 100%; width: 0; transition: width .35s ease-out;
+    background: linear-gradient(90deg, #f5c542, #fff08a, #f5c542); background-size: 200% 100%; animation: sheen 2.5s linear infinite; }
   #xp .txt { text-align: center; font-size: 12px; margin-top: 2px; text-shadow: 0 1px 2px #000; }
-  #classes { top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); display: flex; flex-wrap: wrap; gap: 6px; max-width: 60vw; }
-  #classes button { pointer-events: auto; }
+  #xp.lvl .bar { animation: lvlpulse .9s ease-out; }
+  @keyframes lvlpulse { 0% { box-shadow: 0 0 0 0 #ffe36aee; transform: scale(1); } 30% { transform: scale(1.08); }
+    100% { box-shadow: 0 0 0 22px #ffe36a00; transform: scale(1); } }
+
+  /* ---------- Level-up toast ---------- */
+  #toast { left: 50%; top: 24%; transform: translateX(-50%); text-align: center; opacity: 0; white-space: nowrap; }
+  #toast .big { font-size: clamp(26px, 6vw, 44px); font-weight: 900; letter-spacing: .06em; color: #fff3a8;
+    text-shadow: 0 0 18px #ffb300cc, 0 3px 0 #a86a00, 0 5px 10px #000a; }
+  #toast .sub { font-size: 14px; margin-top: 2px; text-shadow: 0 1px 3px #000; color: #fff; }
+  #toast.go { animation: toast 2s ease-out forwards; }
+  @keyframes toast {
+    0% { opacity: 0; transform: translateX(-50%) scale(.3); }
+    14% { opacity: 1; transform: translateX(-50%) scale(1.18); }
+    24% { transform: translateX(-50%) scale(1); }
+    78% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-34px) scale(1); } }
+
+  /* ---------- Class evolution buttons ---------- */
+  #classes { top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); display: flex; flex-wrap: wrap; gap: 6px; max-width: 60vw; align-items: center; }
+  #classes .evo { width: 100%; font-size: 11px; letter-spacing: .2em; font-weight: 800; color: #9fe3ff; text-shadow: 0 0 8px #2a8fd6; animation: lbin .4s ease-out; }
+  #classes button { pointer-events: auto; background: linear-gradient(180deg, #3aa4ee, #1f78bd); font-weight: 700;
+    animation: pop .5s cubic-bezier(.2,1.6,.4,1) backwards, glow 1.6s ease-in-out .5s infinite; }
+  #classes button:active { transform: scale(.94); }
+  @keyframes pop { from { opacity: 0; transform: scale(.3) translateY(-10px); } to { opacity: 1; transform: none; } }
+  @keyframes glow { 0%, 100% { box-shadow: 0 0 0 0 #4db3ff00; } 50% { box-shadow: 0 0 14px 2px #4db3ffaa; } }
+
   button { font: inherit; color: var(--fg); background: var(--ui2); border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; touch-action: manipulation; }
   button:disabled { opacity: .5; cursor: default; }
-  #stats { left: max(8px, env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom)); width: 210px; display: none; background: #0006; border-radius: 8px; padding: 6px; }
-  #stats.show { display: block; }
-  #stats .hdr { font-size: 12px; margin: 0 0 4px 2px; }
-  .row { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 12px; pointer-events: auto; }
+
+  /* ---------- Upgrade panel ---------- */
+  #stats { left: max(8px, env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom)); width: 210px;
+    background: linear-gradient(160deg, #14141bcc, #1f1f2acc); border: 1px solid #ffffff22; border-radius: 10px; padding: 6px;
+    transform: translateX(-130%); opacity: 0; visibility: hidden;
+    transition: transform .45s cubic-bezier(.2,1.3,.4,1), opacity .3s, visibility 0s .45s; }
+  #stats.show { transform: none; opacity: 1; visibility: visible; transition-delay: 0s; animation: panelglow 1.8s ease-in-out infinite; }
+  @keyframes panelglow { 0%, 100% { box-shadow: 0 0 0 0 #ffe36a00; } 50% { box-shadow: 0 0 16px 1px #ffe36a88; } }
+  #stats .hdr { font-size: 12px; margin: 0 0 4px 2px; font-weight: 700; letter-spacing: .05em; }
+  #pts { display: inline-block; color: #ffe36a; }
+  #pts.bump { animation: bump .45s ease-out; }
+  @keyframes bump { 40% { transform: scale(1.7); } }
+  .row { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 12px; pointer-events: auto; border-radius: 6px; padding: 0 2px; }
+  .row.flash { animation: rowflash .5s ease-out; }
+  @keyframes rowflash { from { background: #ffffff55; } to { background: transparent; } }
   .row .lbl { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pips { display: flex; gap: 1px; }
-  .pip { width: 7px; height: 12px; background: #0008; }
-  .row button { padding: 2px 9px; min-width: 30px; min-height: 26px; font-weight: 700; }
-  @media (max-height: 520px) { #stats { width: 190px; bottom: 36px; } .row { margin: 1px 0; } #lb { width: 140px; } }
+  .pip { width: 7px; height: 12px; background: #0008; transition: background .2s; }
+  .pip.pop { animation: pip .45s ease-out; }
+  @keyframes pip { 0% { transform: scaleY(2) scaleX(1.5); filter: brightness(2.5); } 100% { transform: none; filter: none; } }
+  .row button { padding: 2px 9px; min-width: 30px; min-height: 26px; font-weight: 700; color: #111; transition: transform .1s; }
+  .row button:not(:disabled) { animation: btnpulse 1.2s ease-in-out infinite; }
+  .row button:active { transform: scale(.85); }
+  @keyframes btnpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+  @media (max-height: 520px) { #stats { width: 190px; bottom: 36px; } .row { margin: 1px 0; } #lb { width: 150px; } .lrow .lv { display: none; } }
+
+  /* ---------- Menu ---------- */
   #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #000a; padding: 12px; }
   #menu.hide { display: none; }
-  .card { background: var(--ui); border-radius: 12px; padding: 18px; width: min(420px, 94vw); max-height: 96dvh; overflow: auto; text-align: center; touch-action: pan-y; }
+  .card { background: var(--ui); border-radius: 12px; padding: 18px; width: min(420px, 94vw); max-height: 96dvh; overflow: auto; text-align: center; touch-action: pan-y; animation: pop .4s ease-out; }
   .card h1 { margin: 0 0 6px; font-size: 24px; }
   .card input { width: 100%; font: inherit; font-size: 16px; padding: 10px; border-radius: 6px; border: 2px solid var(--ui2); background: #1b1b1f; color: var(--fg); margin: 8px 0; user-select: text; -webkit-user-select: text; }
-  .card button { width: 100%; font-size: 16px; background: #2a8fd6; }
+  .card button { width: 100%; font-size: 16px; background: var(--accent); }
   .small { font-size: 12px; opacity: .8; margin: 8px 0 0; }
   #status { min-height: 1.3em; }
   #msg { color: #ffb86b; min-height: 1.3em; }
   #lan code { background: #0006; padding: 1px 5px; border-radius: 4px; user-select: text; -webkit-user-select: text; }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="lb" class="hud"><h4>Leaderboard</h4><span id="lbrows"></span></div>
+<div id="lb" class="hud"><h4>LEADERBOARD</h4><div id="lbrows"></div></div>
 <div id="classes" class="hud"></div>
 <div id="stats" class="hud"><div class="hdr">Upgrades <b id="pts"></b></div><div id="rows"></div></div>
 <div id="xp" class="hud"><div class="bar"><div class="fill" id="xpfill"></div></div><div class="txt" id="xptxt"></div></div>
+<div id="toast" class="hud"><div class="big" id="toastbig"></div><div class="sub" id="toastsub"></div></div>
 <div id="menu">
   <div class="card">
     <h1>Tank Arena</h1>

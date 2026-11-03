@@ -99,7 +99,16 @@ export const CLASSES: TankClassDef[] = [
     reloadMul: 0.5, damageMul: 0.5, bulletSpeedMul: 1.1 },
   { id: 'quad', name: 'Quad Tank', parent: 'flank', minLevel: 30,
     barrels: [B(0, 0, 40, 18), B(PI / 2, 0, 40, 18), B(PI, 0, 40, 18), B(-PI / 2, 0, 40, 18)], reloadMul: 1.3, damageMul: 1, bulletSpeedMul: 1 },
-  // Level-45 classes: TODO (data-driven; add entries here).
+  // Tier 3 (level 45)
+  { id: 'penta', name: 'Penta Shot', parent: 'triple', minLevel: 45,
+    barrels: [B(-0.6, 0, 36, 14, 0), B(0.6, 0, 36, 14, 0), B(-0.3, 0, 40, 14, 0.5), B(0.3, 0, 40, 14, 0.5), B(0, 0, 44, 14, 0.25)],
+    reloadMul: 1.25, damageMul: 1, bulletSpeedMul: 1 },
+  { id: 'ranger', name: 'Ranger', parent: 'assassin', minLevel: 45, barrels: [B(0, 0, 74, 20)], reloadMul: 1.9, damageMul: 1.7, bulletSpeedMul: 2.1 },
+  { id: 'streamliner', name: 'Streamliner', parent: 'gunner', minLevel: 45,
+    barrels: [B(0, -20, 32, 9, 0), B(0, -10, 38, 9, 0.2), B(0, 0, 44, 9, 0.4), B(0, 10, 38, 9, 0.6), B(0, 20, 32, 9, 0.8)],
+    reloadMul: 0.45, damageMul: 0.45, bulletSpeedMul: 1.2 },
+  { id: 'octo', name: 'Octo Tank', parent: 'quad', minLevel: 45,
+    barrels: Array.from({ length: 8 }, (_, i) => B((i * PI) / 4, 0, 40, 16, i % 2 ? 0.5 : 0)), reloadMul: 1.5, damageMul: 1, bulletSpeedMul: 1 },
 ];
 export const CLASS_IDS = CLASSES.map((c) => c.id);
 export const CLASS_BY_ID: Record<string, TankClassDef> = Object.fromEntries(CLASSES.map((c) => [c.id, c]));
