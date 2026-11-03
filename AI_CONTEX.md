@@ -2,11 +2,11 @@
 
 > **Purpose:** Compact handoff document for every AI coding session. Read this before changing code. Update it in every patch. Keep it factual and short enough to fit comfortably in a limited context window.
 
-**Project status:** Planning / implementation not yet inspected  
+**Project status:** First playable LAN prototype implemented; automated tests pass in an AI sandbox; NOT yet tested in a real browser or on real devices  
 **Last verified:** 2026-11-03  
-**Repository:** Not provided in this conversation  
-**Current branch / commit:** Unknown — record when the repository is connected  
-**Release:** Pre-alpha, no verified playable build
+**Repository:** Not provided to the AI; Session 1 was built from scratch against a baseline commit containing only `AI_CONTEX.md`  
+**Current branch / commit:** Unknown — record your real commit after applying the Session 1 patch  
+**Release:** Pre-alpha; `npm test`/`typecheck`/`build` pass in sandbox; no device-tested build
 
 ## 1. One-paragraph vision
 
@@ -89,15 +89,15 @@ Status key: `TODO` = not implemented; `IN_PROGRESS` = actively being implemented
 
 | ID | Milestone | Status | Evidence / notes |
 |---|---|---|---|
-| M0 | Confirm repository, branch, existing code and current commit | TODO | No repo was provided in the planning conversation. |
-| M1 | Project scaffold, scripts, TypeScript build and basic documentation | TODO | Not inspected / not verified. |
-| M2 | Canvas arena, camera, responsive rendering | TODO | Not inspected / not verified. |
-| M3 | Local tank movement, aiming, shooting and collision | TODO | Not inspected / not verified. |
-| M4 | Shapes, damage, XP, leveling and eight stats | TODO | Not inspected / not verified. |
-| M5 | Tank classes and upgrade/evolution configuration | TODO | Not inspected / not verified. |
-| M6 | Node LAN server + WebSocket + server-authoritative match | TODO | Not inspected / not verified. |
-| M7 | Desktop + mobile input and mixed-device playtest | TODO | Not inspected / not verified. |
-| M8 | Join instructions, LAN IP display, Windows firewall/run scripts | TODO | Not inspected / not verified. |
+| M0 | Confirm repository, branch, existing code and current commit | TODO | Still no repo visible to the AI. If your repo already has code, reconcile before merging Session 1. |
+| M1 | Project scaffold, scripts, TypeScript build and basic documentation | DONE | Sandbox: `npm run typecheck`, `npm run build`, `npm test` pass (Node 22). README added. |
+| M2 | Canvas arena, camera, responsive rendering | IN_PROGRESS | Implemented (`src/client/render.ts`, DPR/resize/orientation); bundles OK; never run in a browser. |
+| M3 | Local tank movement, aiming, shooting and collision | IN_PROGRESS | Server sim (movement, firing, collisions) unit-tested; no client-side prediction (input is ~100 ms interpolated); no offline/local mode. |
+| M4 | Shapes, damage, XP, leveling and eight stats | IN_PROGRESS | Server logic covered by `tests/game.test.ts` + `progression.test.ts`; HUD (xp bar, upgrade panel, leaderboard) untested in browser. Balance is a first guess. |
+| M5 | Tank classes and upgrade/evolution configuration | IN_PROGRESS | Data-driven `CLASSES` in `src/shared/config.ts`: basic, 4 tier-1 (L15), 4 tier-2 (L30). Level-45 tier TODO. Only bullet barrels (no drones/traps). |
+| M6 | Node LAN server + WebSocket + server-authoritative match | IN_PROGRESS | `tests/server.test.ts`: real HTTP+WS join/snapshot/input/cleanup on loopback; real process served 200 via non-loopback IP (bind 0.0.0.0). Not tested across a real hotspot. |
+| M7 | Desktop + mobile input and mixed-device playtest | IN_PROGRESS | Keyboard/mouse + dual floating touch sticks implemented (`src/client/input.ts`). No device or browser test performed. |
+| M8 | Join instructions, LAN IP display, Windows firewall/run scripts | IN_PROGRESS | Console + join-screen LAN URLs, `start_server.bat`, `allow_firewall_private.bat`, README. `.bat` files never executed on Windows. |
 | M9 | NPCs, bosses and additional game modes | TODO | Not inspected / not verified. |
 | M10 | Performance, security, balancing and release packaging | TODO | Not inspected / not verified. |
 
@@ -109,7 +109,9 @@ Status key: `TODO` = not implemented; `IN_PROGRESS` = actively being implemented
 - **Performance:** Canvas draw cost, collision checks, too many projectiles/entities, unnecessary per-frame allocations and excessive WebSocket snapshots.
 - **Cheating / robustness:** Never trust client-reported position, damage, XP or cooldowns. Validate message types, sizes, rates and player ownership.
 - **AI handoff drift:** Different AI accounts may invent architecture or claim tests they did not run. This file and the actual repository are the source of truth.
-- **Unverified facts:** The codebase, package versions, scripts, existing tests, current Git branch and commit are unknown until M0 is completed.
+- **Unverified facts:** The user's real repo/branch/commit are unknown (M0). Client code has only been type-checked and bundled, never executed in a browser.
+- **Feel/netcode:** No client-side prediction; own tank is rendered ~100 ms behind. Snapshots are full-state JSON at 30 Hz (~2.2 KB per player at 24 busy players in sandbox sim); fine for LAN, revisit before more players.
+- **Balance:** All numbers in `config.ts` / `progression.ts` are untuned guesses. Bullet-vs-bullet collision is not implemented.
 
 ## 8. Decisions and open questions
 
@@ -119,10 +121,14 @@ Status key: `TODO` = not implemented; `IN_PROGRESS` = actively being implemented
 - Free-tier AI workflow; small, focused changes to conserve context/tokens.
 - AI cannot edit the working directory directly. All code changes must be delivered as a Git patch.
 - Preferred default stack: TypeScript, Canvas, Node.js and WebSockets, unless the existing repo gives a strong reason otherwise.
+- Implemented stack: Node >=22, `ws`, `tsx` (server runs TS directly, no server build), `esbuild` bundles client to `dist/public`, tests via built-in `node:test`. `package-lock.json` is included (generated with npm 10.9 in the sandbox).
+- Server: 30 Hz fixed step, uniform-grid collisions, 3200x3200 arena, 24-player cap, per-connection rate limit (90 msg/s, kill at 600), 256-byte messages, view-culled snapshots (+/-1000 units).
+- Progression: 1 stat point per level 2-28 then every 3rd level from 30 (33 total), 7 levels per stat; death resets to level 1 with 3 s spawn protection. Class choice via `{t:'class'}` validated by parent+minLevel.
+- Mobile controls chosen: left-half floating move stick, right-half floating aim stick (aim past deadzone = fire). Upgrades/classes via on-screen buttons.
 
 ### Open / decide when needed
 - Exact repo URL, branch and existing implementation (M0).
-- Mobile control feel: dual virtual sticks versus left movement stick + touch-to-aim/auto-fire.
+- Mobile control feel: dual sticks implemented; compare against touch-to-aim/auto-fire after a real phone test.
 - Target player count and arena size; measure before choosing hard limits.
 - Whether the hotspot-providing phone itself must also join the match; this depends on hotspot routing behavior.
 - Whether the first release needs only FFA or also team mode.
@@ -141,6 +147,14 @@ Add one newest-first entry after every meaningful session. Keep each entry conci
 - **Not verified:** anything not run or requiring device testing
 - **Weak points / regressions:**
 - **Next 1–3 tasks:**
+
+### Session 1 — first playable LAN prototype (2026-11-03)
+- **Goal:** Do as many roadmap items as possible with no repo available: scaffold, server-authoritative sim, client, LAN scripts, tests.
+- **Changed:** New: `package.json`, `tsconfig.json`, `scripts/build-client.mjs`, `src/shared/{config,progression,protocol}.ts`, `src/server/{game,grid,net,server,index}.ts`, `src/client/{index.html,main,input,render}.ts`, `tests/*`, `start_server.bat`, `allow_firewall_private.bat`, `README.md`, `.gitignore`. Behavior: FFA arena, shapes, XP/levels 1-45, 8 stats, 9 classes (to level 30), leaderboard, respawn, desktop+touch input, LAN URL display.
+- **Verified (sandbox, Node 22.22):** `npx tsc --noEmit` clean; `npm run build` OK (12.5 KB bundle); `npm test` 18/18 pass (progression, protocol validation, sim rules, WS integration); real `npm start` served `/`, `/client.js`, `/api/info` via a non-loopback IP; sim soak: 24 firing players avg 0.26 ms/tick.
+- **Not verified:** Any browser rendering/HUD, touch controls, iOS/Android, real hotspot reachability, Windows `.bat` scripts, balance/feel, behavior with the user's real repo.
+- **Weak points / regressions:** No prediction (laggy self-movement possible); balance untuned; no bullet-vs-bullet; snapshots are uncompressed JSON; HUD on small phones (upgrade panel overlaps left stick zone while visible) needs real-device tuning.
+- **Next 1–3 tasks:** (1) Apply patch, `npm install`, `npm start`, play on PC + one phone; report bugs. (2) Add client-side prediction for own tank and tune mobile HUD from real-device findings. (3) Level-45 classes and balance pass.
 
 ### Session 0 — planning baseline (2026-11-03)
 - **Goal:** Capture the game vision, LAN-hosting requirement, AI handoff workflow and patch-only delivery rule.
