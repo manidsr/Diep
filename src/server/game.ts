@@ -1895,9 +1895,9 @@ export class Game {
     const formationSlot = this.nextDroneFormationSlot(owner.id, cls.droneLimit ?? 8);
     this.bullets.push({
       id: this.nextId++, owner: owner.id, x: shape.x, y: shape.y, vx: 0, vy: 0,
-      r: 12, dmg: owner.d.bulletDamage * (cls.droneDamageMul ?? 0.6), hp: 8,
+      r: 12, dmg: owner.d.bulletDamage * (cls.droneDamageMul ?? 0.6) * (1 + this.perkCount(owner, 'droneTactician') * 0.15), hp: 8,
       life: DRONE_LIFE_S, hit: new Set(), kind: 'drone', angle: owner.angle,
-      maxSpeed: 300 * (cls.droneSpeedMul ?? 1) * (1 + this.perkCount(p, 'droneTactician') * 0.08), turnRate: 4.6, formationSlot,
+      maxSpeed: 300 * (cls.droneSpeedMul ?? 1) * (1 + this.perkCount(owner, 'droneTactician') * 0.08), turnRate: 4.6, formationSlot,
       attackState: 'guard', attackCooldown: 0,
     });
   }

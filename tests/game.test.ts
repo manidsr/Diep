@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Game } from '../src/server/game';
+import { Game, type Player } from '../src/server/game';
 import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, SHAPES, TEAM_BASE_DEPTH } from '../src/shared/config';
 import { totalXpForLevel } from '../src/shared/progression';
 import { seeded } from './helpers';
@@ -691,7 +691,7 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
 test('Survival perk effects cover movement, defence, health and damage upgrades', () => {
   const game = new Game(seeded(143), 0, 'survival');
   const player = game.addPlayer('perk tester')!;
-  const internal = game as unknown as { refresh: (player: typeof player) => void; hurtPlayer: (player: typeof player, amount: number, byId: number | null, name: string) => void };
+  const internal = game as unknown as { refresh: (player: Player) => void; hurtPlayer: (player: Player, amount: number, byId: number | null, name: string) => void };
   const baseMax = player.maxHp;
   player.survivalPerks.vitalCore = 2;
   internal.refresh(player);
