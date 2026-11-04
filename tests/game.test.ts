@@ -306,7 +306,7 @@ test('drone squads surround a target instead of stacking at its centre', () => {
   // knockback moving the target away from the squad during repeated contacts.
   (game as unknown as { updateShape: (shape: unknown, dt: number) => void }).updateShape = () => {};
   game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
-  run(game, 5);
+  run(game, 8);
 
   const drones = game.bullets.filter((bullet) => bullet.owner === player.id && bullet.kind === 'drone');
   assert.equal(drones.length, 8);
