@@ -24,6 +24,7 @@ let recoilCameraVX = 0, recoilCameraVY = 0;
 let previousFrameTime = 0;
 const seenOwnBulletIds = new Set<number>();
 const statusEl = $('status'), msgEl = $('msg'), playBtn = $<HTMLButtonElement>('play'), menu = $('menu'), nameEl = $<HTMLInputElement>('name');
+const fullscreenBtn = $<HTMLButtonElement>('fullscreen-btn');
 const modeFfaBtn = $<HTMLButtonElement>('mode-ffa');
 const modeTeamsBtn = $<HTMLButtonElement>('mode-teams');
 const modeSurvivalBtn = $<HTMLButtonElement>('mode-survival');
@@ -327,7 +328,6 @@ for (const id of CLASS_IDS) {
 // ---------- HUD ----------
 const statsEl = $('stats'), rowsEl = $('rows'), ptsEl = $('pts'), classesEl = $('classes');
 const statsToggle = $<HTMLButtonElement>('stats-toggle');
-const fullscreenBtn = $<HTMLButtonElement>('fullscreen-btn');
 const leaderboardEl = $('lb');
 const leaderboardToggle = $<HTMLButtonElement>('lbtitle');
 const xpEl = $('xp'), toastEl = $('toast');
