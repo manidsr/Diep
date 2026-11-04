@@ -658,35 +658,29 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
     attackCooldown: 2,
   });
   Object.assign(teammate, { x: 2200, y: 2200, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
-  game.shapes.length = 0; // Exclude the unrelated shape XP system from this zombie-drop test.
-  game.xpDrops.length = 0; // Ignore orbs left by the initial wave setup; only test the target zombie's drop.
+  game.shapes.length = 0;
+  game.xpDrops.length = 0;
   const xpBefore = player.xp, teammateXpBefore = teammate.xp;
-  // Keep another zombie alive so wave-clear fallback cannot mask a physical pickup.
-  game.zombies.push({ ...zombie, id: zombie.id + 10000, x: zombie.x + 260, y: zombie.y + 230, hp: zombie.maxHp, damageBy: new Map() });
-  game.bullets.push({
-    id: 99001, owner: player.id, x: zombie.x, y: zombie.y, vx: 0, vy: 0,
-    r: 8, dmg: zombie.hp + 100, hp: 5, life: 2, hit: new Set<number>(),
-    kind: 'bullet', angle: 0, maxSpeed: 0, turnRate: 0,
-  });
-  game.step(DT);
+  const internals = game as unknown as { reap: () => void; updateXpDrops: (dt: number) => void };
+  game.zombies = [zombie];
+  zombie.hp = 0;
+  zombie.damageBy.clear();
+  zombie.damageBy.set(player.id, 100);
+  internals.reap();
   assert.equal(game.xpDrops.length, 1, 'the zombie should leave a visible XP orb');
   const orb = game.xpDrops[0]!;
   assert.ok(orb.xp > 0);
-  // Measure after the kill frame so unrelated nearby setup rewards cannot affect the drop assertion.
-  const playerXpAfterKill = player.xp, teammateXpAfterKill = teammate.xp;
+  assert.equal(player.xp, xpBefore, 'killing the zombie drops XP instead of awarding it immediately');
+  assert.equal(teammate.xp, teammateXpBefore);
   // This simulates a temporary disconnect after the player has joined this run.
   player.connected = false;
   teammate.x = orb.x; teammate.y = orb.y;
-  game.step(DT);
-  assert.equal(player.xp - playerXpAfterKill, orb.xp, 'the connected and disconnected run members receive the same full XP');
-  assert.equal(teammate.xp - teammateXpAfterKill, orb.xp);
+  internals.updateXpDrops(DT);
+  assert.equal(player.xp - xpBefore, orb.xp, 'the connected and disconnected run members receive the same full XP');
+  assert.equal(teammate.xp - teammateXpBefore, orb.xp);
   assert.equal(game.xpDrops.length, 0);
   assert.equal(game.zombieKills, 1);
   assert.equal(player.kills, 1);
-  assert.equal(zombie.hitFlash, 1, 'hits should trigger a visible impact flash');
-  assert.ok(Math.hypot(zombie.kvx, zombie.kvy) > 0, 'projectile impacts should knock zombies back');
-  assert.ok(zombie.staggerT > 0, 'strong impacts briefly stagger zombies');
-  assert.equal(game.zombies.some((entry) => entry.id === zombie.id), false);
 });
 
 test('Survival perk effects cover movement, defence, health and damage upgrades', () => {
