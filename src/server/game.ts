@@ -1265,9 +1265,9 @@ export class Game {
     const drone: Bullet = {
       id: this.nextId++, owner: p.id, x: origin.x, y: origin.y,
       vx: Math.cos(slotAngle) * 70, vy: Math.sin(slotAngle) * 70,
-      r: radius * 0.65, dmg: p.d.bulletDamage * (cls.droneDamageMul ?? 0.85),
+      r: radius * 0.65, dmg: p.d.bulletDamage * (cls.droneDamageMul ?? 0.85) * (1 + this.perkCount(p, 'droneTactician') * 0.15),
       hp: 8, life: DRONE_LIFE_S, hit: new Set(), kind: 'drone',
-      angle: slotAngle, maxSpeed: 300 * (cls.droneSpeedMul ?? 1), turnRate: 4.6,
+      angle: slotAngle, maxSpeed: 300 * (cls.droneSpeedMul ?? 1) * (1 + this.perkCount(p, 'droneTactician') * 0.08), turnRate: 4.6,
       formationSlot: slot, attackState: 'guard', attackCooldown: 0,
     };
     // Keep the first spawn close to the tank; barrel length is used as a size hint for drone spacing.
@@ -1420,6 +1420,7 @@ export class Game {
     }
 
     drone.dmg = owner.d.bulletDamage * (cls.droneDamageMul ?? 0.85) * (1 + this.perkCount(owner, 'droneTactician') * 0.15);
+    drone.maxSpeed = 300 * (cls.droneSpeedMul ?? 1) * (1 + this.perkCount(owner, 'droneTactician') * 0.08);
     drone.x += drone.vx * dt;
     drone.y += drone.vy * dt;
   }
