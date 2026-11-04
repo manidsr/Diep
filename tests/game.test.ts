@@ -608,9 +608,10 @@ test('Co-op Survival starts zombie waves without normal shapes and zombies chase
   assert.equal(game.shapes.length, 0, 'normal shape farming stays disabled in survival');
 });
 
-test('Co-op Survival: damaging zombies awards XP and records shared zombie kills', () => {
+test('Co-op Survival: zombie XP drops are collected once and shared with every survivor', () => {
   const game = new Game(seeded(62), 0, 'survival');
   const player = game.addPlayer('shooter')!;
+  const teammate = game.addPlayer('teammate')!;
   run(game, 1.5);
   const zombie = game.zombies[0]!;
   Object.assign(player, {
@@ -621,14 +622,24 @@ test('Co-op Survival: damaging zombies awards XP and records shared zombie kills
     x: player.x + 78, y: player.y, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
     attackCooldown: 2,
   });
-  const xpBefore = player.xp;
+  Object.assign(teammate, { x: 2200, y: 2200, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
+  const xpBefore = player.xp, teammateXpBefore = teammate.xp;
   game.bullets.push({
     id: 99001, owner: player.id, x: zombie.x, y: zombie.y, vx: 0, vy: 0,
     r: 8, dmg: zombie.hp + 100, hp: 5, life: 2, hit: new Set<number>(),
     kind: 'bullet', angle: 0, maxSpeed: 0, turnRate: 0,
   });
   game.step(DT);
-  assert.ok(player.xp > xpBefore, 'zombie kills should award XP to contributing players');
+  assert.equal(player.xp, xpBefore, 'XP should remain on the arena until a teammate collects the orb');
+  assert.equal(teammate.xp, teammateXpBefore, 'shared XP is awarded when the orb is collected, not on the kill');
+  assert.equal(game.xpDrops.length, 1, 'the zombie should leave a visible XP orb');
+  const orb = game.xpDrops[0]!;
+  assert.ok(orb.xp > 0);
+  teammate.x = orb.x; teammate.y = orb.y;
+  game.step(DT);
+  assert.equal(player.xp - xpBefore, orb.xp, 'the collector and the rest of the team receive the same full XP');
+  assert.equal(teammate.xp - teammateXpBefore, orb.xp);
+  assert.equal(game.xpDrops.length, 0);
   assert.equal(game.zombieKills, 1);
   assert.equal(player.kills, 1);
   assert.equal(zombie.hitFlash, 1, 'hits should trigger a visible impact flash');
@@ -720,8 +731,8 @@ test('Co-op Survival scales wave size gently as more players join', () => {
 });
 
 
-test('Co-op Survival boss waves rotate through three distinct bosses', () => {
-  const expected = ['breaker', 'spitter', 'summoner'];
+test('Co-op Survival boss waves rotate through all eight distinct bosses', () => {
+  const expected = ['breaker', 'spitter', 'summoner', 'colossus', 'nestMother', 'lich', 'devourer', 'abomination'];
   for (let i = 0; i < expected.length; i++) {
     const game = new Game(seeded(81 + i), 0, 'survival');
     game.addPlayer('boss tester');
@@ -823,17 +834,19 @@ test('hostile boss projectiles hurt survivors but player shots cannot hurt teamm
 });
 
 
-test('Survival spawns six distinct zombie roles with different combat identities', () => {
+test('Survival spawns all thirteen zombie roles with different combat identities', () => {
   const game = new Game(seeded(91), 0, 'survival');
   game.addPlayer('type tester');
   const state = game as unknown as { spawnZombie: (kind: string) => boolean };
-  const kinds = ['shambler', 'runner', 'tank', 'ranger', 'guardian', 'bomber', 'leaper'];
+  const kinds = ['shambler', 'runner', 'tank', 'ranger', 'guardian', 'bomber', 'leaper', 'armoured', 'medic', 'exploder', 'splitter', 'stalker', 'commander'];
   for (const kind of kinds) assert.ok(state.spawnZombie(kind));
   const spawned = kinds.map((kind) => game.zombies.find((zombie) => zombie.kind === kind));
   assert.ok(spawned.every(Boolean), 'every requested enemy archetype should spawn');
   assert.ok(game.zombies.find((zombie) => zombie.kind === 'runner')!.speed >
     game.zombies.find((zombie) => zombie.kind === 'shambler')!.speed * 1.5);
   assert.ok(game.zombies.find((zombie) => zombie.kind === 'tank')!.maxHp >
+    game.zombies.find((zombie) => zombie.kind === 'shambler')!.maxHp * 2);
+  assert.ok(game.zombies.find((zombie) => zombie.kind === 'armoured')!.maxHp >
     game.zombies.find((zombie) => zombie.kind === 'shambler')!.maxHp * 2);
 });
 
@@ -923,7 +936,7 @@ test('Rotbloom rotates through focused, fan and radial attack patterns', () => {
   assert.equal(bolts.length, 16, 'Rotbloom should fire 3 focused, 5 fan and 8 radial shots');
 });
 
-test('A downed survivor can be revived by a nearby stationary ally after four seconds', () => {
+test('A downed survivor can be revived by a nearby stationary ally in the shorter rescue channel', () => {
   const game = new Game(seeded(97), 0, 'survival');
   const downed = place(game, game.addPlayer('downed')!.id, 1000, 1000);
   const helper = place(game, game.addPlayer('helper')!.id, 1050, 1000);
@@ -932,9 +945,9 @@ test('A downed survivor can be revived by a nearby stationary ally after four se
   state.waveSpawnRemaining = 0; state.waveSpawned = 12;
   game.step(DT);
   assert.equal(downed.downed, true);
-  assert.equal(downed.alive, true, 'the body remains available to revive during bleed-out');
+  assert.equal(downed.alive, true, 'the player remains in the run while waiting for rescue');
   assert.equal(game.survivalGameOver, false);
-  run(game, 4.2);
+  run(game, 2.7);
   assert.equal(downed.downed, false);
   assert.equal(downed.alive, true);
   assert.ok(downed.hp >= downed.maxHp * 0.39);
@@ -957,14 +970,31 @@ test('Revive progress falls when the helper leaves the downed ally', () => {
   assert.equal(downed.downed, true);
 });
 
-test('A downed player bleeds out and the run ends if no rescuer remains', () => {
+test('A downed survivor stays revivable indefinitely and keeps their progress until rescued', () => {
   const game = new Game(seeded(99), 0, 'survival');
   const downed = place(game, game.addPlayer('last survivor')!.id, 1000, 1000);
   downed.hp = 0; downed.lastDamageT = game.time;
+  const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number };
+  state.waveSpawnRemaining = 0; state.waveSpawned = 12;
   game.step(DT);
-  assert.equal(downed.downed, false);
-  assert.equal(downed.alive, false);
-  assert.equal(game.survivalGameOver, true);
+  assert.equal(downed.downed, true);
+  assert.equal(downed.alive, true);
+  const level = downed.level, xp = downed.xp, classId = downed.cls;
+  run(game, 75);
+  assert.equal(downed.downed, true, 'a downed player never times out, even after a long wait');
+  assert.equal(downed.alive, true, 'downed status must not become a normal death');
+  assert.equal(downed.level, level);
+  assert.equal(downed.xp, xp);
+  assert.equal(downed.cls, classId);
+  assert.equal(game.survivalGameOver, false, 'a squad wipe waits for a rescuer instead of ending the run');
+  const rescuer = place(game, game.addPlayer('late rescuer')!.id, 1040, 1000);
+  Object.assign(rescuer, { vx: 0, vy: 0 });
+  run(game, 2.7);
+  assert.equal(downed.downed, false, 'a teammate joining later can still revive the waiting player');
+  assert.equal(downed.alive, true);
+  assert.equal(downed.level, level);
+  assert.equal(downed.xp, xp);
+  assert.equal(downed.cls, classId);
 });
 
 test('Boss kills guarantee a health pickup that heals a wounded survivor', () => {
@@ -979,6 +1009,10 @@ test('Boss kills guarantee a health pickup that heals a wounded survivor', () =>
   game.step(DT);
   assert.equal(game.zombieKills, 1);
   assert.equal(game.healthDrops.length, 1);
+  assert.equal(player.rewardOffers.length, 1, 'boss kills grant a separate reward offer');
+  assert.equal(player.rewardOffers[0]!.cards.length, 3);
+  assert.ok(player.rewardOffers[0]!.cards.every((card) => card.rarity === 'epic' || card.rarity === 'legendary'));
+  assert.equal(game.xpDrops.length, 1, 'bosses also drop a large shared XP cache');
   const drop = game.healthDrops[0]!;
   assert.ok(drop.heal > 0);
   player.x = drop.x; player.y = drop.y;
