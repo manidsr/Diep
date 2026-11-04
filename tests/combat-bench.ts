@@ -5,15 +5,16 @@ import { seeded } from './helpers';
 
 const DT = 1 / SERVER_TICK_HZ;
 const DPS_SECONDS = 8;
-const RANGE_SECONDS = 3.2;
+const RANGE_SECONDS = 4.5;
 const SURVIVAL_LIMIT_SECONDS = 20;
 const BURST_TICKS = Math.round(0.25 * SERVER_TICK_HZ);
 const OFFENCE_STATS = [0, 0, 0, 7, 7, 7, 7, 0];
 const RAMMER_STATS = [7, 7, 7, 0, 0, 0, 0, 7];
 const DEFENCE_STATS = [7, 7, 7, 0, 0, 0, 0, 7];
-const RANGE_SAMPLES = [100, 150, 220, 320, 420, 520, 680, 850, 1050, 1300, 1600] as const;
+const INCOMING_STATS = [0, 0, 0, 0, 0, 4, 4, 0];
+const RANGE_SAMPLES = [100, 150, 220, 320, 420, 520, 680, 850, 1050, 1300, 1600, 1900, 2200, 2500, 2800] as const;
 const TRAP_RANGE_SAMPLES = [90, 100, 110, 120, 140, 160, 200, 260, 360] as const;
-const LAB_X = 1200;
+const LAB_X = 200;
 const LAB_Y = 1500;
 const DUMMY_HP = 1_000_000_000;
 
@@ -24,6 +25,7 @@ export interface CombatMetric {
   sustainedDps: number;
   burstDamage: number;
   effectiveRange: number;
+  rangeAtCeiling: boolean;
   survivalSeconds: number;
   survivedBenchmark: boolean;
 }
@@ -187,7 +189,7 @@ function measureSurvivability(classId: string): { seconds: number; killed: boole
   if (!attacker || !target) throw new Error('Could not create survivability players');
 
   game.addXp(attacker, totalXpForLevel(45));
-  applyStats(game, attacker, OFFENCE_STATS);
+  applyStats(game, attacker, INCOMING_STATS);
   game.addXp(target, totalXpForLevel(45));
   if (!game.debugSetClass(target.id, classId)) throw new Error('Unknown defence class: ' + classId);
   applyStats(game, target, DEFENCE_STATS);
@@ -231,11 +233,14 @@ export function runClassCombatBenchmark(classId: string): CombatMetric {
   const distance = pureRammer ? 1 : trapOnly ? 110 : 360;
   const damage = runDamageScenario(classId, distance, DPS_SECONDS);
   const survival = measureSurvivability(classId);
+  const effectiveRange = measureEffectiveRange(classId);
+  const rangeCeiling = pureRammer ? 0 : trapOnly ? TRAP_RANGE_SAMPLES[TRAP_RANGE_SAMPLES.length - 1] : RANGE_SAMPLES[RANGE_SAMPLES.length - 1];
   return {
     id: classId, name: cls.name, role: classifyRole(classId),
     sustainedDps: damage.sustainedDps,
     burstDamage: damage.burstDamage,
-    effectiveRange: measureEffectiveRange(classId),
+    effectiveRange,
+    rangeAtCeiling: rangeCeiling > 0 && effectiveRange === rangeCeiling,
     survivalSeconds: survival.seconds,
     survivedBenchmark: !survival.killed,
   };

@@ -3,10 +3,10 @@ import { runAllCombatBenchmarks } from '../tests/combat-bench';
 const metrics = runAllCombatBenchmarks();
 const sorted = [...metrics].sort((a, b) => b.sustainedDps - a.sustainedDps);
 const column = (value: string, width: number) => value.padEnd(width).slice(0, width);
-console.log('Combat lab: level 45, max offensive/defensive stat allocations');
+console.log('Combat lab: level 45 with fixed max-stat allocations for each role.');
 console.log('DPS is measured against a stationary target through the server simulation.');
-console.log('Range is the furthest sampled centre-to-centre distance that registered a hit.');
-console.log('Survival is passive time-to-kill from a max-offence Basic tank (20s cap).');
+console.log('Range is the furthest sampled centre-to-centre hit; + means the 2800u sample ceiling was reached.');
+console.log('Survival is passive time-to-kill from a moderate-pressure Basic tank (20s cap); defender auto-weapons are disabled.');
 console.log('');
 console.log(
   column('CLASS', 17) + column('ROLE', 10) +
@@ -21,7 +21,7 @@ for (const metric of sorted) {
     column(metric.name, 17) + column(metric.role, 10) +
     metric.sustainedDps.toFixed(1).padStart(9) +
     metric.burstDamage.toFixed(1).padStart(13) +
-    (String(metric.effectiveRange) + 'u').padStart(9) +
+    (String(metric.effectiveRange) + (metric.rangeAtCeiling ? 'u+' : 'u')).padStart(9) +
     survival.padStart(12),
   );
 }
