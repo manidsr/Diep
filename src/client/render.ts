@@ -126,8 +126,16 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
     const length = barrel.length * scale;
     ctx.fillStyle = barrel.projectile === 'trap' ? '#b8a17e' : barrel.projectile === 'missile' ? '#bd9b70' : BARREL_FILL;
     ctx.strokeStyle = BARREL_EDGE; ctx.lineWidth = BARREL_STROKE;
-    ctx.fillRect(0, barrel.offset * scale - width / 2, length, width);
-    ctx.strokeRect(0, barrel.offset * scale - width / 2, length, width);
+    const barrelY = barrel.offset * scale - width / 2;
+    const corner = Math.min(width * 0.18, 5 * scale);
+    ctx.beginPath();
+    ctx.roundRect(0, barrelY, length, width, corner);
+    ctx.fill(); ctx.stroke();
+    // A restrained inner highlight gives the flat Diep-style cannon a little depth.
+    ctx.beginPath(); ctx.moveTo(5 * scale, barrelY + 2 * scale);
+    ctx.lineTo(Math.max(5 * scale, length - 3 * scale), barrelY + 2 * scale);
+    ctx.strokeStyle = '#ffffff35'; ctx.lineWidth = Math.max(1, 1.2 * scale); ctx.stroke();
+    ctx.strokeStyle = BARREL_EDGE; ctx.lineWidth = BARREL_STROKE;
     ctx.restore();
   }
 
@@ -151,6 +159,10 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
 
   // Body and shield.
   circle(ctx, player.x, player.y, player.r, palette.fill, palette.stroke, BODY_STROKE);
+  // Soft upper-left sheen, kept subtle to preserve the original flat arena aesthetic.
+  ctx.beginPath();
+  ctx.arc(player.x - player.r * 0.08, player.y - player.r * 0.08, player.r * 0.82, Math.PI * 1.08, Math.PI * 1.78);
+  ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = Math.max(2, player.r * 0.055); ctx.stroke();
   if (player.prot) {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
     ctx.beginPath(); ctx.arc(player.x, player.y, player.r + 7 + pulse * 3, 0, Math.PI * 2);
