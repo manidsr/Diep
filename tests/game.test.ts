@@ -624,6 +624,7 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
   });
   Object.assign(teammate, { x: 2200, y: 2200, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
   const xpBefore = player.xp, teammateXpBefore = teammate.xp;
+  game.shapes.length = 0; // Exclude the unrelated shape XP system from this zombie-drop test.
   // Keep another zombie alive so wave-clear fallback cannot mask a physical pickup.
   game.zombies.push({ ...zombie, id: zombie.id + 10000, x: zombie.x + 260, y: zombie.y + 230, hp: zombie.maxHp, damageBy: new Map() });
   game.bullets.push({
