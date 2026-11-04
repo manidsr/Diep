@@ -71,7 +71,8 @@ export interface Snapshot {
   p: PlayerSnap[];
   // id, x, y, radius, ownerId, projectile kind, direction angle
   b: [number, number, number, number, number, number, number][];
-  sh: [number, number, number, number, number, number][];
+  // id, x, y, rotation, kind, health fraction, hit flash, impact x/y, impact angle
+  sh: [number, number, number, number, number, number, number, number, number, number][];
 }
 export type ServerMessage =
   | { t: 'welcome'; id: number; arena: number; hz: number; devCheats: boolean }

@@ -5,7 +5,7 @@ import { STICK_RADIUS, type Input } from './input';
 export interface View {
   players: PlayerSnap[];
   bullets: [number, number, number, number, number, number, number][];
-  shapes: [number, number, number, number, number, number][];
+  shapes: [number, number, number, number, number, number, number, number, number, number][];
 }
 
 const ME = { fill: '#00b2e1', stroke: '#0083a8' };
@@ -89,19 +89,57 @@ function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][n
 
 function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number]) {
   const def = SHAPES[SHAPE_KINDS[shape[4]]];
-  ctx.beginPath();
-  for (let i = 0; i < def.sides; i++) {
-    const angle = shape[3] + (i * Math.PI * 2) / def.sides;
-    const px = shape[1] + Math.cos(angle) * def.radius;
-    const py = shape[2] + Math.sin(angle) * def.radius;
-    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
+  const hit = Math.max(0, Math.min(1, shape[6] ?? 0));
+  const impactX = shape[7] ?? shape[1], impactY = shape[8] ?? shape[2];
+  const hitAngle = shape[9] ?? 0;
+  const ca = Math.cos(hitAngle), sa = Math.sin(hitAngle);
+  const stretch = 1 + hit * 0.12, squash = 1 - hit * 0.055;
+
+  const path = () => {
+    ctx.beginPath();
+    for (let i = 0; i < def.sides; i++) {
+      const angle = shape[3] + (i * Math.PI * 2) / def.sides;
+      const ux = Math.cos(angle), uy = Math.sin(angle);
+      const along = ux * ca + uy * sa;
+      const across = -ux * sa + uy * ca;
+      const px = shape[1] + def.radius * (along * stretch * ca - across * squash * sa);
+      const py = shape[2] + def.radius * (along * stretch * sa + across * squash * ca);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  };
+
+  path();
   ctx.fillStyle = def.color; ctx.fill();
-  ctx.lineWidth = 3; ctx.strokeStyle = def.stroke; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.lineWidth = 3; ctx.strokeStyle = hit > 0.08 ? '#fff4d6' : def.stroke;
+  ctx.lineJoin = 'round'; ctx.stroke();
+
+  if (hit > 0.025) {
+    ctx.save();
+    path();
+    ctx.globalAlpha = hit * 0.32;
+    ctx.fillStyle = '#ffffff'; ctx.fill();
+
+    // A quick expanding impact ring and short directional sparks make hits readable.
+    ctx.globalAlpha = hit * 0.9;
+    ctx.strokeStyle = '#fff9df';
+    ctx.lineWidth = 1.8 + hit * 1.2;
+    ctx.beginPath();
+    ctx.arc(impactX, impactY, 4 + (1 - hit) * 13, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = -2; i <= 2; i++) {
+      const angle = hitAngle + i * 0.58;
+      const inner = 5 + (1 - hit) * 4, outer = inner + 5 + hit * 6;
+      ctx.moveTo(impactX + Math.cos(angle) * inner, impactY + Math.sin(angle) * inner);
+      ctx.lineTo(impactX + Math.cos(angle) * outer, impactY + Math.sin(angle) * outer);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
   if (shape[5] < 1) hpBar(ctx, shape[1], shape[2] + def.radius + 10, def.radius * 1.4, shape[5]);
 }
-
 function hpBar(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, fraction: number) {
   ctx.fillStyle = '#000a'; ctx.fillRect(x - width / 2 - 2, y - 4, width + 4, 8);
   ctx.fillStyle = '#85e37d'; ctx.fillRect(x - width / 2, y - 2, width * Math.max(0, Math.min(1, fraction)), 4);

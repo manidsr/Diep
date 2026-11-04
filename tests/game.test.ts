@@ -197,6 +197,51 @@ test('Overlord drones spawn up to their class limit and are server simulated', (
   assert.ok(drones.every((drone) => Number.isFinite(drone.x) && Number.isFinite(drone.y)));
 });
 
+test('drone squads use the mouse command and keep unique formation spacing', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('commander')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'overlord'));
+  // Right mouse / Shift commands the squad toward the cursor direction (positive X).
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false, secondary: true });
+  run(game, 5);
+  const drones = game.bullets.filter((bullet) => bullet.owner === player.id && bullet.kind === 'drone');
+  assert.equal(drones.length, 8);
+  assert.equal(new Set(drones.map((drone) => drone.formationSlot)).size, 8);
+  const centerX = drones.reduce((sum, drone) => sum + drone.x, 0) / drones.length;
+  assert.ok(centerX > player.x + 180, `drone formation should move toward cursor: centerX=${centerX}`);
+  for (let i = 0; i < drones.length; i++) {
+    for (let j = i + 1; j < drones.length; j++) {
+      const distance = Math.hypot(drones[i].x - drones[j].x, drones[i].y - drones[j].y);
+      assert.ok(distance > 5, 'friendly drones should not occupy the same position');
+    }
+  }
+});
+
+test('hits on map shapes apply punchier knockback and expose impact feedback', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('shooter')!.id, 1000, 1000);
+  const shape = {
+    id: 9999, kind: 0, x: 1200, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
+    r: 24, hp: 500, maxHp: 500, rot: 0, rotSpeed: 0, lastHitBy: null,
+    hitFlash: 0, hitX: 0, hitY: 0, hitAngle: 0,
+  };
+  game.shapes.push(shape);
+  game.bullets.push({
+    id: 10000, owner: player.id, x: 1170, y: 1000, vx: 600, vy: 0,
+    r: 5, dmg: 10, hp: 100, life: 2, hit: new Set(), kind: 'bullet',
+    angle: 0, maxSpeed: 600, turnRate: 0,
+  });
+  game.step(DT);
+  assert.ok(shape.kvx > 35, `shape should receive a clear impact impulse: ${shape.kvx}`);
+  assert.equal(shape.hitFlash, 1);
+  assert.ok(shape.hitX > 0);
+  const snap = game.snapshotFor(player.id)!;
+  const snapShape = snap.sh.find((entry) => entry[0] === shape.id)!;
+  assert.equal(snapShape[6], 1, 'snapshot should carry the hit flash');
+  run(game, 0.25);
+  assert.ok(shape.hitFlash < 1, 'impact flash should fade smoothly');
+});
+
 test('Trapper launches a stationary trap instead of a normal travelling bullet', () => {
   const game = fresh();
   const player = place(game, game.addPlayer('trapper')!.id, 1000, 1000);
