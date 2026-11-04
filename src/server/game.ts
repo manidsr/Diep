@@ -347,7 +347,7 @@ export class Game {
     let goalX: number, goalY: number;
     let attackRun = false;
     let orbitalAttack = false;
-    let orbitalVelocityX = 0, orbitalVelocityY = 0;
+    let orbitalNextX = 0, orbitalNextY = 0;
 
     if (leashRetreat) {
       const regroupRadius = owner.r + 42 + ring * 18;
@@ -358,30 +358,24 @@ export class Game {
       orbitalAttack = true;
       const dx = drone.x - target.x, dy = drone.y - target.y;
       const distanceToTarget = Math.max(0.001, Math.hypot(dx, dy));
-      // Each drone keeps its own phase but continuously sweeps around the
-      // target. The orbit sits just inside contact range, so the squad clips
-      // the target as it passes instead of camping at fixed compass points.
+      // Each drone circles on its own phase. Its radius gently weaves around
+      // the target's collision edge, so it repeatedly brushes through the
+      // target instead of settling at a fixed point or chasing the centre.
       const ownerFacingTarget = Math.atan2(owner.y - target.y, owner.x - target.x);
       const slotPhase = ownerFacingTarget + (ringIndex / 8) * Math.PI * 2 + ring * 0.28;
-      const orbitRate = 1.35;
-      const orbitWobble = Math.sin(this.time * 2.4 + ringIndex * 1.7) * 0.16;
+      const orbitRate = 1.15;
+      const orbitWobble = Math.sin(this.time * 2.4 + ringIndex * 1.7) * 0.12;
       const orbitRadius = (target.r ?? 24) + drone.r * (0.68 + orbitWobble) + ring * drone.r * 0.85;
       const currentAngle = Math.atan2(dy, dx);
       const phaseError = angleDelta(currentAngle, slotPhase + this.time * orbitRate);
-      const radialX = dx / Math.max(0.001, distanceToTarget);
-      const radialY = dy / Math.max(0.001, distanceToTarget);
-      // Pull toward the contact orbit while adding sideways velocity. The
-      // phase correction keeps the eight drones distributed as they circle.
-      const radialSpeed = clamp((orbitRadius - distanceToTarget) * 3.2, -160, 160);
-      const tangentialSpeed = clamp(
-        orbitRadius * orbitRate + phaseError * orbitRadius * 1.8,
-        orbitRadius * 0.45,
-        orbitRadius * 2.2,
-      );
-      orbitalVelocityX = -radialY * tangentialSpeed + radialX * radialSpeed;
-      orbitalVelocityY = radialX * tangentialSpeed + radialY * radialSpeed;
-      goalX = target.x + Math.cos(slotPhase) * orbitRadius;
-      goalY = target.y + Math.sin(slotPhase) * orbitRadius;
+      const angularSpeed = clamp(orbitRate + phaseError * 0.9, orbitRate * 0.45, orbitRate * 2.1);
+      const radialSpeed = clamp((orbitRadius - distanceToTarget) * 3.5, -190, 190);
+      const nextRadius = Math.max(orbitRadius * 0.8, distanceToTarget + radialSpeed * dt);
+      const nextAngle = currentAngle + angularSpeed * dt;
+      orbitalNextX = target.x + Math.cos(nextAngle) * nextRadius;
+      orbitalNextY = target.y + Math.sin(nextAngle) * nextRadius;
+      goalX = orbitalNextX;
+      goalY = orbitalNextY;
     } else if (manualCommand) {
       // Right-click / Shift remains direct, but Overlord commands cannot exceed
       // the tether's safe attack radius.
@@ -424,25 +418,19 @@ export class Game {
     const steerY = (orbitalAttack ? orbitalVelocityY : goalY - drone.y)
       + separationY * (drone.r * 8 + 28) * separationWeight;
     if (orbitalAttack) {
-      // Follow the desired radial+tangential velocity directly. Smoothing the
-      // velocity vector preserves a flowing orbit without the turn-lag that
-      // made drones drift away from the target edge.
-      let desiredVx = steerX, desiredVy = steerY;
-      const desiredMagnitude = Math.hypot(desiredVx, desiredVy);
-      const speedLimit = drone.maxSpeed * 0.85;
-      if (desiredMagnitude > speedLimit) {
-        desiredVx = desiredVx / desiredMagnitude * speedLimit;
-        desiredVy = desiredVy / desiredMagnitude * speedLimit;
-      }
-      const response = 1 - Math.exp(-dt * 9);
-      drone.vx += (desiredVx - drone.vx) * response;
-      drone.vy += (desiredVy - drone.vy) * response;
+      // Move along the next polar orbit point. Deriving velocity from the
+      // small per-tick displacement keeps collision and hit feedback intact.
+      const nextX = orbitalNextX + separationX * (drone.r * 4 + 12) * 0.08;
+      const nextY = orbitalNextY + separationY * (drone.r * 4 + 12) * 0.08;
+      drone.vx = (nextX - drone.x) / dt;
+      drone.vy = (nextY - drone.y) / dt;
       drone.angle = Math.atan2(drone.vy, drone.vx);
     } else {
+      const steerX = goalX - drone.x + separationX * (drone.r * 8 + 28);
+      const steerY = goalY - drone.y + separationY * (drone.r * 8 + 28);
       const desired = Math.atan2(steerY, steerX);
       const turnRate = drone.turnRate * (attackRun ? 1.3 : 1);
       drone.angle += clamp(angleDelta(drone.angle, desired), -turnRate * dt, turnRate * dt);
-
       const distanceToGoal = Math.hypot(steerX, steerY);
       const currentSpeed = Math.hypot(drone.vx, drone.vy);
       const speedFactor = attackRun ? clamp(distanceToGoal / 165, 0.035, 1) : clamp(distanceToGoal / 150, 0.38, 1);
