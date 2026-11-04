@@ -1,4 +1,4 @@
-import { CLASS_BY_ID, STAT_COLORS, STAT_KEYS, STAT_LABELS, MAX_STAT_LEVEL } from '../shared/config';
+import { CLASS_BY_ID, CLASS_IDS, STAT_COLORS, STAT_KEYS, STAT_LABELS, MAX_STAT_LEVEL } from '../shared/config';
 import type { PlayerSnap, SelfSnap, ServerMessage, Snapshot } from '../shared/protocol';
 import { Input } from './input';
 import { drawFrame, drawSticks, type View } from './render';
@@ -12,6 +12,10 @@ const input = new Input(canvas);
 let ws: WebSocket | null = null;
 let selfId = -1;
 let playing = false;
+let devCheatsEnabled = false;
+let lastDevClass = '';
+let recoilCameraX = 0, recoilCameraY = 0;
+const seenOwnBulletIds = new Set<number>();
 const statusEl = $('status'), msgEl = $('msg'), playBtn = $<HTMLButtonElement>('play'), menu = $('menu'), nameEl = $<HTMLInputElement>('name');
 
 function send(m: object) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); }
@@ -30,7 +34,12 @@ function connect() {
     try { m = JSON.parse(ev.data as string); } catch { return; }
     if (m.t === 's') onSnapshot(m);
     else if (m.t === 'lb') renderLeaderboard(m.top);
-    else if (m.t === 'welcome') { selfId = m.id; playing = true; menu.classList.add('hide'); }
+    else if (m.t === 'welcome') {
+      selfId = m.id; playing = true; menu.classList.add('hide');
+      devCheatsEnabled = m.devCheats;
+      devTools.hidden = !devCheatsEnabled;
+      if (!devCheatsEnabled) devTools.classList.remove('open');
+    }
     else if (m.t === 'dead') {
       playing = false; input.reset(); frames.length = 0; lastLv = 0;
       msgEl.textContent = `Destroyed by ${m.killer} — level ${m.level}, score ${m.score}`;
@@ -62,6 +71,18 @@ const frames: Frame[] = [];
 const INTERP_MS = 100;
 
 function onSnapshot(s: Snapshot) {
+  // New bullets owned by us trigger a short directional camera punch. Bigger rounds hit harder.
+  for (const bullet of s.b) {
+    if (bullet[4] !== selfId || seenOwnBulletIds.has(bullet[0])) continue;
+    seenOwnBulletIds.add(bullet[0]);
+    const kick = Math.min(5.5, 1.5 + bullet[3] * 0.3);
+    recoilCameraX = Math.max(-22, Math.min(22, recoilCameraX + Math.cos(input.angle) * kick));
+    recoilCameraY = Math.max(-22, Math.min(22, recoilCameraY + Math.sin(input.angle) * kick));
+  }
+  if (seenOwnBulletIds.size > 512) {
+    seenOwnBulletIds.clear();
+    for (const bullet of s.b) if (bullet[4] === selfId) seenOwnBulletIds.add(bullet[0]);
+  }
   frames.push({
     recv: performance.now(), snap: s,
     pm: new Map(s.p.map((p) => [p.id, p])), bm: new Map(s.b.map((b) => [b[0], b])), sm: new Map(s.sh.map((x) => [x[0], x])),
@@ -91,6 +112,26 @@ function sample(now: number): View | null {
 // ---------- HUD ----------
 const statsEl = $('stats'), rowsEl = $('rows'), ptsEl = $('pts'), classesEl = $('classes');
 const xpEl = $('xp'), toastEl = $('toast');
+const devTools = $('devtools');
+const devToggle = $<HTMLButtonElement>('devtoggle');
+const devClassSelect = $<HTMLSelectElement>('devclass');
+const devApply = $<HTMLButtonElement>('devapply');
+for (const id of CLASS_IDS) {
+  const option = document.createElement('option');
+  option.value = id;
+  option.textContent = CLASS_BY_ID[id]?.name ?? id;
+  devClassSelect.append(option);
+}
+devToggle.addEventListener('click', () => devTools.classList.toggle('open'));
+devApply.addEventListener('click', () => {
+  if (playing && devCheatsEnabled) send({ t: 'devClass', id: devClassSelect.value });
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'F2' && devCheatsEnabled && (e.target as HTMLElement | null)?.tagName !== 'INPUT') {
+    e.preventDefault();
+    devTools.classList.toggle('open');
+  }
+});
 const pipEls: HTMLElement[][] = [];
 const btnEls: HTMLButtonElement[] = [];
 const rowEls: HTMLElement[] = [];
@@ -127,6 +168,12 @@ function showToast(big: string, sub: string) {
 let hudKey = '', optKey = '';
 let lastLv = 0, lastPts = 0, lastStats: number[] = [];
 function updateHud(m: SelfSnap) {
+  // Only sync the selector when the server-confirmed class actually changes.
+  // Do not overwrite the user's pending dropdown choice on every snapshot.
+  if (devCheatsEnabled && m.cls !== lastDevClass) {
+    lastDevClass = m.cls;
+    devClassSelect.value = m.cls;
+  }
   const span = Math.max(1, m.xpNext - m.xpCur);
   $('xpfill').style.width = `${m.xpNext === m.xpCur ? 100 : Math.min(100, ((m.xp - m.xpCur) / span) * 100)}%`;
 
@@ -247,7 +294,14 @@ function frame(now: number) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const view = sample(now) ?? { players: [], bullets: [], shapes: [] };
   const self = view.players.find((p) => p.id === selfId);
-  if (self) { cam.x = self.x; cam.y = self.y; }
+  if (self) {
+    const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000);
+    cam.x = self.x + recoilCameraX / scale;
+    cam.y = self.y + recoilCameraY / scale;
+  }
+  recoilCameraX *= 0.72; recoilCameraY *= 0.72;
+  if (Math.abs(recoilCameraX) < 0.05) recoilCameraX = 0;
+  if (Math.abs(recoilCameraY) < 0.05) recoilCameraY = 0;
   drawFrame(ctx, W, H, cam, view, selfId);
   if (playing) drawSticks(ctx, W, H, input);
 }

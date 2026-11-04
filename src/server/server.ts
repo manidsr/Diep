@@ -23,10 +23,12 @@ export interface RunningServer {
   http: Server; game: Game; port: number; close(): Promise<void>;
 }
 
-export async function startServer(opts: { port?: number; host?: string; game?: Game } = {}): Promise<RunningServer> {
+export async function startServer(opts: { port?: number; host?: string; game?: Game; devCheats?: boolean } = {}): Promise<RunningServer> {
   const host = opts.host ?? '0.0.0.0';
   const game = opts.game ?? new Game();
   const conns = new Set<Conn>();
+  const devCheatsEnabled = opts.devCheats ?? (process.env.DIEP_DEV_CHEATS === '1');
+  let devCheatPlayerId: number | null = null;
   let port = opts.port ?? 3000;
 
   const http = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -71,7 +73,9 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
             const np = game.addPlayer(m.name);
             if (!np) { send(ws, { t: 'err', msg: 'Room is full' }); return; }
             c.playerId = np.id;
-            send(ws, { t: 'welcome', id: np.id, arena: ARENA_SIZE, hz: SERVER_TICK_HZ });
+            // The first player to join is the local host/admin for this dev session.
+            if (devCheatsEnabled && devCheatPlayerId == null) devCheatPlayerId = np.id;
+            send(ws, { t: 'welcome', id: np.id, arena: ARENA_SIZE, hz: SERVER_TICK_HZ, devCheats: devCheatsEnabled && devCheatPlayerId === np.id });
           } else if (!p.alive) {
             game.respawn(p.id, m.name);
           }
@@ -79,6 +83,9 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
         case 'input': if (p) game.setInput(p.id, m); break;
         case 'upgrade': if (p) game.upgradeStat(p.id, m.stat); break;
         case 'class': if (p) game.chooseClass(p.id, m.id); break;
+        case 'devClass':
+          if (p && devCheatsEnabled && p.id === devCheatPlayerId) game.debugSetClass(p.id, m.id);
+          break;
       }
     });
     ws.on('close', () => {

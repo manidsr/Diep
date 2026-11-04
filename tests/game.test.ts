@@ -85,6 +85,41 @@ test('class evolution requires level and valid parent', () => {
   assert.equal(p.cd.length, 3);
 });
 
+test('recoil pushes opposite the shot and weapon definitions change its strength', () => {
+  const basicGame = fresh();
+  const basic = place(basicGame, basicGame.addPlayer('basic')!.id, 1000, 1000);
+  basicGame.setInput(basic.id, { mx: 0, my: 0, a: 0, f: true });
+  basicGame.step(DT);
+  const basicKick = Math.abs(basic.rvx);
+  assert.ok(basic.rvx < 0, 'shooting right must push the tank left');
+
+  const rangerGame = fresh();
+  const ranger = rangerGame.addPlayer('ranger')!;
+  assert.ok(rangerGame.debugSetClass(ranger.id, 'ranger'));
+  ranger.x = 1000; ranger.y = 1000; ranger.protT = 0;
+  rangerGame.setInput(ranger.id, { mx: 0, my: 0, a: 0, f: true });
+  rangerGame.step(DT);
+  assert.ok(Math.abs(ranger.rvx) > basicKick * 1.5, 'Ranger should have a stronger per-shot kick');
+
+  const flankGame = fresh();
+  const flank = flankGame.addPlayer('flank')!;
+  assert.ok(flankGame.debugSetClass(flank.id, 'flank'));
+  flank.x = 1000; flank.y = 1000; flank.protT = 0;
+  flankGame.setInput(flank.id, { mx: 0, my: 0, a: 0, f: true });
+  flankGame.step(DT);
+  assert.ok(Math.hypot(flank.rvx, flank.rvy) < 0.001, 'opposing Flank Guard barrels should cancel recoil');
+});
+test('developer class override bypasses evolution but preserves level and XP', () => {
+  const g = fresh();
+  const p = g.addPlayer('dev')!;
+  assert.equal(p.level, 1);
+  assert.equal(g.debugSetClass(p.id, 'octo'), true);
+  assert.equal(p.cls, 'octo');
+  assert.equal(p.level, 1);
+  assert.equal(p.xp, 0);
+  assert.equal(p.cd.length, 8);
+  assert.equal(g.debugSetClass(p.id, 'not-a-tank'), false);
+});
 test('player-vs-player bullets kill, credit killer, emit dead event; respawn resets', () => {
   const g = fresh();
   const a = place(g, g.addPlayer('shooter')!.id, 1000, 1000);

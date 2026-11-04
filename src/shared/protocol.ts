@@ -7,7 +7,8 @@ export type ClientMessage =
   | { t: 'join'; name: string }
   | { t: 'input'; mx: number; my: number; a: number; f: boolean }
   | { t: 'upgrade'; stat: number }
-  | { t: 'class'; id: string };
+  | { t: 'class'; id: string }
+  | { t: 'devClass'; id: string };
 
 export function sanitizeName(raw: unknown): string {
   const s = typeof raw === 'string' ? raw : '';
@@ -42,6 +43,9 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'class':
       if (typeof o.id !== 'string' || o.id.length > 24 || !/^[a-z0-9_-]+$/.test(o.id)) return null;
       return { t: 'class', id: o.id };
+    case 'devClass':
+      if (typeof o.id !== 'string' || o.id.length > 24 || !/^[a-z0-9_-]+$/.test(o.id)) return null;
+      return { t: 'devClass', id: o.id };
     default:
       return null;
   }
@@ -66,7 +70,7 @@ export interface Snapshot {
   sh: [number, number, number, number, number, number][]; // id, x, y, rot, kind, hpFrac
 }
 export type ServerMessage =
-  | { t: 'welcome'; id: number; arena: number; hz: number }
+  | { t: 'welcome'; id: number; arena: number; hz: number; devCheats: boolean }
   | Snapshot
   | { t: 'lb'; top: { id: number; name: string; score: number; lv: number }[] }
   | { t: 'dead'; score: number; level: number; killer: string }

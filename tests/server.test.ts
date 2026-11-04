@@ -19,6 +19,30 @@ function client(port: number) {
   return { ws, msgs, opened, waitFor };
 }
 
+test('developer cheats are granted only to the first player when explicitly enabled', async () => {
+  const srv = await startServer({ port: 0, host: '127.0.0.1', game: new Game(seeded(8), 0), devCheats: true });
+  try {
+    const host = client(srv.port), guest = client(srv.port);
+    await Promise.all([host.opened, guest.opened]);
+    host.ws.send(JSON.stringify({ t: 'join', name: 'Host' }));
+    const hostWelcome = await host.waitFor((m) => m.t === 'welcome');
+    guest.ws.send(JSON.stringify({ t: 'join', name: 'Guest' }));
+    const guestWelcome = await guest.waitFor((m) => m.t === 'welcome');
+    assert.ok(hostWelcome.t === 'welcome' && hostWelcome.devCheats);
+    assert.ok(guestWelcome.t === 'welcome' && !guestWelcome.devCheats);
+
+    guest.ws.send(JSON.stringify({ t: 'devClass', id: 'octo' }));
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(srv.game.players.get(guestWelcome.id)?.cls, 'basic', 'guest cannot use developer class override');
+
+    host.ws.send(JSON.stringify({ t: 'devClass', id: 'octo' }));
+    await host.waitFor((m) => m.t === 's' && m.me.cls === 'octo');
+    assert.equal(srv.game.players.get(hostWelcome.id)?.cls, 'octo');
+    host.ws.close(); guest.ws.close();
+  } finally {
+    await srv.close();
+  }
+});
 test('LAN server: join, snapshots, input, validation, disconnect cleanup', async () => {
   const srv = await startServer({ port: 0, host: '127.0.0.1', game: new Game(seeded(5), 10) });
   try {

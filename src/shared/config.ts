@@ -67,6 +67,7 @@ export interface BarrelDef {
   width: number;
   delay: number; // 0..1 fraction of reload before the barrel first fires
   spread?: number; // random half-angle in radians
+  recoil?: number; // per-barrel recoil multiplier; 0 disables recoil
 }
 export interface TankClassDef {
   id: string;
@@ -79,36 +80,36 @@ export interface TankClassDef {
   bulletSpeedMul: number;
 }
 
-const B = (angle: number, offset: number, length: number, width: number, delay = 0, spread = 0): BarrelDef => ({
-  angle, offset, length, width, delay, spread,
+const B = (angle: number, offset: number, length: number, width: number, delay = 0, spread = 0, recoil = 1): BarrelDef => ({
+  angle, offset, length, width, delay, spread, recoil,
 });
 const PI = Math.PI;
 
 export const CLASSES: TankClassDef[] = [
-  { id: 'basic', name: 'Tank', parent: null, minLevel: 1, barrels: [B(0, 0, 42, 20)], reloadMul: 1, damageMul: 1, bulletSpeedMul: 1 },
+  { id: 'basic', name: 'Tank', parent: null, minLevel: 1, barrels: [B(0, 0, 42, 20, 0, 0, 1.0)], reloadMul: 1, damageMul: 1, bulletSpeedMul: 1 },
   // Tier 1 (level 15)
-  { id: 'twin', name: 'Twin', parent: 'basic', minLevel: 15, barrels: [B(0, -11, 40, 14, 0), B(0, 11, 40, 14, 0.5)], reloadMul: 1, damageMul: 1, bulletSpeedMul: 1 },
-  { id: 'sniper', name: 'Sniper', parent: 'basic', minLevel: 15, barrels: [B(0, 0, 58, 20)], reloadMul: 1.5, damageMul: 1.25, bulletSpeedMul: 1.6 },
-  { id: 'machine', name: 'Machine Gun', parent: 'basic', minLevel: 15, barrels: [B(0, 0, 38, 26, 0, 0.17)], reloadMul: 0.45, damageMul: 0.6, bulletSpeedMul: 1 },
-  { id: 'flank', name: 'Flank Guard', parent: 'basic', minLevel: 15, barrels: [B(0, 0, 40, 18), B(PI, 0, 40, 18)], reloadMul: 1.2, damageMul: 1, bulletSpeedMul: 1 },
+  { id: 'twin', name: 'Twin', parent: 'basic', minLevel: 15, barrels: [B(0, -11, 40, 14, 0, 0, 0.7), B(0, 11, 40, 14, 0.5, 0, 0.7)], reloadMul: 1, damageMul: 1, bulletSpeedMul: 1 },
+  { id: 'sniper', name: 'Sniper', parent: 'basic', minLevel: 15, barrels: [B(0, 0, 58, 20, 0, 0, 1.4)], reloadMul: 1.5, damageMul: 1.25, bulletSpeedMul: 1.6 },
+  { id: 'machine', name: 'Machine Gun', parent: 'basic', minLevel: 15, barrels: [B(0, 0, 38, 26, 0, 0.17, 0.22)], reloadMul: 0.45, damageMul: 0.6, bulletSpeedMul: 1 },
+  { id: 'flank', name: 'Flank Guard', parent: 'basic', minLevel: 15, barrels: [B(0, 0, 40, 18, 0, 0, 0.8), B(PI, 0, 40, 18, 0, 0, 0.8)], reloadMul: 1.2, damageMul: 1, bulletSpeedMul: 1 },
   // Tier 2 (level 30)
-  { id: 'triple', name: 'Triple Shot', parent: 'twin', minLevel: 30, barrels: [B(-PI / 6, 0, 38, 16), B(PI / 6, 0, 38, 16), B(0, 0, 44, 16)], reloadMul: 1.1, damageMul: 1, bulletSpeedMul: 1 },
-  { id: 'assassin', name: 'Assassin', parent: 'sniper', minLevel: 30, barrels: [B(0, 0, 66, 20)], reloadMul: 1.7, damageMul: 1.5, bulletSpeedMul: 1.9 },
+  { id: 'triple', name: 'Triple Shot', parent: 'twin', minLevel: 30, barrels: [B(-PI / 6, 0, 38, 16, 0, 0, 0.65), B(PI / 6, 0, 38, 16, 0, 0, 0.65), B(0, 0, 44, 16, 0, 0, 0.65)], reloadMul: 1.1, damageMul: 1, bulletSpeedMul: 1 },
+  { id: 'assassin', name: 'Assassin', parent: 'sniper', minLevel: 30, barrels: [B(0, 0, 66, 20, 0, 0, 1.5)], reloadMul: 1.7, damageMul: 1.5, bulletSpeedMul: 1.9 },
   { id: 'gunner', name: 'Gunner', parent: 'machine', minLevel: 30,
-    barrels: [B(0, -15, 34, 10, 0), B(0, -5, 40, 10, 0.5), B(0, 5, 40, 10, 0.25), B(0, 15, 34, 10, 0.75)],
+    barrels: [B(0, -15, 34, 10, 0, 0, 0.14), B(0, -5, 40, 10, 0.5, 0, 0.14), B(0, 5, 40, 10, 0.25, 0, 0.14), B(0, 15, 34, 10, 0.75, 0, 0.14)],
     reloadMul: 0.5, damageMul: 0.5, bulletSpeedMul: 1.1 },
   { id: 'quad', name: 'Quad Tank', parent: 'flank', minLevel: 30,
-    barrels: [B(0, 0, 40, 18), B(PI / 2, 0, 40, 18), B(PI, 0, 40, 18), B(-PI / 2, 0, 40, 18)], reloadMul: 1.3, damageMul: 1, bulletSpeedMul: 1 },
+    barrels: [B(0, 0, 40, 18, 0, 0, 0.55), B(PI / 2, 0, 40, 18, 0, 0, 0.55), B(PI, 0, 40, 18, 0, 0, 0.55), B(-PI / 2, 0, 40, 18, 0, 0, 0.55)], reloadMul: 1.3, damageMul: 1, bulletSpeedMul: 1 },
   // Tier 3 (level 45)
   { id: 'penta', name: 'Penta Shot', parent: 'triple', minLevel: 45,
-    barrels: [B(-0.6, 0, 36, 14, 0), B(0.6, 0, 36, 14, 0), B(-0.3, 0, 40, 14, 0.5), B(0.3, 0, 40, 14, 0.5), B(0, 0, 44, 14, 0.25)],
+    barrels: [B(-0.6, 0, 36, 14, 0, 0, 0.45), B(0.6, 0, 36, 14, 0, 0, 0.45), B(-0.3, 0, 40, 14, 0.5, 0, 0.45), B(0.3, 0, 40, 14, 0.5, 0, 0.45), B(0, 0, 44, 14, 0.25, 0, 0.45)],
     reloadMul: 1.25, damageMul: 1, bulletSpeedMul: 1 },
-  { id: 'ranger', name: 'Ranger', parent: 'assassin', minLevel: 45, barrels: [B(0, 0, 74, 20)], reloadMul: 1.9, damageMul: 1.7, bulletSpeedMul: 2.1 },
+  { id: 'ranger', name: 'Ranger', parent: 'assassin', minLevel: 45, barrels: [B(0, 0, 74, 20, 0, 0, 1.8)], reloadMul: 1.9, damageMul: 1.7, bulletSpeedMul: 2.1 },
   { id: 'streamliner', name: 'Streamliner', parent: 'gunner', minLevel: 45,
-    barrels: [B(0, -20, 32, 9, 0), B(0, -10, 38, 9, 0.2), B(0, 0, 44, 9, 0.4), B(0, 10, 38, 9, 0.6), B(0, 20, 32, 9, 0.8)],
+    barrels: [B(0, -20, 32, 9, 0, 0, 0.16), B(0, -10, 38, 9, 0.2, 0, 0.16), B(0, 0, 44, 9, 0.4, 0, 0.16), B(0, 10, 38, 9, 0.6, 0, 0.16), B(0, 20, 32, 9, 0.8, 0, 0.16)],
     reloadMul: 0.45, damageMul: 0.45, bulletSpeedMul: 1.2 },
   { id: 'octo', name: 'Octo Tank', parent: 'quad', minLevel: 45,
-    barrels: Array.from({ length: 8 }, (_, i) => B((i * PI) / 4, 0, 40, 16, i % 2 ? 0.5 : 0)), reloadMul: 1.5, damageMul: 1, bulletSpeedMul: 1 },
+    barrels: Array.from({ length: 8 }, (_, i) => B((i * PI) / 4, 0, 40, 16, i % 2 ? 0.5 : 0, 0, 0.45)), reloadMul: 1.5, damageMul: 1, bulletSpeedMul: 1 },
 ];
 export const CLASS_IDS = CLASSES.map((c) => c.id);
 export const CLASS_BY_ID: Record<string, TankClassDef> = Object.fromEntries(CLASSES.map((c) => [c.id, c]));

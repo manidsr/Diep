@@ -19,6 +19,8 @@ test('clamps input and normalizes fire flag', () => {
 test('accepts valid upgrade/class and sanitizes names', () => {
   assert.deepEqual(parseClientMessage('{"t":"upgrade","stat":7}'), { t: 'upgrade', stat: 7 });
   assert.deepEqual(parseClientMessage('{"t":"class","id":"twin"}'), { t: 'class', id: 'twin' });
+  assert.deepEqual(parseClientMessage('{"t":"devClass","id":"octo"}'), { t: 'devClass', id: 'octo' });
+  assert.equal(parseClientMessage('{"t":"devClass","id":"OCTO"}'), null);
   assert.equal(sanitizeName('  <b>Bob</b>\n\t  Smith  and more words '), 'bBob/b Smith and');
   assert.equal(sanitizeName('<script>'), 'script');
   assert.equal(sanitizeName(''), 'Tank');

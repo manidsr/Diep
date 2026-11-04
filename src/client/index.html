@@ -68,6 +68,15 @@
   #classes button { pointer-events: auto; background: linear-gradient(180deg, #3aa4ee, #1f78bd); font-weight: 700;
     animation: pop .5s cubic-bezier(.2,1.6,.4,1) backwards, glow 1.6s ease-in-out .5s infinite; }
   #classes button:active { transform: scale(.94); }
+  /* ---------- Host-only developer tools ---------- */
+  #devtools { position: fixed; right: max(10px, env(safe-area-inset-right)); bottom: max(10px, env(safe-area-inset-bottom)); z-index: 30; pointer-events: auto; }
+  #devtools[hidden] { display: none !important; }
+  #devtoggle { width: auto; padding: 7px 11px; border: 1px solid #7de0a5aa; background: #173d2c; color: #aaffc8; font-size: 11px; font-weight: 900; letter-spacing: .08em; }
+  #devpanel { display: none; position: absolute; right: 0; bottom: 42px; width: min(250px, 88vw); padding: 12px; gap: 8px; background: #171d1bee; border: 1px solid #7de0a5aa; border-radius: 10px; box-shadow: 0 8px 30px #000a; }
+  #devtools.open #devpanel { display: grid; }
+  #devpanel select { width: 100%; padding: 9px; border: 1px solid #ffffff33; border-radius: 6px; background: #252d31; color: var(--fg); font: inherit; }
+  #devpanel button { width: 100%; background: #24784a; color: white; font-weight: 800; }
+  #devpanel small { color: #b6d9c4; line-height: 1.35; }
   @keyframes pop { from { opacity: 0; transform: scale(.3) translateY(-10px); } to { opacity: 1; transform: none; } }
   @keyframes glow { 0%, 100% { box-shadow: 0 0 0 0 #4db3ff00; } 50% { box-shadow: 0 0 14px 2px #4db3ffaa; } }
 
@@ -118,6 +127,16 @@
 <canvas id="c"></canvas>
 <div id="lb" class="hud"><h4>LEADERBOARD</h4><div id="lbrows"></div></div>
 <div id="classes" class="hud"></div>
+<div id="devtools" hidden>
+  <button id="devtoggle" type="button" title="Developer tools (F2)">DEV · F2</button>
+  <div id="devpanel">
+    <strong>Developer tools</strong>
+    <label for="devclass">Switch to any tank</label>
+    <select id="devclass" aria-label="Tank class"></select>
+    <button id="devapply" type="button">Switch tank now</button>
+    <small>Ignores level and evolution requirements. Your level, XP and skill points stay unchanged.</small>
+  </div>
+</div>
 <div id="stats" class="hud"><div class="hdr">Upgrades <b id="pts"></b></div><div id="rows"></div></div>
 <div id="xp" class="hud"><div class="bar"><div class="fill" id="xpfill"></div></div><div class="txt" id="xptxt"></div></div>
 <div id="toast" class="hud"><div class="big" id="toastbig"></div><div class="sub" id="toastsub"></div></div>

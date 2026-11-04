@@ -32,10 +32,10 @@ export type GameEvent = { type: 'dead'; id: number; killer: string; score: numbe
 type Ent = { k: 0 | 1 | 2; o: Player | Shape | Bullet };
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
-// Recoil velocity loses 10% per server tick, matching Diep.io's smooth, lingering kick.
-const RECOIL_DECAY_PER_TICK = 0.9;
-// A standard 20-wide barrel should move the tank about 10 world units per isolated shot.
-const BASE_RECOIL_DISTANCE = 10;
+// Retain 82% of recoil velocity per server tick for a punchier, longer kick.
+const RECOIL_DECAY_PER_TICK = 0.82;
+// A standard 20-wide cannon moves the tank about one body radius per isolated shot.
+const BASE_RECOIL_DISTANCE = 28;
 
 export class Game {
   tick = 0;
@@ -105,6 +105,15 @@ export class Game {
     this.refresh(p);
     return true;
   }
+  /** Bypass evolution requirements for a developer. The WebSocket server must authorize before calling. */
+  debugSetClass(id: number, classId: string): boolean {
+    const p = this.players.get(id);
+    if (!p || !p.alive || !CLASS_IDS.includes(classId as (typeof CLASS_IDS)[number])) return false;
+    p.cls = classId;
+    this.refresh(p);
+    p.cd.fill(0);
+    return true;
+  }
 
   // ---------- simulation ----------
   step(dt: number) {
@@ -154,7 +163,7 @@ export class Game {
     if (f) this.fire(p, barrels);
   }
 
-  private fire(p: Player, barrels: { angle: number; offset: number; length: number; width: number; spread?: number }[]) {
+  private fire(p: Player, barrels: { angle: number; offset: number; length: number; width: number; spread?: number; recoil?: number }[]) {
     const sc = p.r / 26;
     for (let i = 0; i < barrels.length; i++) {
       if (p.cd[i] > 0 || this.bullets.length >= MAX_BULLETS) continue;
@@ -173,7 +182,8 @@ export class Game {
       // Treat barrel width as projectile diameter: cross-sectional area scales with width squared.
       // The impulse is opposite the actual shot direction, including any barrel spread.
       const sizeRatio = b.width / 20;
-      const recoilDistance = BASE_RECOIL_DISTANCE * sizeRatio * sizeRatio;
+      const recoilMultiplier = b.recoil ?? 1;
+      const recoilDistance = BASE_RECOIL_DISTANCE * sizeRatio * sizeRatio * recoilMultiplier;
       const recoilImpulse = recoilDistance * SERVER_TICK_HZ * (1 - RECOIL_DECAY_PER_TICK);
       p.rvx -= Math.cos(ang) * recoilImpulse;
       p.rvy -= Math.sin(ang) * recoilImpulse;
