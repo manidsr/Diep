@@ -529,10 +529,14 @@ test('Team Mode blocks friendly fire and keeps enemy damage enabled', () => {
   game.step(DT);
   assert.equal(ally.hp, allyHp, 'blue bullets must pass through blue teammates without damage');
 
+  enemy.hp = 10;
   game.bullets.push(makeBullet(9002, enemy.x, enemy.id));
   const enemyHp = enemy.hp;
   game.step(DT);
   assert.ok(enemy.hp < enemyHp, 'blue bullets must still damage red opponents');
+  assert.equal(enemy.alive, false);
+  assert.equal(shooter.matchKills, 1);
+  assert.equal(game.teamStats.blue.kills, 1);
 });
 
 test('Capture the Flag: steal, carry home, score and restore the enemy flag', () => {
@@ -555,4 +559,15 @@ test('Capture the Flag: steal, carry home, score and restore the enemy flag', ()
   assert.equal(redFlag.carrierId, null);
   assert.equal(redFlag.atBase, true);
   assert.ok(game.drainEvents().some((event) => event.type === 'flag' && event.action === 'captured'));
+
+  // A carrier drops the stolen flag at the point of elimination.
+  blue.x = redFlag.x;
+  blue.y = redFlag.y;
+  game.step(DT);
+  assert.equal(redFlag.carrierId, blue.id);
+  blue.hp = 0;
+  game.step(DT);
+  assert.equal(redFlag.carrierId, null);
+  assert.equal(redFlag.atBase, false);
+  assert.ok(game.drainEvents().some((event) => event.type === 'flag' && event.action === 'dropped'));
 });

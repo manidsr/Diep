@@ -104,5 +104,9 @@ export type ServerMessage =
       t: 'dead'; score: number; level: number; killer: string; killerClass: string | null;
       victimClass: string; kills: number; damageDealt: number; damageTaken: number; lifetime: number;
     }
-  | { t: 'feed'; killer: string; victim: string; killerClass: string | null; victimClass: string }
+  | {
+      t: 'feed'; killer: string; victim: string;
+      killerClass: string | null; victimClass: string;
+      killerTeam: TeamId | null; victimTeam: TeamId | null;
+    }
   | { t: 'err'; msg: string };
