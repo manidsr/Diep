@@ -10,6 +10,7 @@ export const MAX_NAME_LEN = 16;
 export const MAX_PLAYERS = 24;
 export const MAX_BULLETS = 1500;
 export const SHAPE_TARGET_COUNT = 90;
+export const MAX_ZOMBIES = 90;
 export const PLAYER_BASE_RADIUS = 26;
 export const BULLET_LIFE_S = 2.0;
 export const RESPAWN_PROTECTION_S = 3;

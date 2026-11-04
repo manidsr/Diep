@@ -1,5 +1,5 @@
 import {
-  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_STAT_LEVEL, TEAM_BASE_DEPTH,
+  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_STAT_LEVEL, MAX_ZOMBIES, TEAM_BASE_DEPTH,
   PLAYER_PIERCE_COST, PROJECTILE_KIND_IDS, REGEN_DELAY_S, RESPAWN_PROTECTION_S, SHAPES,
   SHAPE_KINDS, SHAPE_TARGET_COUNT, SERVER_TICK_HZ, STAT_KEYS, VIEW_HALF,
   type BarrelDef, type ProjectileKind,
@@ -7,7 +7,7 @@ import {
 import {
   classOptions, deriveStats, levelFromXp, statPointsEarned, totalXpForLevel, type DerivedStats,
 } from '../shared/progression';
-import type { GameMode, Snapshot, TeamId } from '../shared/protocol';
+import type { GameMode, Snapshot, TeamId, ZombieSnap } from '../shared/protocol';
 import { SpatialGrid } from './grid';
 
 export interface Player {
@@ -39,6 +39,11 @@ export interface Bullet {
   attackEscapeAngle?: number;
   attackSide?: number;
 }
+export interface Zombie {
+  id: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
+  r: number; hp: number; maxHp: number; speed: number; damage: number; xp: number;
+  attackCooldown: number; damageBy: Map<number, number>;
+}
 export interface Shape {
   id: number; kind: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
   r: number; hp: number; maxHp: number; rot: number; rotSpeed: number; lastHitBy: number | null;
@@ -50,7 +55,7 @@ export type GameEvent = {
   score: number; level: number; kills: number; damageDealt: number; damageTaken: number; lifetime: number;
 };
 
-type Ent = { k: 0 | 1 | 2; o: Player | Shape | Bullet };
+type Ent = { k: 0 | 1 | 2 | 3; o: Player | Shape | Bullet | Zombie };
 type Target = { x: number; y: number; r?: number; id?: number; vx?: number; vy?: number };
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -69,7 +74,16 @@ export class Game {
   players = new Map<number, Player>();
   bullets: Bullet[] = [];
   shapes: Shape[] = [];
+  zombies: Zombie[] = [];
   events: GameEvent[] = [];
+  wave = 0;
+  zombieKills = 0;
+  survivalElapsed = 0;
+  survivalGameOver = false;
+  private waveSpawnRemaining = 0;
+  private waveSpawnTimer = 0;
+  private waveIntermission = 0;
+  private survivalStartedAt = 0;
   teamStats = {
     blue: { kills: 0 },
     red: { kills: 0 },
@@ -82,7 +96,9 @@ export class Game {
     initialShapes = SHAPE_TARGET_COUNT,
     readonly mode: GameMode = 'ffa',
   ) {
-    for (let i = 0; i < initialShapes; i++) this.spawnShape();
+    if (mode !== 'survival') {
+      for (let i = 0; i < initialShapes; i++) this.spawnShape();
+    }
   }
 
   addPlayer(name: string): Player | null {
@@ -100,6 +116,7 @@ export class Game {
     };
     this.players.set(p.id, p);
     this.respawn(p.id, name);
+    if (this.mode === 'survival' && this.wave === 0) this.beginSurvivalWave();
     return p;
   }
 
@@ -112,11 +129,14 @@ export class Game {
   removePlayer(id: number) {
     this.players.delete(id);
     this.bullets = this.bullets.filter((b) => b.owner !== id || b.kind === 'bullet');
+    for (const zombie of this.zombies) zombie.damageBy.delete(id);
+    if (this.mode === 'survival' && this.players.size === 0) this.resetSurvivalRun();
   }
 
   respawn(id: number, name?: string) {
     const p = this.players.get(id);
     if (!p) return;
+    if (this.mode === 'survival' && this.survivalGameOver) this.resetSurvivalRun();
     if (name) p.name = name;
     p.level = 1; p.xp = 0; p.stats = STAT_KEYS.map(() => 0); p.cls = 'basic'; p.maxHp = 0;
     const spawn = this.findSafeSpawn(p.r, p.team);
@@ -131,6 +151,7 @@ export class Game {
     this.bullets = this.bullets.filter((b) => b.owner !== id || b.kind === 'bullet');
     this.refresh(p);
     p.hp = p.maxHp;
+    if (this.mode === 'survival' && this.wave === 0) this.beginSurvivalWave();
   }
 
   /**
@@ -142,8 +163,8 @@ export class Game {
     let best = { x: ARENA_SIZE / 2, y: ARENA_SIZE / 2 };
     let bestScore = -Infinity;
     const margin = Math.max(150, radius + 100);
-    const minX = team === 'blue' ? 300 : team === 'red' ? ARENA_SIZE - 900 : margin;
-    const maxX = team === 'blue' ? 900 : team === 'red' ? ARENA_SIZE - 300 : ARENA_SIZE - margin;
+    const minX = this.mode === 'survival' ? ARENA_SIZE * 0.36 : team === 'blue' ? 300 : team === 'red' ? ARENA_SIZE - 900 : margin;
+    const maxX = this.mode === 'survival' ? ARENA_SIZE * 0.64 : team === 'blue' ? 900 : team === 'red' ? ARENA_SIZE - 300 : ARENA_SIZE - margin;
     for (let i = 0; i < 72; i++) {
       const x = minX + this.rng() * (maxX - minX);
       const y = margin + this.rng() * (ARENA_SIZE - margin * 2);
@@ -238,6 +259,7 @@ export class Game {
     this.tick++;
     for (const p of this.players.values()) if (p.alive) this.updatePlayer(p, dt);
     for (const s of this.shapes) this.updateShape(s, dt);
+    if (this.mode === 'survival') for (const zombie of this.zombies) this.updateZombie(zombie, dt);
 
     for (const b of this.bullets) {
       if (b.kind === 'drone') this.updateDrone(b, dt);
@@ -250,10 +272,124 @@ export class Game {
     this.collideAll(dt);
     this.constrainAllTeamPlayers();
     this.reap();
+    if (this.mode === 'survival') this.updateSurvivalWaves(dt);
     this.bullets = this.bullets.filter((b) =>
       b.hp > 0 && b.life > 0 && b.x > -80 && b.y > -80 && b.x < ARENA_SIZE + 80 && b.y < ARENA_SIZE + 80,
     );
-    if (this.shapes.length < SHAPE_TARGET_COUNT && this.rng() < dt * 4) this.spawnShape();
+    if (this.mode !== 'survival' && this.shapes.length < SHAPE_TARGET_COUNT && this.rng() < dt * 4) this.spawnShape();
+  }
+
+  private resetSurvivalRun() {
+    this.zombies = [];
+    this.wave = 0;
+    this.zombieKills = 0;
+    this.survivalElapsed = 0;
+    this.survivalGameOver = false;
+    this.waveSpawnRemaining = 0;
+    this.waveSpawnTimer = 0;
+    this.waveIntermission = 0;
+    this.survivalStartedAt = this.time;
+  }
+
+  private beginSurvivalWave() {
+    if (this.mode !== 'survival' || this.survivalGameOver) return;
+    this.wave++;
+    const livingPlayers = Math.max(1, [...this.players.values()].filter((player) => player.alive).length);
+    this.waveSpawnRemaining = Math.min(4 + this.wave * 3 + livingPlayers * 2, 70);
+    this.waveSpawnTimer = 1.1;
+    this.waveIntermission = 0;
+    if (this.wave === 1) this.survivalStartedAt = this.time;
+  }
+
+  private spawnZombie() {
+    if (this.zombies.length >= MAX_ZOMBIES) return;
+    const living = [...this.players.values()].filter((player) => player.alive);
+    if (!living.length) return;
+
+    let best = { x: 70, y: 70 };
+    let bestDistance = -Infinity;
+    for (let i = 0; i < 24; i++) {
+      const edge = Math.floor(this.rng() * 4);
+      const along = 90 + this.rng() * (ARENA_SIZE - 180);
+      const point = edge === 0 ? { x: 70, y: along }
+        : edge === 1 ? { x: ARENA_SIZE - 70, y: along }
+        : edge === 2 ? { x: along, y: 70 }
+        : { x: along, y: ARENA_SIZE - 70 };
+      const nearest = Math.min(...living.map((player) => Math.hypot(point.x - player.x, point.y - player.y)));
+      if (nearest > bestDistance) { bestDistance = nearest; best = point; }
+    }
+
+    const hp = 28 + this.wave * 11;
+    this.zombies.push({
+      id: this.nextId++, x: best.x, y: best.y, vx: 0, vy: 0, kvx: 0, kvy: 0,
+      r: 17 + Math.min(8, this.wave * 0.5),
+      hp, maxHp: hp,
+      speed: Math.min(155, 64 + this.wave * 3.5),
+      damage: Math.min(34, 6 + this.wave * 1.25),
+      xp: 10 + this.wave * 3,
+      attackCooldown: 0,
+      damageBy: new Map(),
+    });
+  }
+
+  private updateZombie(zombie: Zombie, dt: number) {
+    zombie.attackCooldown = Math.max(0, zombie.attackCooldown - dt);
+    let target: Player | null = null;
+    let nearest = Infinity;
+    for (const player of this.players.values()) {
+      if (!player.alive) continue;
+      const distance = Math.hypot(player.x - zombie.x, player.y - zombie.y);
+      if (distance < nearest) { nearest = distance; target = player; }
+    }
+
+    if (target) {
+      const dx = target.x - zombie.x, dy = target.y - zombie.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const desiredX = (dx / distance) * zombie.speed;
+      const desiredY = (dy / distance) * zombie.speed;
+      const steer = 1 - Math.exp(-dt * 4.5);
+      zombie.vx += (desiredX - zombie.vx) * steer;
+      zombie.vy += (desiredY - zombie.vy) * steer;
+    } else {
+      zombie.vx *= Math.exp(-dt * 2);
+      zombie.vy *= Math.exp(-dt * 2);
+    }
+
+    zombie.x += (zombie.vx + zombie.kvx) * dt;
+    zombie.y += (zombie.vy + zombie.kvy) * dt;
+    const knockbackDecay = Math.exp(-dt * 4.5);
+    zombie.kvx *= knockbackDecay;
+    zombie.kvy *= knockbackDecay;
+    zombie.x = clamp(zombie.x, zombie.r, ARENA_SIZE - zombie.r);
+    zombie.y = clamp(zombie.y, zombie.r, ARENA_SIZE - zombie.r);
+  }
+
+  private updateSurvivalWaves(dt: number) {
+    if (this.survivalGameOver || this.players.size === 0) return;
+    this.survivalElapsed = Math.max(0, this.time - this.survivalStartedAt);
+    if (![...this.players.values()].some((player) => player.alive)) {
+      this.survivalGameOver = true;
+      return;
+    }
+    if (this.wave === 0) { this.beginSurvivalWave(); return; }
+
+    if (this.waveSpawnRemaining > 0) {
+      this.waveSpawnTimer -= dt;
+      if (this.waveSpawnTimer <= 0 && this.zombies.length < MAX_ZOMBIES) {
+        this.spawnZombie();
+        this.waveSpawnRemaining--;
+        this.waveSpawnTimer = Math.max(0.28, 0.92 - this.wave * 0.025);
+      }
+      return;
+    }
+
+    if (this.zombies.length === 0) {
+      if (this.waveIntermission <= 0) this.waveIntermission = 5;
+      else {
+        this.waveIntermission = Math.max(0, this.waveIntermission - dt);
+        if (this.waveIntermission === 0) this.beginSurvivalWave();
+      }
+    }
   }
 
   private constrainTeamPlayer(player: Player) {
@@ -601,22 +737,33 @@ export class Game {
       return { id: player.id, x: player.x, y: player.y, r: player.r, vx: player.vx, vy: player.vy };
     }
     const shape = this.shapes.find((candidate) => candidate.id === id);
-    return shape
-      ? { id: shape.id, x: shape.x, y: shape.y, r: shape.r, vx: shape.vx + shape.kvx, vy: shape.vy + shape.kvy }
-      : null;
+    if (shape) return { id: shape.id, x: shape.x, y: shape.y, r: shape.r, vx: shape.vx + shape.kvx, vy: shape.vy + shape.kvy };
+    const zombie = this.zombies.find((candidate) => candidate.id === id);
+    return zombie ? { id: zombie.id, x: zombie.x, y: zombie.y, r: zombie.r, vx: zombie.vx + zombie.kvx, vy: zombie.vy + zombie.kvy } : null;
   }
 
   private findTarget(owner: Player, range: number, preferredAngle: number): Target | null {
     let best: Target | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
-    for (const p of this.players.values()) {
-      if (!p.alive || p.id === owner.id || (owner.team != null && p.team === owner.team)) continue;
-      const dx = p.x - owner.x, dy = p.y - owner.y;
+    if (this.mode !== 'survival') {
+      for (const p of this.players.values()) {
+        if (!p.alive || p.id === owner.id || (owner.team != null && p.team === owner.team)) continue;
+        const dx = p.x - owner.x, dy = p.y - owner.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance > range) continue;
+        const angle = Math.atan2(dy, dx);
+        const score = distance * (1 + Math.abs(angleDelta(preferredAngle, angle)) * 0.35);
+        if (score < bestScore) { bestScore = score; best = { id: p.id, x: p.x, y: p.y, r: p.r, vx: p.vx, vy: p.vy }; }
+      }
+    }
+    if (best) return best;
+    for (const zombie of this.zombies) {
+      const dx = zombie.x - owner.x, dy = zombie.y - owner.y;
       const distance = Math.hypot(dx, dy);
       if (distance > range) continue;
       const angle = Math.atan2(dy, dx);
-      const score = distance * (1 + Math.abs(angleDelta(preferredAngle, angle)) * 0.35);
-      if (score < bestScore) { bestScore = score; best = { id: p.id, x: p.x, y: p.y, r: p.r, vx: p.vx, vy: p.vy }; }
+      const score = distance * (1 + Math.abs(angleDelta(preferredAngle, angle)) * 0.5);
+      if (score < bestScore) { bestScore = score; best = { id: zombie.id, x: zombie.x, y: zombie.y, r: zombie.r, vx: zombie.vx + zombie.kvx, vy: zombie.vy + zombie.kvy }; }
     }
     if (best) return best;
     for (const s of this.shapes) {
@@ -721,6 +868,7 @@ export class Game {
     for (const p of this.players.values()) if (p.alive) entities.push({ k: 0, o: p });
     for (const s of this.shapes) entities.push({ k: 1, o: s });
     for (const b of this.bullets) if (b.hp > 0 && b.life > 0) entities.push({ k: 2, o: b });
+    for (const zombie of this.zombies) if (zombie.hp > 0) entities.push({ k: 3, o: zombie });
     this.grid.clear();
     entities.forEach((entity, index) => this.grid.insert(index, entity.o.x, entity.o.y));
     entities.forEach((a, i) => {
@@ -739,7 +887,7 @@ export class Game {
     const distance = Math.max(Math.sqrt(d2), 0.001);
     if (a.k === 0 && b.k === 0) {
       this.separate(A, B, dx, dy, distance, rr, A.r * A.r, B.r * B.r);
-      const enemies = A.team == null || B.team == null || A.team !== B.team;
+      const enemies = this.mode !== 'survival' && (A.team == null || B.team == null || A.team !== B.team);
       if (enemies && A.protT <= 0 && B.protT <= 0) {
         this.hurtPlayer(A, B.d.bodyDps * dt, B.id, B.name);
         this.hurtPlayer(B, A.d.bodyDps * dt, A.id, A.name);
@@ -759,11 +907,18 @@ export class Game {
       if (bullet.owner === A.id || A.protT > 0 || !this.projectileCanHit(bullet, A.id)) return;
       if (bullet.kind === 'drone') bullet.hit.add(A.id);
       const owner = this.players.get(bullet.owner);
-      if (owner?.team != null && owner.team === A.team) return;
+      if (this.mode === 'survival' || (owner?.team != null && owner.team === A.team)) return;
       this.hurtPlayer(A, bullet.dmg, bullet.owner, owner?.name ?? 'Someone');
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
       A.kvx += bullet.vx / 8; A.kvy += bullet.vy / 8;
+    } else if (a.k === 0 && b.k === 3) {
+      const zombie = b.o as Zombie;
+      this.separate(A, zombie, dx, dy, distance, rr, A.r * A.r, zombie.r * zombie.r * 1.4);
+      if (A.protT <= 0 && zombie.attackCooldown <= 0) {
+        this.hurtPlayer(A, zombie.damage, null, 'a zombie');
+        zombie.attackCooldown = 0.85;
+      }
     } else if (a.k === 1 && b.k === 2) {
       const shape = a.o as unknown as Shape, bullet = b.o as unknown as Bullet;
       const firstDroneContact = bullet.kind === 'drone' && !bullet.hit.has(shape.id);
@@ -779,6 +934,20 @@ export class Game {
       const nx = speed > 0.001 ? bullet.vx / speed : Math.cos(bullet.angle);
       const ny = speed > 0.001 ? bullet.vy / speed : Math.sin(bullet.angle);
       this.impactShape(shape, bullet.x, bullet.y, nx, ny, impulse);
+    } else if (a.k === 2 && b.k === 3) {
+      const bullet = a.o as Bullet;
+      const zombie = b.o as Zombie;
+      const firstDroneContact = bullet.kind === 'drone' && !bullet.hit.has(zombie.id);
+      if (bullet.kind === 'drone' && bullet.attackState && bullet.attackState !== 'dive') return;
+      if (!this.projectileCanHit(bullet, zombie.id)) return;
+      if (bullet.kind === 'drone') bullet.hit.add(zombie.id);
+      zombie.hp -= bullet.dmg;
+      zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + bullet.dmg);
+      zombie.kvx += bullet.vx / 8;
+      zombie.kvy += bullet.vy / 8;
+      bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0)
+        : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
+      if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
     }
   }
 
@@ -860,6 +1029,21 @@ export class Game {
         lifetime: Math.round(Math.max(0, this.time - p.lifeStartedAt) * 10) / 10,
       });
     }
+    for (const zombie of this.zombies) {
+      if (zombie.hp > 0) continue;
+      this.zombieKills++;
+      const totalDamage = [...zombie.damageBy.values()].reduce((sum, amount) => sum + amount, 0);
+      if (totalDamage > 0) {
+        for (const [playerId, damage] of zombie.damageBy) {
+          const contributor = this.players.get(playerId);
+          if (contributor) this.addXp(contributor, Math.max(1, Math.round(zombie.xp * damage / totalDamage)));
+        }
+      }
+      const killer = [...zombie.damageBy.entries()].sort((a, b) => b[1] - a[1])[0];
+      const player = killer ? this.players.get(killer[0]) : undefined;
+      if (player) { player.kills++; player.matchKills++; }
+    }
+    this.zombies = this.zombies.filter((zombie) => zombie.hp > 0);
     if (this.shapes.some((shape) => shape.hp <= 0)) {
       for (const shape of this.shapes) {
         if (shape.hp > 0) continue;
@@ -911,6 +1095,16 @@ export class Game {
       .map((p) => ({ id: p.id, name: p.name, score: p.xp, lv: p.level }));
   }
 
+  survivalLeaderboard(limit = 8) {
+    return {
+      wave: this.wave, zombieKills: this.zombieKills, zombiesRemaining: this.zombies.length + this.waveSpawnRemaining,
+      nextWaveIn: Math.ceil(this.waveIntermission), elapsed: Math.floor(this.survivalElapsed),
+      gameOver: this.survivalGameOver,
+      top: [...this.players.values()].sort((a, b) => b.kills - a.kills || b.xp - a.xp).slice(0, limit)
+        .map((player) => ({ id: player.id, name: player.name, kills: player.kills, xp: player.xp, lv: player.level, alive: player.alive })),
+    };
+  }
+
   teamLeaderboard(limit = 5) {
     const members = <T extends TeamId>(team: T) => [...this.players.values()]
       .filter((player) => player.team === team)
@@ -935,6 +1129,10 @@ export class Game {
     const focus = myClass.id === 'predator' && me.input.secondary ? 1.55 : 1;
     return {
       t: 's', tick: this.tick, mode: this.mode,
+      z: this.zombies.filter((zombie) => near(zombie.x, zombie.y, zombie.r)).map((zombie) => ({
+        id: zombie.id, x: r1(zombie.x), y: r1(zombie.y), r: r1(zombie.r),
+        hp: r1(zombie.hp), mhp: r1(zombie.maxHp),
+      })),
       me: {
         alive: me.alive, hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
         xpCur: currentXp, xpNext: nextXp, pts: me.pts, stats: me.stats.slice(),

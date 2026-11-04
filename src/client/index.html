@@ -35,6 +35,14 @@
   .team-player-row.me { outline: 1px solid #ffffff66; }
   .team-player-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .team-player-empty { min-height: 24px; text-align: center; color: #aaa; font-size: 9px; }
+  .survival-score { display: block !important; padding: 6px; border-radius: 7px; background: #101c16; border: 1px solid #61a56c66; }
+  .survival-summary { display: grid; gap: 3px; text-align: center; padding-bottom: 6px; border-bottom: 1px solid #ffffff22; }
+  .survival-summary strong { color: #b3f28f; font-size: 17px; letter-spacing: .08em; }
+  .survival-summary span { color: #d6e8d5; font-size: 9px; font-weight: 800; }
+  .survival-roster { display: grid; gap: 3px; padding-top: 5px; }
+  .survival-player-row { display: flex; justify-content: space-between; gap: 6px; padding: 4px 5px; border-radius: 4px; background: #ffffff0b; font-size: 10px; }
+  .survival-player-row.me { outline: 1px solid #b3f28f88; }
+  .survival-player-row.out { opacity: .48; }
   #lbrows[hidden] { display: none !important; }
   .lrow { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 6px;
     border-radius: 6px; overflow: hidden; transition: transform .45s cubic-bezier(.3,1.2,.4,1); animation: lbin .4s ease-out; }
@@ -148,9 +156,9 @@
   #lan code { background: #0006; padding: 1px 5px; border-radius: 4px; user-select: text; -webkit-user-select: text; }
 
   /* ---------- Match mode picker ---------- */
-  #mode-select { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 0; }
-  #mode-select button { width: 100%; min-width: 0; padding: 11px 6px; border: 1px solid #ffffff26;
-    background: #16191f; color: #dfe8f0; font-size: 13px; font-weight: 900; line-height: 1.2; }
+  #mode-select { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; margin: 10px 0 0; }
+  #mode-select button { width: 100%; min-width: 0; padding: 10px 4px; border: 1px solid #ffffff26;
+    background: #16191f; color: #dfe8f0; font-size: 12px; font-weight: 900; line-height: 1.2; }
   #mode-select button.selected { border: 2px solid #7edbff; background: linear-gradient(180deg,#245a7d,#173b55); color: white;
     box-shadow: 0 0 0 2px #39a9df22, 0 4px 14px #0005; }
   #mode-help { min-height: 2.6em; margin: 5px 0 9px; color: #c9d0db; font-size: 11px; }
@@ -241,6 +249,7 @@
     <div id="mode-select" role="group" aria-label="Choose game mode">
       <button id="mode-ffa" type="button" class="selected" aria-pressed="true">FREE FOR ALL<br><small>Every tank for itself</small></button>
       <button id="mode-teams" type="button" aria-pressed="false">TEAM MODE<br><small>Blue vs Red · Protected bases</small></button>
+      <button id="mode-survival" type="button" aria-pressed="false">CO-OP SURVIVAL<br><small>Zombie waves · Earn XP</small></button>
     </div>
     <p id="mode-help" class="small">Every tank fights for itself. Earn XP and climb the individual leaderboard.</p>
     <button id="play" disabled>Play</button>

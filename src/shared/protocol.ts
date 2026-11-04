@@ -4,7 +4,7 @@ export const MAX_MESSAGE_BYTES = 256;
 
 // Client messages express intent only. The server owns all state and outcomes.
 export type TeamId = 'blue' | 'red';
-export type GameMode = 'ffa' | 'teams';
+export type GameMode = 'ffa' | 'teams' | 'survival';
 
 export type ClientMessage =
   | { t: 'join'; name: string; mode?: GameMode }
@@ -36,7 +36,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return {
         t: 'join',
         name: sanitizeName(message.name),
-        mode: message.mode === 'teams' ? 'teams' : 'ffa',
+        mode: message.mode === 'teams' ? 'teams' : message.mode === 'survival' ? 'survival' : 'ffa',
       };
     case 'input':
       if (!num(message.mx) || !num(message.my) || !num(message.a)) return null;
@@ -67,6 +67,7 @@ export interface PlayerSnap {
   hp: number; mhp: number; r: number; lv: number; cls: number; prot: 0 | 1; vis: number;
   team: TeamId | null;
 }
+export interface ZombieSnap { id: number; x: number; y: number; r: number; hp: number; mhp: number }
 export interface SelfSnap {
   alive: boolean; hp: number; mhp: number; lv: number;
   xp: number; xpCur: number; xpNext: number; pts: number;
@@ -82,6 +83,7 @@ export interface Snapshot {
   // id, x, y, rotation, kind, health fraction, hit flash, impact x/y, impact angle
   sh: [number, number, number, number, number, number, number, number, number, number][];
   mode: GameMode;
+  z: ZombieSnap[];
 }
 export type ServerMessage =
   | { t: 'welcome'; id: number; arena: number; hz: number; devCheats: boolean; mode: GameMode }
@@ -91,6 +93,11 @@ export type ServerMessage =
       t: 'lb'; mode: 'teams'; blueKills: number; redKills: number;
       blue: { id: number; name: string; score: number; lv: number; kills: number; team: 'blue' }[];
       red: { id: number; name: string; score: number; lv: number; kills: number; team: 'red' }[];
+    }
+  | {
+      t: 'lb'; mode: 'survival'; wave: number; zombieKills: number; zombiesRemaining: number;
+      nextWaveIn: number; elapsed: number; gameOver: boolean;
+      top: { id: number; name: string; kills: number; xp: number; lv: number; alive: boolean }[];
     }
   | {
       t: 'dead'; score: number; level: number; killer: string; killerClass: string | null;

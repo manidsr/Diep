@@ -1,5 +1,5 @@
 import { CLASS_BY_ID, CLASS_IDS, STAT_COLORS, STAT_KEYS, STAT_LABELS, MAX_STAT_LEVEL } from '../shared/config';
-import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot } from '../shared/protocol';
+import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
 import { drawFrame, drawSticks, tankPreviewDataUrl, type View } from './render';
 
@@ -23,22 +23,30 @@ const seenOwnBulletIds = new Set<number>();
 const statusEl = $('status'), msgEl = $('msg'), playBtn = $<HTMLButtonElement>('play'), menu = $('menu'), nameEl = $<HTMLInputElement>('name');
 const modeFfaBtn = $<HTMLButtonElement>('mode-ffa');
 const modeTeamsBtn = $<HTMLButtonElement>('mode-teams');
+const modeSurvivalBtn = $<HTMLButtonElement>('mode-survival');
 const modeHelpEl = $('mode-help');
 function setSelectedMode(mode: GameMode) {
   selectedMode = mode;
   modeFfaBtn.classList.toggle('selected', mode === 'ffa');
   modeTeamsBtn.classList.toggle('selected', mode === 'teams');
+  modeSurvivalBtn.classList.toggle('selected', mode === 'survival');
   modeFfaBtn.setAttribute('aria-pressed', String(mode === 'ffa'));
   modeTeamsBtn.setAttribute('aria-pressed', String(mode === 'teams'));
+  modeSurvivalBtn.setAttribute('aria-pressed', String(mode === 'survival'));
   modeHelpEl.textContent = mode === 'teams'
-    ? 'Blue base on the left, red base on the right. Fight for the middle and defend your own safe base.'
-    : 'Every tank fights for itself. Earn XP and climb the individual leaderboard.';
+    ? 'Blue base on the left, red base on the right. Fight for the middle and defend your safe base.'
+    : mode === 'survival'
+      ? 'Cooperate with everyone. Fight off zombie waves, earn XP from kills and survive as long as you can.'
+      : 'Every tank fights for itself. Earn XP and climb the individual leaderboard.';
   try { localStorage.setItem('game-mode', mode); } catch { /* storage may be blocked */ }
 }
 modeFfaBtn.addEventListener('click', () => setSelectedMode('ffa'));
 modeTeamsBtn.addEventListener('click', () => setSelectedMode('teams'));
-try { setSelectedMode(localStorage.getItem('game-mode') === 'teams' ? 'teams' : 'ffa'); }
-catch { setSelectedMode('ffa'); }
+modeSurvivalBtn.addEventListener('click', () => setSelectedMode('survival'));
+try {
+  const savedMode = localStorage.getItem('game-mode');
+  setSelectedMode(savedMode === 'teams' || savedMode === 'survival' ? savedMode : 'ffa');
+} catch { setSelectedMode('ffa'); }
 const deathPanel = $('deathpanel');
 const killFeedEl = $('killfeed');
 const recentFeed: string[] = [];
@@ -219,7 +227,7 @@ fetch('/api/info').then((r) => r.json()).then((i: { addresses: string[]; port: n
 }).catch(() => { /* optional */ });
 
 // ---------- snapshot interpolation ----------
-interface Frame { recv: number; snap: Snapshot; pm: Map<number, PlayerSnap>; bm: Map<number, number[]>; sm: Map<number, number[]> }
+interface Frame { recv: number; snap: Snapshot; pm: Map<number, PlayerSnap>; bm: Map<number, number[]>; sm: Map<number, number[]>; zm: Map<number, ZombieSnap> }
 const frames: Frame[] = [];
 const INTERP_MS = 100;
 
@@ -239,6 +247,7 @@ function onSnapshot(s: Snapshot) {
   frames.push({
     recv: performance.now(), snap: s,
     pm: new Map(s.p.map((p) => [p.id, p])), bm: new Map(s.b.map((b) => [b[0], b])), sm: new Map(s.sh.map((x) => [x[0], x])),
+    zm: new Map(s.z.map((zombie) => [zombie.id, zombie])),
   });
   if (frames.length > 8) frames.shift();
   updateHud(s.me);
@@ -259,6 +268,7 @@ function sample(now: number): View | null {
     players: b.snap.p.map((p) => { const q = a.pm.get(p.id); return q ? { ...p, x: lerp(q.x, p.x, t), y: lerp(q.y, p.y, t), a: lerpAng(q.a, p.a, t) } : p; }),
     bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4], x[5], x[6], x[7]] as typeof x : x; }),
     shapes: b.snap.sh.map((x) => { const q = a.sm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), lerpAng(q[3], x[3], t), x[4], x[5], x[6], x[7], x[8], x[9]] : x; }),
+    zombies: b.snap.z.map((zombie) => { const q = a.zm.get(zombie.id); return q ? { ...zombie, x: lerp(q.x, zombie.x, t), y: lerp(q.y, zombie.y, t) } : zombie; }),
     mode: b.snap.mode,
   };
 }
@@ -438,6 +448,52 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
   const teamScore = $('teamscore');
   const box = $('lbrows');
 
+  if (message.mode === 'survival') {
+    title.textContent = message.gameOver ? 'HORDE OVER · GAME OVER' : 'CO-OP SURVIVAL';
+    box.hidden = true;
+    for (const row of lbRows.values()) row.el.remove();
+    lbRows.clear();
+    teamScore.hidden = false;
+    teamScore.className = 'survival-score';
+    teamScore.replaceChildren();
+
+    const summary = document.createElement('div');
+    summary.className = 'survival-summary';
+    const wave = document.createElement('strong');
+    wave.textContent = 'WAVE ' + message.wave;
+    const kills = document.createElement('span');
+    kills.textContent = message.zombieKills + ' ZOMBIES KILLED';
+    const remaining = document.createElement('span');
+    remaining.textContent = message.gameOver
+      ? 'SURVIVED ' + Math.floor(message.elapsed / 60) + ':' + String(message.elapsed % 60).padStart(2, '0')
+      : message.nextWaveIn > 0
+        ? 'NEXT WAVE IN ' + message.nextWaveIn + 's'
+        : message.zombiesRemaining + ' ZOMBIES REMAINING';
+    summary.append(wave, kills, remaining);
+    teamScore.append(summary);
+
+    const roster = document.createElement('div');
+    roster.className = 'survival-roster';
+    if (!message.top.length) {
+      const empty = document.createElement('div');
+      empty.className = 'team-player-empty';
+      empty.textContent = 'Waiting for survivors';
+      roster.append(empty);
+    }
+    for (const player of message.top) {
+      const row = document.createElement('div');
+      row.className = 'survival-player-row' + (player.id === selfId ? ' me' : '') + (!player.alive ? ' out' : '');
+      const name = document.createElement('span');
+      name.textContent = player.name + (player.alive ? '' : ' · OUT');
+      const stat = document.createElement('b');
+      stat.textContent = player.kills + ' kills';
+      row.append(name, stat);
+      roster.append(row);
+    }
+    teamScore.append(roster);
+    return;
+  }
+
   if (message.mode === 'teams') {
     title.textContent = 'TEAM LEADERBOARD';
     box.hidden = true;
@@ -543,7 +599,7 @@ function frame(now: number) {
     }
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const view = sample(now) ?? { players: [], bullets: [], shapes: [], mode: 'ffa' as GameMode };
+  const view = sample(now) ?? { players: [], bullets: [], shapes: [], zombies: [], mode: 'ffa' as GameMode };
   const self = view.players.find((p) => p.id === selfId);
   if (self) {
     const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000);

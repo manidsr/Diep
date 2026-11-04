@@ -590,3 +590,69 @@ test('Team bases block enemy entry and stop enemy projectiles at the boundary', 
   assert.equal(red.hp, redHp, 'enemy bullets cannot damage players inside the red base');
   assert.ok(!game.bullets.some((bullet) => bullet.id === blueShot.id), 'enemy bullets are stopped at the red base edge');
 });
+
+
+test('Co-op Survival starts zombie waves without normal shapes and zombies chase survivors', () => {
+  const game = new Game(seeded(61), 0, 'survival');
+  const player = game.addPlayer('survivor')!;
+  assert.equal(game.shapes.length, 0, 'survival should not spawn XP shapes');
+  assert.equal(game.wave, 1, 'the first wave starts when the first player joins');
+
+  run(game, 1.5);
+  assert.ok(game.zombies.length > 0, 'the first wave should spawn zombies');
+  const zombie = game.zombies[0]!;
+  const before = Math.hypot(zombie.x - player.x, zombie.y - player.y);
+  run(game, 1.0);
+  const after = Math.hypot(zombie.x - player.x, zombie.y - player.y);
+  assert.ok(after < before, 'zombies should move toward the nearest living player');
+  assert.equal(game.shapes.length, 0, 'normal shape farming stays disabled in survival');
+});
+
+test('Co-op Survival: damaging zombies awards XP and records shared zombie kills', () => {
+  const game = new Game(seeded(62), 0, 'survival');
+  const player = game.addPlayer('shooter')!;
+  run(game, 1.5);
+  const zombie = game.zombies[0]!;
+  Object.assign(player, {
+    x: zombie.x - 100, y: zombie.y, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
+    protT: 0,
+  });
+  Object.assign(zombie, {
+    x: player.x + 78, y: player.y, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
+    attackCooldown: 2,
+  });
+  const xpBefore = player.xp;
+  game.bullets.push({
+    id: 99001, owner: player.id, x: zombie.x, y: zombie.y, vx: 0, vy: 0,
+    r: 8, dmg: zombie.hp + 100, hp: 5, life: 2, hit: new Set<number>(),
+    kind: 'bullet', angle: 0, maxSpeed: 0, turnRate: 0,
+  });
+  game.step(DT);
+  assert.ok(player.xp > xpBefore, 'zombie kills should award XP to contributing players');
+  assert.equal(game.zombieKills, 1);
+  assert.equal(player.kills, 1);
+  assert.equal(game.zombies.some((entry) => entry.id === zombie.id), false);
+});
+
+test('Co-op Survival advances to a harder wave after the arena is cleared', () => {
+  const game = new Game(seeded(63), 0, 'survival');
+  game.addPlayer('wave tester');
+  const waveState = game as unknown as { waveSpawnRemaining: number; waveIntermission: number };
+  waveState.waveSpawnRemaining = 0;
+  game.zombies = [];
+  game.step(DT);
+  run(game, 5.1);
+  assert.equal(game.wave, 2);
+  assert.ok(waveState.waveSpawnRemaining > 0, 'the next wave should queue a larger enemy group');
+});
+
+test('Co-op Survival ends the run when every player is eliminated', () => {
+  const game = new Game(seeded(64), 0, 'survival');
+  const player = game.addPlayer('last survivor')!;
+  player.hp = 0;
+  player.lastDamageT = game.time;
+  game.step(DT);
+  assert.equal(player.alive, false);
+  assert.equal(game.survivalGameOver, true);
+  assert.equal(game.survivalLeaderboard().gameOver, true);
+});

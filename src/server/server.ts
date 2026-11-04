@@ -23,14 +23,16 @@ interface Conn {
 }
 
 export interface RunningServer {
-  http: Server; game: Game; teamGame: Game; port: number; close(): Promise<void>;
+  http: Server; game: Game; teamGame: Game; survivalGame: Game; port: number; close(): Promise<void>;
 }
 
-export async function startServer(opts: { port?: number; host?: string; game?: Game; teamGame?: Game; devCheats?: boolean } = {}): Promise<RunningServer> {
+export async function startServer(opts: { port?: number; host?: string; game?: Game; teamGame?: Game; survivalGame?: Game; devCheats?: boolean } = {}): Promise<RunningServer> {
   const host = opts.host ?? '0.0.0.0';
   const game = opts.game ?? new Game();
   const teamGame = opts.teamGame ?? new Game(undefined, undefined, 'teams');
+  const survivalGame = opts.survivalGame ?? new Game(undefined, 0, 'survival');
   if (teamGame.mode !== 'teams') throw new Error('teamGame must use Team Mode');
+  if (survivalGame.mode !== 'survival') throw new Error('survivalGame must use Co-op Survival');
   const conns = new Set<Conn>();
   const devCheatsEnabled = opts.devCheats ?? (process.env.DIEP_DEV_CHEATS === '1');
   let devCheatOwner: Conn | null = null;
@@ -44,8 +46,8 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
       res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         addresses: lanAddresses(), port,
-        players: game.players.size + teamGame.players.size,
-        ffaPlayers: game.players.size, teamPlayers: teamGame.players.size,
+        players: game.players.size + teamGame.players.size + survivalGame.players.size,
+        ffaPlayers: game.players.size, teamPlayers: teamGame.players.size, survivalPlayers: survivalGame.players.size,
       }));
       return;
     }
@@ -83,7 +85,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
         case 'join':
           if (!activeGame) {
             const mode: GameMode = m.mode ?? 'ffa';
-            const selectedGame = mode === 'teams' ? teamGame : game;
+            const selectedGame = mode === 'teams' ? teamGame : mode === 'survival' ? survivalGame : game;
             const np = selectedGame.addPlayer(m.name);
             if (!np) { send(ws, { t: 'err', msg: 'Room is full' }); return; }
             c.playerId = np.id;
@@ -96,6 +98,10 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
             });
           } else if (p && !p.alive) {
             activeGame.respawn(p.id, m.name);
+            send(ws, {
+              t: 'welcome', id: p.id, arena: ARENA_SIZE, hz: SERVER_TICK_HZ,
+              devCheats: devCheatsEnabled && devCheatOwner === c, mode: c.mode ?? 'ffa',
+            });
           }
           break;
         case 'input': if (p) activeGame?.setInput(p.id, m); break;
@@ -124,12 +130,13 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
     while (acc >= dt) {
       game.step(dt);
       teamGame.step(dt);
+      survivalGame.step(dt);
       acc -= dt;
       stepped = true;
     }
     if (!stepped) return;
 
-    for (const world of [game, teamGame]) {
+    for (const world of [game, teamGame, survivalGame]) {
       for (const ev of world.drainEvents()) {
         if (ev.type === 'dead') {
           const feed = {
@@ -158,7 +165,9 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
       const leaderboard = world.tick % SERVER_TICK_HZ === 0
         ? (world.mode === 'teams'
           ? { t: 'lb' as const, mode: 'teams' as const, ...world.teamLeaderboard() }
-          : { t: 'lb' as const, mode: 'ffa' as const, top: world.leaderboard() })
+          : world.mode === 'survival'
+            ? { t: 'lb' as const, mode: 'survival' as const, ...world.survivalLeaderboard() }
+            : { t: 'lb' as const, mode: 'ffa' as const, top: world.leaderboard() })
         : null;
       for (const c of conns) {
         if (c.game !== world || c.playerId == null) continue;
@@ -185,7 +194,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   if (addr && typeof addr === 'object') port = addr.port;
 
   return {
-    http, game, teamGame, port,
+    http, game, teamGame, survivalGame, port,
     close: () => new Promise<void>((resolve) => {
       clearInterval(loop); clearInterval(ping);
       for (const c of conns) c.ws.terminate();

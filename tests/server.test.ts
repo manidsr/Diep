@@ -189,3 +189,29 @@ test('clients join isolated FFA and Team Mode worlds selected in the lobby', asy
     await srv.close();
   }
 });
+
+
+test('clients can join the separate Co-op Survival world and receive wave status', async () => {
+  const srv = await startServer({ port: 0, host: '127.0.0.1', game: new Game(seeded(41), 0) });
+  const survivor = client(srv.port);
+  try {
+    await survivor.opened;
+    survivor.ws.send(JSON.stringify({ t: 'join', name: 'Survivor', mode: 'survival' }));
+    const welcome = await survivor.waitFor((m) => m.t === 'welcome');
+    assert.ok(welcome.t === 'welcome' && welcome.mode === 'survival');
+    assert.equal(srv.survivalGame.mode, 'survival');
+    assert.equal(srv.survivalGame.players.size, 1);
+    assert.equal(srv.survivalGame.wave, 1);
+
+    const snapshot = await survivor.waitFor((m) => m.t === 's');
+    assert.ok(snapshot.t === 's' && snapshot.mode === 'survival');
+    assert.equal(snapshot.me.team, null);
+    const board = await survivor.waitFor((m) => m.t === 'lb' && m.mode === 'survival', 2500);
+    assert.ok(board.t === 'lb' && board.mode === 'survival');
+    assert.equal(board.wave, 1);
+    assert.ok(board.zombiesRemaining > 0);
+  } finally {
+    survivor.ws.close();
+    await srv.close();
+  }
+});

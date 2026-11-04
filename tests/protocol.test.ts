@@ -40,4 +40,7 @@ test('join protocol supports FFA and Team Mode selection', () => {
   assert.deepEqual(parseClientMessage('{"t":"join","name":"Team","mode":"teams"}'), {
     t: 'join', name: 'Team', mode: 'teams',
   });
+  assert.deepEqual(parseClientMessage('{"t":"join","name":"Horde","mode":"survival"}'), {
+    t: 'join', name: 'Horde', mode: 'survival',
+  });
 });

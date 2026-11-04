@@ -1,11 +1,12 @@
 import { ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
-import type { GameMode, PlayerSnap, TeamId } from '../shared/protocol';
+import type { GameMode, PlayerSnap, TeamId, ZombieSnap } from '../shared/protocol';
 import { STICK_RADIUS, type Input } from './input';
 
 export interface View {
   players: PlayerSnap[];
   bullets: [number, number, number, number, number, number, number, number][];
   shapes: [number, number, number, number, number, number, number, number, number, number][];
+  zombies: ZombieSnap[];
   mode: GameMode;
 }
 
@@ -52,6 +53,7 @@ export function drawFrame(
 
   if (view.mode === 'teams') drawTeamBases(ctx);
   for (const shape of view.shapes) drawShape(ctx, shape);
+  for (const zombie of view.zombies) drawZombie(ctx, zombie);
   for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
   for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true);
@@ -175,6 +177,38 @@ function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][n
   } else {
     circle(ctx, x, y, radius, palette.fill, palette.stroke, 3);
   }
+}
+
+function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
+  const { x, y, r } = zombie;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = '#4f854b';
+  ctx.strokeStyle = '#254b2b';
+  ctx.lineWidth = Math.max(2, r * 0.12);
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-r * 1.2, -r * 0.2);
+  ctx.lineTo(-r * 1.65, -r * 0.8);
+  ctx.lineTo(-r * 0.7, -r * 0.55);
+  ctx.lineTo(-r * 0.35, -r);
+  ctx.lineTo(r * 0.55, -r * 0.85);
+  ctx.lineTo(r * 1.2, -r * 0.25);
+  ctx.lineTo(r * 1.05, r * 0.9);
+  ctx.lineTo(-r * 0.95, r * 0.95);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#a8d66b';
+  ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.18, r * 0.16, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(r * 0.35, -r * 0.18, r * 0.16, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#202b20';
+  ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.18, r * 0.07, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(r * 0.35, -r * 0.18, r * 0.07, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#202b20';
+  ctx.lineWidth = Math.max(1.5, r * 0.08);
+  ctx.beginPath(); ctx.moveTo(-r * 0.22, r * 0.43); ctx.lineTo(r * 0.28, r * 0.43); ctx.stroke();
+  ctx.restore();
+  hpBar(ctx, x, y + r + 9, r * 2.1, zombie.hp / Math.max(1, zombie.mhp));
 }
 
 function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number]) {
