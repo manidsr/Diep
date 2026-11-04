@@ -57,7 +57,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
     const c: Conn = { ws, playerId: null, count: 0, windowStart: Date.now(), alive: true };
     conns.add(c);
     // Small real-time game packets should not wait for Nagle coalescing.
-    ws._socket?.setNoDelay(true);
+    (ws as WebSocket & { _socket?: import('node:net').Socket })._socket?.setNoDelay(true);
     ws.on('pong', () => { c.alive = true; });
     ws.on('message', (data, isBinary) => {
       if (isBinary) return;
