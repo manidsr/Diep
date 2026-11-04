@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ARENA_SIZE, SERVER_TICK_HZ } from '../shared/config';
-import { MAX_MESSAGE_BYTES, parseClientMessage, type ServerMessage } from '../shared/protocol';
+import { MAX_MESSAGE_BYTES, parseClientMessage, type GameMode, type ServerMessage } from '../shared/protocol';
 import { Game } from './game';
 import { lanAddresses } from './net';
 
@@ -17,18 +17,23 @@ const STATIC: Record<string, [string, string]> = {
 const MAX_MSGS_PER_SEC = 90;
 const KILL_MSGS_PER_SEC = 600;
 
-interface Conn { ws: WebSocket; playerId: number | null; count: number; windowStart: number; alive: boolean }
-
-export interface RunningServer {
-  http: Server; game: Game; port: number; close(): Promise<void>;
+interface Conn {
+  ws: WebSocket; playerId: number | null; game: Game | null; mode: GameMode | null;
+  count: number; windowStart: number; alive: boolean;
 }
 
-export async function startServer(opts: { port?: number; host?: string; game?: Game; devCheats?: boolean } = {}): Promise<RunningServer> {
+export interface RunningServer {
+  http: Server; game: Game; teamGame: Game; port: number; close(): Promise<void>;
+}
+
+export async function startServer(opts: { port?: number; host?: string; game?: Game; teamGame?: Game; devCheats?: boolean } = {}): Promise<RunningServer> {
   const host = opts.host ?? '0.0.0.0';
   const game = opts.game ?? new Game();
+  const teamGame = opts.teamGame ?? new Game(undefined, undefined, 'teams');
+  if (teamGame.mode !== 'teams') throw new Error('teamGame must use Team Mode');
   const conns = new Set<Conn>();
   const devCheatsEnabled = opts.devCheats ?? (process.env.DIEP_DEV_CHEATS === '1');
-  let devCheatPlayerId: number | null = null;
+  let devCheatOwner: Conn | null = null;
   let port = opts.port ?? 3000;
 
   const http = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -37,7 +42,11 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
     const path = (req.url ?? '/').split('?')[0];
     if (path === '/api/info') {
       res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ addresses: lanAddresses(), port, players: game.players.size }));
+      res.end(JSON.stringify({
+        addresses: lanAddresses(), port,
+        players: game.players.size + teamGame.players.size,
+        ffaPlayers: game.players.size, teamPlayers: teamGame.players.size,
+      }));
       return;
     }
     const entry = STATIC[path];
@@ -54,7 +63,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   const send = (ws: WebSocket, m: ServerMessage) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); };
 
   wss.on('connection', (ws) => {
-    const c: Conn = { ws, playerId: null, count: 0, windowStart: Date.now(), alive: true };
+    const c: Conn = { ws, playerId: null, game: null, mode: null, count: 0, windowStart: Date.now(), alive: true };
     conns.add(c);
     // Small real-time game packets should not wait for Nagle coalescing.
     (ws as WebSocket & { _socket?: import('node:net').Socket })._socket?.setNoDelay(true);
@@ -68,36 +77,43 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
       if (c.count > MAX_MSGS_PER_SEC) return;
       const m = parseClientMessage(data.toString());
       if (!m) return;
-      const p = c.playerId != null ? game.players.get(c.playerId) : undefined;
+      const activeGame = c.game;
+      const p = activeGame && c.playerId != null ? activeGame.players.get(c.playerId) : undefined;
       switch (m.t) {
         case 'join':
-          if (!p) {
-            const np = game.addPlayer(m.name);
+          if (!activeGame) {
+            const mode: GameMode = m.mode ?? 'ffa';
+            const selectedGame = mode === 'teams' ? teamGame : game;
+            const np = selectedGame.addPlayer(m.name);
             if (!np) { send(ws, { t: 'err', msg: 'Room is full' }); return; }
             c.playerId = np.id;
-            // The first player to join is the local host/admin for this dev session.
-            if (devCheatsEnabled && devCheatPlayerId == null) devCheatPlayerId = np.id;
-            send(ws, { t: 'welcome', id: np.id, arena: ARENA_SIZE, hz: SERVER_TICK_HZ, devCheats: devCheatsEnabled && devCheatPlayerId === np.id });
-          } else if (!p.alive) {
-            game.respawn(p.id, m.name);
+            c.game = selectedGame;
+            c.mode = mode;
+            if (devCheatsEnabled && devCheatOwner == null) devCheatOwner = c;
+            send(ws, {
+              t: 'welcome', id: np.id, arena: ARENA_SIZE, hz: SERVER_TICK_HZ,
+              devCheats: devCheatsEnabled && devCheatOwner === c, mode,
+            });
+          } else if (p && !p.alive) {
+            activeGame.respawn(p.id, m.name);
           }
           break;
-        case 'input': if (p) game.setInput(p.id, m); break;
-        case 'upgrade': if (p) game.upgradeStat(p.id, m.stat); break;
-        case 'class': if (p) game.chooseClass(p.id, m.id); break;
+        case 'input': if (p) activeGame?.setInput(p.id, m); break;
+        case 'upgrade': if (p) activeGame?.upgradeStat(p.id, m.stat); break;
+        case 'class': if (p) activeGame?.chooseClass(p.id, m.id); break;
         case 'devClass':
-          if (p && devCheatsEnabled && p.id === devCheatPlayerId) game.debugSetClass(p.id, m.id);
+          if (p && devCheatsEnabled && devCheatOwner === c) activeGame?.debugSetClass(p.id, m.id);
           break;
       }
     });
     ws.on('close', () => {
       conns.delete(c);
-      if (c.playerId != null) game.removePlayer(c.playerId);
+      if (c.playerId != null) c.game?.removePlayer(c.playerId);
     });
     ws.on('error', () => ws.terminate());
   });
 
-  // Fixed-timestep loop with accumulator.
+  // Both game worlds share one fixed timestep but never share players or combat state.
   const dt = 1 / SERVER_TICK_HZ;
   let last = performance.now(), acc = 0;
   const loop = setInterval(() => {
@@ -105,33 +121,58 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
     acc = Math.min(acc + (now - last) / 1000, 0.25);
     last = now;
     let stepped = false;
-    while (acc >= dt) { game.step(dt); acc -= dt; stepped = true; }
+    while (acc >= dt) {
+      game.step(dt);
+      teamGame.step(dt);
+      acc -= dt;
+      stepped = true;
+    }
     if (!stepped) return;
-    for (const ev of game.drainEvents()) {
-      const feed = {
-        t: 'feed' as const,
-        killer: ev.killer,
-        victim: ev.victim,
-        killerClass: ev.killerClass,
-        victimClass: ev.victimClass,
-      };
-      for (const c of conns) send(c.ws, feed);
-      for (const c of conns) {
-        if (c.playerId === ev.id) {
-          send(c.ws, {
-            t: 'dead', score: ev.score, level: ev.level, killer: ev.killer,
-            killerClass: ev.killerClass, victimClass: ev.victimClass,
-            kills: ev.kills, damageDealt: ev.damageDealt, damageTaken: ev.damageTaken, lifetime: ev.lifetime,
-          });
+
+    for (const world of [game, teamGame]) {
+      for (const ev of world.drainEvents()) {
+        if (ev.type === 'dead') {
+          const feed = {
+            t: 'feed' as const,
+            killer: ev.killer,
+            victim: ev.victim,
+            killerClass: ev.killerClass,
+            victimClass: ev.victimClass,
+            killerTeam: ev.killerTeam,
+            victimTeam: ev.victimTeam,
+          };
+          for (const c of conns) if (c.game === world) send(c.ws, feed);
+          for (const c of conns) {
+            if (c.game === world && c.playerId === ev.id) {
+              send(c.ws, {
+                t: 'dead', score: ev.score, level: ev.level, killer: ev.killer,
+                killerClass: ev.killerClass, victimClass: ev.victimClass,
+                kills: ev.kills, damageDealt: ev.damageDealt,
+                damageTaken: ev.damageTaken, lifetime: ev.lifetime,
+              });
+            }
+          }
+        } else {
+          const notice = {
+            t: 'flag' as const, action: ev.action,
+            flagTeam: ev.flagTeam, player: ev.player,
+            playerTeam: ev.playerTeam, captures: ev.captures,
+          };
+          for (const c of conns) if (c.game === world) send(c.ws, notice);
         }
       }
-    }
-    const lb = game.tick % SERVER_TICK_HZ === 0 ? game.leaderboard() : null;
-    for (const c of conns) {
-      if (c.playerId == null) continue;
-      const snap = game.snapshotFor(c.playerId);
-      if (snap) send(c.ws, snap);
-      if (lb) send(c.ws, { t: 'lb', top: lb });
+
+      const leaderboard = world.tick % SERVER_TICK_HZ === 0
+        ? (world.mode === 'teams'
+          ? { t: 'lb' as const, mode: 'teams' as const, ...world.teamLeaderboard() }
+          : { t: 'lb' as const, mode: 'ffa' as const, top: world.leaderboard() })
+        : null;
+      for (const c of conns) {
+        if (c.game !== world || c.playerId == null) continue;
+        const snap = world.snapshotFor(c.playerId);
+        if (snap) send(c.ws, snap);
+        if (leaderboard) send(c.ws, leaderboard);
+      }
     }
   }, 1000 / SERVER_TICK_HZ / 2);
 
@@ -151,7 +192,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   if (addr && typeof addr === 'object') port = addr.port;
 
   return {
-    http, game, port,
+    http, game, teamGame, port,
     close: () => new Promise<void>((resolve) => {
       clearInterval(loop); clearInterval(ping);
       for (const c of conns) c.ws.terminate();
