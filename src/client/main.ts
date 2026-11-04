@@ -288,7 +288,7 @@ function play() {
   if (joining || playing || !ws || ws.readyState !== WebSocket.OPEN) return;
   try { localStorage.setItem('nick', nameEl.value); } catch { /* storage may be blocked */ }
   joining = true; playBtn.disabled = true; statusEl.textContent = 'Joining…'; msgEl.textContent = '';
-  send({ t: 'join', name: nameEl.value, mode: selectedMode });
+  send({ t: 'join', name: nameEl.value, mode: selectedMode, ...(resumeToken ? { resumeToken } : {}) });
 }
 playBtn.addEventListener('click', play);
 nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !playBtn.disabled) play(); });
