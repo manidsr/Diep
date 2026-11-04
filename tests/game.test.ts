@@ -293,77 +293,94 @@ test('Overlord drones stay inside their tether and recall when overextended', ()
   ), 'no drone should escape the visible tether boundary');
 });
 
-test('drone squads circle targets and keep hitting them instead of stacking', () => {
+test('drones launch staggered strike passes, then peel away instead of orbiting', () => {
   const game = fresh();
-  const player = place(game, game.addPlayer('orbit-drones')!.id, 1000, 1000);
+  const player = place(game, game.addPlayer('strike-drones')!.id, 1000, 1000);
   assert.ok(game.debugSetClass(player.id, 'overlord'));
   const hex = {
     id: 9920, kind: 2, x: 1260, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
     r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
   };
   game.shapes.push(hex);
-  // Keep the fixture stationary so the test measures the drone orbit itself.
   (game as unknown as { updateShape: (shape: unknown, dt: number) => void }).updateShape = () => {};
   game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
-  run(game, 8);
+
+  for (let i = 0; i < 180; i++) {
+    game.step(DT);
+    const diving = game.bullets.filter((bullet) =>
+      bullet.owner === player.id && bullet.kind === 'drone' && bullet.attackState === 'dive'
+    ).length;
+    assert.ok(diving <= 2, `no more than two drones should dive at once, diving=${diving}`);
+  }
 
   const drones = game.bullets.filter((bullet) => bullet.owner === player.id && bullet.kind === 'drone');
   assert.equal(drones.length, 8);
-  const angleBefore = new Map(drones.map((drone) => [
-    drone.id, Math.atan2(drone.y - hex.y, drone.x - hex.x),
-  ]));
-  assert.ok(hex.hp < hex.maxHp, 'orbiting drones should damage the target on contact');
-  const dronesInStrikingRange = drones.filter((drone) =>
-    Math.hypot(drone.x - hex.x, drone.y - hex.y) < hex.r + drone.r + 3
-  ).length;
-  assert.ok(dronesInStrikingRange >= 6,
-    `most drones should stay close enough to clip the target, in range=${dronesInStrikingRange}, distances=${drones.map((drone) => Math.round(Math.hypot(drone.x - hex.x, drone.y - hex.y))).join(',')}`);
-
-  const hpBeforeNextPass = hex.hp;
-  run(game, 1);
-  assert.ok(hex.hp < hpBeforeNextPass, 'drones should deal another contact hit as they circle back');
-
-  const movingInOrbitDirection = drones.filter((drone) => {
-    const before = angleBefore.get(drone.id)!;
-    const after = Math.atan2(drone.y - hex.y, drone.x - hex.x);
-    const progress = Math.atan2(Math.sin(after - before), Math.cos(after - before));
-    return progress > 0.15;
-  }).length;
-  assert.ok(movingInOrbitDirection >= 6,
-    `most drones should visibly sweep around the target, moving=${movingInOrbitDirection}`);
-
-  let closestPair = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < drones.length; i++) {
-    for (let j = i + 1; j < drones.length; j++) {
-      closestPair = Math.min(closestPair, Math.hypot(drones[i].x - drones[j].x, drones[i].y - drones[j].y));
-    }
-  }
-  assert.ok(closestPair > 8, `drones should not occupy one pile: closest pair=${closestPair}`);
+  assert.ok(hex.hp < hex.maxHp, 'drones should make responsive attack passes and damage the aimed target');
+  assert.ok(drones.some((drone) => drone.hit.has(hex.id)), 'a completed strike should register contact');
+  assert.ok(drones.some((drone) => drone.attackState === 'recover' || drone.attackState === 'dive'),
+    'the squad should visibly cycle through dive and peel-away states');
+  const visualStates = game.snapshotFor(player.id)!.b.filter((bullet) => bullet[5] === 1).map((bullet) => bullet[7] ?? 0);
+  assert.ok(visualStates.some((state) => state === 1 || state === 2),
+    'snapshots should identify attacking and peeling drones for the visual streak');
 });
 
-test('a drone can damage the same object again after its contact cooldown', () => {
+test('drone attacks respond to a new aim direction on the next available strike', () => {
   const game = fresh();
-  const player = place(game, game.addPlayer('repeat-hit')!.id, 1000, 1000);
+  const player = place(game, game.addPlayer('responsive-drones')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'overseer'));
+  const front = {
+    id: 9930, kind: 2, x: 1220, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
+    r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
+  };
+  const upper = {
+    id: 9931, kind: 2, x: 1000, y: 1220, vx: 0, vy: 0, kvx: 0, kvy: 0,
+    r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
+  };
+  game.shapes.push(front, upper);
+  (game as unknown as { updateShape: (shape: unknown, dt: number) => void }).updateShape = () => {};
+
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
+  run(game, 3.5);
+  assert.ok(front.hp < front.maxHp, 'the first wave should follow the initial aim direction');
+
+  game.setInput(player.id, { mx: 0, my: 0, a: Math.PI / 2, f: false });
+  run(game, 3.5);
+  assert.ok(upper.hp < upper.maxHp, 'the next available wave should retarget toward the new aim direction');
+});
+
+test('a drone peels away after a strike and can hit again on a later pass', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('repeat-strike')!.id, 1000, 1000);
   assert.ok(game.debugSetClass(player.id, 'overseer'));
   const hex = {
     id: 9901, kind: 2, x: 1100, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
     r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
-    hitFlash: 0, hitX: 0, hitY: 0, hitAngle: 0,
   };
   game.shapes.push(hex);
   const drone = {
-    id: 9902, owner: player.id, x: 1100, y: 1000, vx: 0, vy: 0,
+    id: 9902, owner: player.id, x: 1100, y: 1000, vx: 220, vy: 0,
     r: 10, dmg: 12, hp: 8, life: 20, hit: new Set<number>(), kind: 'drone' as const,
     angle: 0, maxSpeed: 300, turnRate: 4.6,
+    attackState: 'dive' as 'guard' | 'dive' | 'recover',
+    attackTargetId: hex.id, attackTimer: 0, attackCooldown: 0,
   };
   game.bullets.push(drone);
-  game.step(DT);
-  const once = hex.hp;
-  assert.ok(once < hex.maxHp, 'first contact should deal damage');
-  // Keep the drone in contact; the second strike should occur after 0.62 seconds.
-  run(game, 0.8);
-  assert.ok(hex.hp < once, 'a drone should not be permanently locked out after its first hit');
-  assert.equal(drone.hp, 7, 'repeat hits on the same target should not consume extra drone durability');
+  const collide = (game as unknown as { collideAll: (dt: number) => void }).collideAll.bind(game);
+  collide(DT);
+  const firstStrike = hex.hp;
+  assert.ok(firstStrike < hex.maxHp, 'a diving drone should damage on contact');
+  assert.equal(drone.attackState, 'recover', 'contact should trigger a peel-away');
+  collide(DT);
+  assert.equal(hex.hp, firstStrike, 'a peeling drone must not keep damaging while touching the target');
+
+  drone.attackState = 'dive';
+  drone.attackTargetId = hex.id;
+  drone.attackCooldown = 0;
+  drone.attackTimer = 0;
+  game.time += 0.7;
+  collide(DT);
+  assert.ok(hex.hp < firstStrike, 'the drone should be able to make another hit on a later pass');
+  assert.equal(drone.hp, 7, 'repeat strikes should not consume extra drone durability');
 });
 
 test('Trapper launches a stationary trap instead of a normal travelling bullet', () => {

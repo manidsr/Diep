@@ -28,6 +28,13 @@ export interface Bullet {
   formationSlot?: number;
   /** Drones may re-hit a target after a short contact cooldown. */
   hitCooldowns?: Map<number, number>;
+  /** Drones cycle through a short strike, peel-away, and regroup pattern. */
+  attackState?: 'guard' | 'dive' | 'recover';
+  attackTargetId?: number;
+  attackTimer?: number;
+  attackCooldown?: number;
+  attackEscapeAngle?: number;
+  attackSide?: number;
 }
 export interface Shape {
   id: number; kind: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
@@ -37,7 +44,7 @@ export interface Shape {
 export type GameEvent = { type: 'dead'; id: number; killer: string; score: number; level: number };
 
 type Ent = { k: 0 | 1 | 2; o: Player | Shape | Bullet };
-type Target = { x: number; y: number; r?: number };
+type Target = { x: number; y: number; r?: number; id?: number; vx?: number; vy?: number };
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -312,7 +319,7 @@ export class Game {
       r: radius * 0.65, dmg: p.d.bulletDamage * (cls.droneDamageMul ?? 0.85),
       hp: 8, life: DRONE_LIFE_S, hit: new Set(), kind: 'drone',
       angle: slotAngle, maxSpeed: 300 * (cls.droneSpeedMul ?? 1), turnRate: 4.6,
-      formationSlot: slot,
+      formationSlot: slot, attackState: 'guard', attackCooldown: 0,
     };
     // Keep the first spawn close to the tank; barrel length is used as a size hint for drone spacing.
     drone.x += Math.cos(slotAngle) * Math.min(8, length * 0.1);
@@ -327,117 +334,156 @@ export class Game {
       drone.x += drone.vx * dt; drone.y += drone.vy * dt;
       return;
     }
+
     const cls = CLASS_BY_ID[owner.cls];
-    const aimAngle = owner.input.a;
-    const manualCommand = owner.input.secondary;
     const isOverlord = cls.id === 'overlord';
+    const manualCommand = owner.input.secondary;
     const ownerDistance = Math.hypot(drone.x - owner.x, drone.y - owner.y);
     const leashRetreat = isOverlord && ownerDistance > OVERLORD_DRONE_RECALL_RADIUS;
-    // Overlord drones can only acquire targets while inside their command radius.
-    // Crossing the recall radius cancels the attack and pulls the drone home.
-    const target = manualCommand || leashRetreat
+    const aimAngle = owner.input.a;
+    const selectedTarget = manualCommand || leashRetreat
       ? null
-      : this.findTarget(owner, isOverlord ? OVERLORD_DRONE_RECALL_RADIUS : 980, aimAngle);
+      : this.findTarget(owner, isOverlord ? OVERLORD_DRONE_RECALL_RADIUS : 420, aimAngle);
 
     const slot = Math.max(0, drone.formationSlot ?? (drone.id % 8));
     const ring = Math.floor(slot / 8);
     const ringIndex = slot % 8;
     const slotAngle = (ringIndex / 8) * Math.PI * 2 + ring * 0.28 + this.time * 0.2;
-
-    let goalX: number, goalY: number;
-    let attackRun = false;
-    let orbitalAttack = false;
-    let orbitalNextX = 0, orbitalNextY = 0;
+    drone.attackCooldown = Math.max(0, (drone.attackCooldown ?? 0) - dt);
 
     if (leashRetreat) {
-      const regroupRadius = owner.r + 42 + ring * 18;
-      goalX = owner.x + Math.cos(slotAngle) * regroupRadius;
-      goalY = owner.y + Math.sin(slotAngle) * regroupRadius;
-    } else if (target) {
-      attackRun = true;
-      orbitalAttack = true;
-      const dx = drone.x - target.x, dy = drone.y - target.y;
-      const distanceToTarget = Math.max(0.001, Math.hypot(dx, dy));
-      // Each drone circles on its own phase. Its radius gently weaves around
-      // the target's collision edge, so it repeatedly brushes through the
-      // target instead of settling at a fixed point or chasing the centre.
-      const ownerFacingTarget = Math.atan2(owner.y - target.y, owner.x - target.x);
-      const slotPhase = ownerFacingTarget + (ringIndex / 8) * Math.PI * 2 + ring * 0.28;
-      const orbitRate = 1.15;
-      const orbitWobble = Math.sin(this.time * 2.4 + ringIndex * 1.7) * 0.12;
-      const orbitRadius = (target.r ?? 24) + drone.r * (0.68 + orbitWobble) + ring * drone.r * 0.85;
-      const currentAngle = Math.atan2(dy, dx);
-      const phaseError = angleDelta(currentAngle, slotPhase + this.time * orbitRate);
-      const angularSpeed = clamp(orbitRate + phaseError * 0.9, orbitRate * 0.45, orbitRate * 2.1);
-      const radialSpeed = clamp((orbitRadius - distanceToTarget) * 3.5, -190, 190);
-      const nextRadius = Math.max(orbitRadius * 0.8, distanceToTarget + radialSpeed * dt);
-      const nextAngle = currentAngle + angularSpeed * dt;
-      orbitalNextX = target.x + Math.cos(nextAngle) * nextRadius;
-      orbitalNextY = target.y + Math.sin(nextAngle) * nextRadius;
-      goalX = orbitalNextX;
-      goalY = orbitalNextY;
-    } else if (manualCommand) {
-      // Right-click / Shift remains direct, but Overlord commands cannot exceed
-      // the tether's safe attack radius.
-      attackRun = true;
-      const commandDistance = isOverlord ? OVERLORD_DRONE_RECALL_RADIUS - 40 : 560;
-      goalX = owner.x + Math.cos(aimAngle) * commandDistance;
-      goalY = owner.y + Math.sin(aimAngle) * commandDistance;
-    } else if (Math.hypot(drone.x - owner.x, drone.y - owner.y) > 650) {
-      // Regroup distant drones behind the tank before they get stranded.
-      goalX = owner.x + Math.cos(slotAngle) * (owner.r + 28 + ring * 30);
-      goalY = owner.y + Math.sin(slotAngle) * (owner.r + 28 + ring * 30);
-    } else {
-      // While idle, keep a loose moving guard formation around the owner.
-      const followRadius = 112 + ring * 38;
-      goalX = owner.x + Math.cos(slotAngle) * followRadius;
-      goalY = owner.y + Math.sin(slotAngle) * followRadius;
+      drone.attackState = 'guard';
+      drone.attackTargetId = undefined;
+      drone.attackTimer = 0;
     }
 
-    // Attack positions are distributed around the target, so full separation
-    // can keep drones apart without pushing the whole squad away from contact.
-    let separationX = 0, separationY = 0;
-    for (const other of this.bullets) {
-      if (other === drone || other.owner !== drone.owner || other.kind !== 'drone' || other.hp <= 0) continue;
-      const dx = drone.x - other.x, dy = drone.y - other.y;
-      const distanceSq = dx * dx + dy * dy;
-      // Keep the squad tightly spaced while idle, but allow a closer, even
-      // ring around small targets so every drone can hold a distinct angle.
-      const minDistance = (drone.r + other.r) * (attackRun ? 0.9 : 1.4) + 2;
-      if (distanceSq >= minDistance * minDistance) continue;
-      const distance = Math.max(0.001, Math.sqrt(distanceSq));
-      const push = (minDistance - distance) / minDistance;
-      separationX += (dx / distance) * push;
-      separationY += (dy / distance) * push;
+    // Only a small part of the squad commits at once. The rest stay mobile
+    // around their owner, ready to respond when the aim direction changes.
+    if ((drone.attackState ?? 'guard') === 'guard' && selectedTarget?.id != null &&
+      !manualCommand && drone.attackCooldown <= 0) {
+      const activeDives = this.bullets.filter((other) =>
+        other !== drone && other.owner === drone.owner && other.kind === 'drone' &&
+        other.attackState === 'dive'
+      ).length;
+      const diveLimit = cls.droneBehavior === 'necromancer' ? 4 : 2;
+      if (activeDives < diveLimit) {
+        drone.attackState = 'dive';
+        drone.attackTargetId = selectedTarget.id;
+        drone.attackTimer = 0;
+        drone.attackSide = slot % 2 === 0 ? 1 : -1;
+      }
     }
-    // Stable phase offsets keep the orbit distributed; separation is used
-    // only as a small positional nudge while the drones sweep around the target.
-    if (orbitalAttack) {
-      // Move along the next polar orbit point. Deriving velocity from the
-      // small per-tick displacement keeps collision and hit feedback intact.
-      const nextX = orbitalNextX + separationX * (drone.r * 4 + 12) * 0.08;
-      const nextY = orbitalNextY + separationY * (drone.r * 4 + 12) * 0.08;
-      drone.vx = (nextX - drone.x) / dt;
-      drone.vy = (nextY - drone.y) / dt;
-      drone.angle = Math.atan2(drone.vy, drone.vx);
-    } else {
-      const steerX = goalX - drone.x + separationX * (drone.r * 8 + 28);
-      const steerY = goalY - drone.y + separationY * (drone.r * 8 + 28);
+
+    if (drone.attackState === 'dive') {
+      const target = drone.attackTargetId == null ? null : this.findTargetById(drone.attackTargetId);
+      if (!target) {
+        this.beginDroneRecovery(drone, 0.65);
+      } else {
+        drone.attackTimer = (drone.attackTimer ?? 0) + dt;
+        // A dive is deliberately short. If the enemy dodges the pass, the
+        // drone breaks off instead of steering forever or orbiting in place.
+        if (drone.attackTimer > 2.1) {
+          this.beginDroneRecovery(drone, 0.8);
+        } else {
+          const distance = Math.hypot(target.x - drone.x, target.y - drone.y);
+          const leadTime = clamp(distance / Math.max(180, drone.maxSpeed) * 0.45, 0.05, 0.32);
+          const predictedX = target.x + (target.vx ?? 0) * leadTime;
+          const predictedY = target.y + (target.vy ?? 0) * leadTime;
+          const approach = Math.atan2(predictedY - drone.y, predictedX - drone.x);
+          const curve = Math.sin((drone.attackTimer / 2.1) * Math.PI) * 12 * (drone.attackSide ?? 1);
+          const goalX = predictedX - Math.sin(approach) * curve;
+          const goalY = predictedY + Math.cos(approach) * curve;
+          const desired = Math.atan2(goalY - drone.y, goalX - drone.x);
+          drone.angle += clamp(
+            angleDelta(drone.angle, desired),
+            -drone.turnRate * 1.45 * dt,
+            drone.turnRate * 1.45 * dt,
+          );
+          const currentSpeed = Math.hypot(drone.vx, drone.vy);
+          const speed = currentSpeed + (drone.maxSpeed * 0.94 - currentSpeed) * (1 - Math.exp(-dt * 6));
+          drone.vx = Math.cos(drone.angle) * speed;
+          drone.vy = Math.sin(drone.angle) * speed;
+        }
+      }
+    }
+
+    if (drone.attackState === 'recover') {
+      drone.attackTimer = (drone.attackTimer ?? 0) + dt;
+      const escapeAngle = drone.attackEscapeAngle ?? drone.angle;
+      drone.angle += clamp(
+        angleDelta(drone.angle, escapeAngle),
+        -drone.turnRate * 1.5 * dt,
+        drone.turnRate * 1.5 * dt,
+      );
+      const currentSpeed = Math.hypot(drone.vx, drone.vy);
+      const speed = currentSpeed + (drone.maxSpeed * 0.82 - currentSpeed) * (1 - Math.exp(-dt * 5));
+      drone.vx = Math.cos(drone.angle) * speed;
+      drone.vy = Math.sin(drone.angle) * speed;
+      if (drone.attackTimer >= 0.5) {
+        drone.attackState = 'guard';
+        drone.attackTargetId = undefined;
+        drone.attackTimer = 0;
+        drone.attackEscapeAngle = undefined;
+      }
+    } else if (drone.attackState !== 'dive') {
+      // Guard mode follows the tank in a loose, moving formation. A manual
+      // secondary command moves the squad toward the cursor without locking
+      // them into an endless attack orbit.
+      let goalX: number, goalY: number;
+      if (leashRetreat) {
+        const regroupRadius = owner.r + 42 + ring * 18;
+        goalX = owner.x + Math.cos(slotAngle) * regroupRadius;
+        goalY = owner.y + Math.sin(slotAngle) * regroupRadius;
+      } else if (manualCommand) {
+        const commandDistance = isOverlord ? OVERLORD_DRONE_RECALL_RADIUS - 40 : 560;
+        goalX = owner.x + Math.cos(aimAngle) * commandDistance;
+        goalY = owner.y + Math.sin(aimAngle) * commandDistance;
+      } else {
+        const followRadius = 112 + ring * 38;
+        goalX = owner.x + Math.cos(slotAngle) * followRadius;
+        goalY = owner.y + Math.sin(slotAngle) * followRadius;
+      }
+
+      // Soft spacing stops the guard formation from collapsing into one point,
+      // without pushing drones away from a strike they have already committed to.
+      let separationX = 0, separationY = 0;
+      for (const other of this.bullets) {
+        if (other === drone || other.owner !== drone.owner || other.kind !== 'drone' || other.hp <= 0) continue;
+        const dx = drone.x - other.x, dy = drone.y - other.y;
+        const distanceSq = dx * dx + dy * dy;
+        const minDistance = (drone.r + other.r) * 1.2 + 3;
+        if (distanceSq >= minDistance * minDistance) continue;
+        const distance = Math.max(0.001, Math.sqrt(distanceSq));
+        const push = (minDistance - distance) / minDistance;
+        separationX += (dx / distance) * push;
+        separationY += (dy / distance) * push;
+      }
+      const steerX = goalX - drone.x + separationX * (drone.r * 6 + 20);
+      const steerY = goalY - drone.y + separationY * (drone.r * 6 + 20);
       const desired = Math.atan2(steerY, steerX);
-      const turnRate = drone.turnRate * (attackRun ? 1.3 : 1);
-      drone.angle += clamp(angleDelta(drone.angle, desired), -turnRate * dt, turnRate * dt);
+      drone.angle += clamp(angleDelta(drone.angle, desired), -drone.turnRate * dt, drone.turnRate * dt);
       const distanceToGoal = Math.hypot(steerX, steerY);
       const currentSpeed = Math.hypot(drone.vx, drone.vy);
-      const speedFactor = attackRun ? clamp(distanceToGoal / 165, 0.035, 1) : clamp(distanceToGoal / 150, 0.38, 1);
-      const desiredSpeed = drone.maxSpeed * speedFactor;
-      const speed = currentSpeed + (desiredSpeed - currentSpeed) * (1 - Math.exp(-dt * (attackRun ? 5 : 3.5)));
+      const desiredSpeed = drone.maxSpeed * clamp(distanceToGoal / 140, 0.22, 1);
+      const speed = currentSpeed + (desiredSpeed - currentSpeed) * (1 - Math.exp(-dt * 3.8));
       drone.vx = Math.cos(drone.angle) * speed;
       drone.vy = Math.sin(drone.angle) * speed;
     }
+
     drone.dmg = owner.d.bulletDamage * (cls.droneDamageMul ?? 0.85);
     drone.x += drone.vx * dt;
     drone.y += drone.vy * dt;
   }
+
+  private beginDroneRecovery(drone: Bullet, cooldown: number) {
+    const speed = Math.hypot(drone.vx, drone.vy);
+    drone.attackState = 'recover';
+    drone.attackTargetId = undefined;
+    drone.attackTimer = 0;
+    drone.attackCooldown = Math.max(drone.attackCooldown ?? 0, cooldown);
+    drone.attackEscapeAngle = speed > 1 ? Math.atan2(drone.vy, drone.vx) : drone.angle;
+  }
+
   private updateMissile(missile: Bullet, dt: number) {
     const owner = this.players.get(missile.owner);
     if (owner?.alive) {
@@ -453,6 +499,17 @@ export class Game {
     missile.x += missile.vx * dt; missile.y += missile.vy * dt;
   }
 
+  private findTargetById(id: number): Target | null {
+    const player = this.players.get(id);
+    if (player?.alive) {
+      return { id: player.id, x: player.x, y: player.y, r: player.r, vx: player.vx, vy: player.vy };
+    }
+    const shape = this.shapes.find((candidate) => candidate.id === id);
+    return shape
+      ? { id: shape.id, x: shape.x, y: shape.y, r: shape.r, vx: shape.vx + shape.kvx, vy: shape.vy + shape.kvy }
+      : null;
+  }
+
   private findTarget(owner: Player, range: number, preferredAngle: number): Target | null {
     let best: Target | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
@@ -463,7 +520,7 @@ export class Game {
       if (distance > range) continue;
       const angle = Math.atan2(dy, dx);
       const score = distance * (1 + Math.abs(angleDelta(preferredAngle, angle)) * 0.35);
-      if (score < bestScore) { bestScore = score; best = { x: p.x, y: p.y, r: p.r }; }
+      if (score < bestScore) { bestScore = score; best = { id: p.id, x: p.x, y: p.y, r: p.r, vx: p.vx, vy: p.vy }; }
     }
     if (best) return best;
     for (const s of this.shapes) {
@@ -472,7 +529,7 @@ export class Game {
       if (distance > range) continue;
       const angle = Math.atan2(dy, dx);
       const score = distance * (1 + Math.abs(angleDelta(preferredAngle, angle)) * 0.5);
-      if (score < bestScore) { bestScore = score; best = { x: s.x, y: s.y, r: s.r }; }
+      if (score < bestScore) { bestScore = score; best = { id: s.id, x: s.x, y: s.y, r: s.r, vx: s.vx + s.kvx, vy: s.vy + s.kvy }; }
     }
     return best;
   }
@@ -601,19 +658,23 @@ export class Game {
     } else if (a.k === 0 && b.k === 2) {
       const bullet = b.o as unknown as Bullet;
       const firstDroneContact = bullet.kind === 'drone' && !bullet.hit.has(A.id);
+      if (bullet.kind === 'drone' && bullet.attackState && bullet.attackState !== 'dive') return;
       if (bullet.owner === A.id || A.protT > 0 || !this.projectileCanHit(bullet, A.id)) return;
       if (bullet.kind === 'drone') bullet.hit.add(A.id);
       const owner = this.players.get(bullet.owner);
       this.hurtPlayer(A, bullet.dmg, bullet.owner, owner?.name ?? 'Someone');
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
+      if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
       A.kvx += bullet.vx / 8; A.kvy += bullet.vy / 8;
     } else if (a.k === 1 && b.k === 2) {
       const shape = a.o as unknown as Shape, bullet = b.o as unknown as Bullet;
       const firstDroneContact = bullet.kind === 'drone' && !bullet.hit.has(shape.id);
+      if (bullet.kind === 'drone' && bullet.attackState && bullet.attackState !== 'dive') return;
       if (!this.projectileCanHit(bullet, shape.id)) return;
       if (bullet.kind === 'drone') bullet.hit.add(shape.id);
       shape.hp -= bullet.dmg; shape.lastHitBy = bullet.owner;
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : SHAPES[SHAPE_KINDS[shape.kind]].pierceCost;
+      if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
       const def = SHAPES[SHAPE_KINDS[shape.kind]];
       const speed = Math.hypot(bullet.vx, bullet.vy);
       const impulse = clamp(speed * 0.11 * (28 / def.radius) + bullet.dmg * 0.4, 18, 105);
@@ -703,6 +764,7 @@ export class Game {
       r: 12, dmg: owner.d.bulletDamage * (cls.droneDamageMul ?? 0.6), hp: 8,
       life: DRONE_LIFE_S, hit: new Set(), kind: 'drone', angle: owner.angle,
       maxSpeed: 300 * (cls.droneSpeedMul ?? 1), turnRate: 4.6, formationSlot,
+      attackState: 'guard', attackCooldown: 0,
     });
   }
 
@@ -756,6 +818,7 @@ export class Game {
       b: this.bullets.filter((bullet) => near(bullet.x, bullet.y, bullet.r)).map((bullet) => [
         bullet.id, r1(bullet.x), r1(bullet.y), r1(bullet.r), bullet.owner,
         PROJECTILE_KIND_IDS[bullet.kind], r2(bullet.angle),
+        bullet.kind === 'drone' ? (bullet.attackState === 'dive' ? 1 : bullet.attackState === 'recover' ? 2 : 0) : 0,
       ]),
       sh: this.shapes.filter((shape) => near(shape.x, shape.y, shape.r)).map((shape) =>
         [shape.id, r1(shape.x), r1(shape.y), r2(shape.rot), shape.kind, r2(shape.hp / shape.maxHp),

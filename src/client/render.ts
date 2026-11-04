@@ -4,7 +4,7 @@ import { STICK_RADIUS, type Input } from './input';
 
 export interface View {
   players: PlayerSnap[];
-  bullets: [number, number, number, number, number, number, number][];
+  bullets: [number, number, number, number, number, number, number, number?][];
   shapes: [number, number, number, number, number, number, number, number, number, number][];
 }
 
@@ -58,7 +58,7 @@ function circle(ctx: CanvasRenderingContext2D, x: number, y: number, radius: num
 }
 
 function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][number], mine: boolean, players: PlayerSnap[]) {
-  const [, x, y, radius, , kind, angle] = bullet;
+  const [, x, y, radius, , kind, angle, droneState = 0] = bullet;
   const palette = mine ? ME : FOE;
   if (kind === 1) {
     // Overlord drones have a visible signal tether. It fades nearby and turns
@@ -88,8 +88,16 @@ function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][n
       }
     }
 
-    // Drone: diamond-shaped body with a visible centre.
+    // A short coloured wake makes the current action readable without a UI marker.
     ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+    if (droneState === 1 || droneState === 2) {
+      const wake = droneState === 1 ? '#8fe5ff' : '#ffd29a';
+      ctx.beginPath(); ctx.moveTo(-radius * 0.8, 0); ctx.lineTo(-radius * 3.1, 0);
+      ctx.strokeStyle = wake; ctx.lineWidth = Math.max(2, radius * 0.42);
+      ctx.globalAlpha = 0.82; ctx.shadowColor = wake; ctx.shadowBlur = 8; ctx.stroke();
+      ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    }
+    // Drone: diamond-shaped body with a visible centre.
     ctx.beginPath(); ctx.moveTo(radius * 1.35, 0); ctx.lineTo(0, radius * 0.95);
     ctx.lineTo(-radius * 1.15, 0); ctx.lineTo(0, -radius * 0.95); ctx.closePath();
     ctx.fillStyle = '#d8f3ff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = palette.stroke; ctx.stroke();
