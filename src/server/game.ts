@@ -423,19 +423,34 @@ export class Game {
       + separationX * (drone.r * 8 + 28) * separationWeight;
     const steerY = (orbitalAttack ? orbitalVelocityY : goalY - drone.y)
       + separationY * (drone.r * 8 + 28) * separationWeight;
-    const desired = Math.atan2(steerY, steerX);
-    const turnRate = drone.turnRate * (attackRun ? 1.3 : 1);
-    drone.angle += clamp(angleDelta(drone.angle, desired), -turnRate * dt, turnRate * dt);
+    if (orbitalAttack) {
+      // Follow the desired radial+tangential velocity directly. Smoothing the
+      // velocity vector preserves a flowing orbit without the turn-lag that
+      // made drones drift away from the target edge.
+      let desiredVx = steerX, desiredVy = steerY;
+      const desiredMagnitude = Math.hypot(desiredVx, desiredVy);
+      const speedLimit = drone.maxSpeed * 0.85;
+      if (desiredMagnitude > speedLimit) {
+        desiredVx = desiredVx / desiredMagnitude * speedLimit;
+        desiredVy = desiredVy / desiredMagnitude * speedLimit;
+      }
+      const response = 1 - Math.exp(-dt * 9);
+      drone.vx += (desiredVx - drone.vx) * response;
+      drone.vy += (desiredVy - drone.vy) * response;
+      drone.angle = Math.atan2(drone.vy, drone.vx);
+    } else {
+      const desired = Math.atan2(steerY, steerX);
+      const turnRate = drone.turnRate * (attackRun ? 1.3 : 1);
+      drone.angle += clamp(angleDelta(drone.angle, desired), -turnRate * dt, turnRate * dt);
 
-    const distanceToGoal = Math.hypot(steerX, steerY);
-    const currentSpeed = Math.hypot(drone.vx, drone.vy);
-    const speedFactor = attackRun ? clamp(distanceToGoal / 165, 0.035, 1) : clamp(distanceToGoal / 150, 0.38, 1);
-    const desiredSpeed = orbitalAttack
-      ? clamp(Math.hypot(steerX, steerY), 48, drone.maxSpeed * 0.85)
-      : drone.maxSpeed * speedFactor;
-    const speed = currentSpeed + (desiredSpeed - currentSpeed) * (1 - Math.exp(-dt * (attackRun ? 5 : 3.5)));
-    drone.vx = Math.cos(drone.angle) * speed;
-    drone.vy = Math.sin(drone.angle) * speed;
+      const distanceToGoal = Math.hypot(steerX, steerY);
+      const currentSpeed = Math.hypot(drone.vx, drone.vy);
+      const speedFactor = attackRun ? clamp(distanceToGoal / 165, 0.035, 1) : clamp(distanceToGoal / 150, 0.38, 1);
+      const desiredSpeed = drone.maxSpeed * speedFactor;
+      const speed = currentSpeed + (desiredSpeed - currentSpeed) * (1 - Math.exp(-dt * (attackRun ? 5 : 3.5)));
+      drone.vx = Math.cos(drone.angle) * speed;
+      drone.vy = Math.sin(drone.angle) * speed;
+    }
     drone.dmg = owner.d.bulletDamage * (cls.droneDamageMul ?? 0.85);
     drone.x += drone.vx * dt;
     drone.y += drone.vy * dt;
