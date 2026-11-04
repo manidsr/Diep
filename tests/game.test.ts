@@ -317,7 +317,7 @@ test('drone squads circle targets and keep hitting them instead of stacking', ()
     Math.hypot(drone.x - hex.x, drone.y - hex.y) < hex.r + drone.r + 3
   ).length;
   assert.ok(dronesInStrikingRange >= 6,
-    `most drones should stay close enough to clip the target, in range=${dronesInStrikingRange}`);
+    `most drones should stay close enough to clip the target, in range=${dronesInStrikingRange}, distances=${drones.map((drone) => Math.round(Math.hypot(drone.x - hex.x, drone.y - hex.y))).join(',')}`);
 
   const hpBeforeNextPass = hex.hp;
   run(game, 1);
