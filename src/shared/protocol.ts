@@ -10,6 +10,7 @@ export type ClientMessage =
   | { t: 'join'; name: string; mode?: GameMode; resumeToken?: string }
   | { t: 'input'; mx: number; my: number; a: number; f: boolean; secondary?: boolean; spin?: boolean }
   | { t: 'upgrade'; stat: number }
+  | { t: 'reward'; id: string }
   | { t: 'class'; id: string }
   | { t: 'devClass'; id: string };
 
@@ -55,6 +56,9 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'upgrade':
       if (!Number.isInteger(message.stat) || (message.stat as number) < 0 || (message.stat as number) >= STAT_KEYS.length) return null;
       return { t: 'upgrade', stat: message.stat as number };
+    case 'reward':
+      if (typeof message.id !== 'string' || !/^[a-zA-Z][a-zA-Z0-9]{1,31}$/.test(message.id)) return null;
+      return { t: 'reward', id: message.id };
     case 'class':
     case 'devClass':
       if (typeof message.id !== 'string' || !CLASS_IDS.includes(message.id as (typeof CLASS_IDS)[number])) return null;
@@ -70,13 +74,13 @@ export interface PlayerSnap {
   hp: number; mhp: number; r: number; lv: number; cls: number; prot: 0 | 1; vis: number;
   team: TeamId | null;
 }
-export type ZombieBossKind = 'breaker' | 'spitter' | 'summoner';
+export type ZombieBossKind = 'breaker' | 'spitter' | 'summoner' | 'colossus' | 'nestMother' | 'lich' | 'devourer' | 'abomination';
 export type ZombieBossPhase = 'idle' | 'windup' | 'charge' | 'recovery';
-export type ZombieKind = 'shambler' | 'runner' | 'tank' | 'ranger' | 'guardian' | 'bomber' | 'leaper';
+export type ZombieKind = 'shambler' | 'runner' | 'tank' | 'ranger' | 'guardian' | 'bomber' | 'leaper' | 'armoured' | 'medic' | 'exploder' | 'splitter' | 'stalker' | 'commander';
 export type ZombieSpecialPhase = 'idle' | 'windup' | 'charge';
 
 export interface ZombieSnap {
-  id: number; x: number; y: number; r: number; hp: number; mhp: number;
+  id: number; x: number; y: number; r: number; hp: number; mhp: number; visibility: number;
   angle: number; hitFlash: number; hitAngle: number;
   kind: ZombieKind; protected: boolean;
   bossKind: ZombieBossKind | null; bossPhase: ZombieBossPhase; bossTimer: number;
@@ -89,10 +93,15 @@ export interface DownedPlayerSnap {
 export interface HealthDropSnap {
   id: number; x: number; y: number; r: number; heal: number;
 }
+export interface XpDropSnap { id: number; x: number; y: number; r: number; xp: number; }
+export interface DamagePoolSnap { id: number; x: number; y: number; r: number; life: number; }
+export type RewardRarity = 'common' | 'rare' | 'epic' | 'legendary';
+export interface RewardCardSnap { id: string; title: string; description: string; rarity: RewardRarity; }
 export interface SelfSnap {
   alive: boolean; downed: boolean; reviveProgress: number; hp: number; mhp: number; lv: number;
   xp: number; xpCur: number; xpNext: number; pts: number;
   stats: number[]; cls: string; opts: string[]; fov: number; team: TeamId | null;
+  rewards: RewardCardSnap[]; rewardTimer: number;
 }
 export interface Snapshot {
   t: 's';
@@ -107,6 +116,8 @@ export interface Snapshot {
   z: ZombieSnap[];
   d: DownedPlayerSnap[];
   h: HealthDropSnap[];
+  xpDrops: XpDropSnap[];
+  pools: DamagePoolSnap[];
 }
 export type ServerMessage =
   | { t: 'welcome'; id: number; arena: number; hz: number; devCheats: boolean; mode: GameMode; resumeToken: string }
