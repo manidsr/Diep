@@ -179,7 +179,8 @@ test('clients join isolated FFA and Team Mode worlds selected in the lobby', asy
     const teamSnap = await blue.waitFor((m) => m.t === 's');
     assert.ok(teamSnap.t === 's' && teamSnap.me.team === 'blue');
     assert.equal(teamSnap.flags.length, 2);
-    assert.ok(blue.msgs.some((m) => m.t === 'lb' && m.mode === 'teams'));
+    const teamBoard = await blue.waitFor((m) => m.t === 'lb' && m.mode === 'teams', 2500);
+    assert.ok(teamBoard.t === 'lb' && teamBoard.mode === 'teams');
   } finally {
     solo.ws.close();
     blue.ws.close();

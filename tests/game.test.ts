@@ -514,8 +514,8 @@ test('Team Mode balances players and spawns each team on its own map side', () =
 test('Team Mode blocks friendly fire and keeps enemy damage enabled', () => {
   const game = new Game(seeded(34), 0, 'teams');
   const shooter = game.addPlayer('blue shooter')!;
-  const ally = game.addPlayer('blue ally')!;
   const enemy = game.addPlayer('red enemy')!;
+  const ally = game.addPlayer('blue ally')!;
   Object.assign(shooter, { x: 800, y: 800, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
   Object.assign(ally, { x: 880, y: 800, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
   Object.assign(enemy, { x: 960, y: 800, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
