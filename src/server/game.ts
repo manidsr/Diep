@@ -410,13 +410,8 @@ export class Game {
       separationX += (dx / distance) * push;
       separationY += (dy / distance) * push;
     }
-    // Orbit slots already separate the squad. Only a light nudge is needed
-    // during a dive, otherwise separation can spoil the circular motion.
-    const separationWeight = orbitalAttack ? 0.18 : 1;
-    const steerX = (orbitalAttack ? orbitalVelocityX : goalX - drone.x)
-      + separationX * (drone.r * 8 + 28) * separationWeight;
-    const steerY = (orbitalAttack ? orbitalVelocityY : goalY - drone.y)
-      + separationY * (drone.r * 8 + 28) * separationWeight;
+    // Stable phase offsets keep the orbit distributed; separation is used
+    // only as a small positional nudge while the drones sweep around the target.
     if (orbitalAttack) {
       // Move along the next polar orbit point. Deriving velocity from the
       // small per-tick displacement keeps collision and hit feedback intact.
