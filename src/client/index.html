@@ -221,12 +221,120 @@
   }
 
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
+
+  #lb h4 button, #stats .hdr button {
+    width: 100%; padding: 0; border: 0; background: transparent; color: inherit;
+    font: inherit; letter-spacing: inherit; text-align: inherit; pointer-events: none;
+  }
+  /* Compact touch-first HUD: keep the arena clear and let players open panels on demand. */
+  @media (max-width: 700px), (max-height: 520px) and (pointer: coarse) {
+    #lb { width: min(164px, 44vw); max-height: 36dvh; overflow: auto; padding: 6px; border-radius: 8px; font-size: 10px; }
+    #lb h4 { margin-bottom: 3px; font-size: 10px; letter-spacing: .14em; }
+    #lb h4 button { pointer-events: auto; }
+    #lb h4 button::after { content: "⌄"; margin-left: 6px; color: #ffffff99; }
+    #lb.mobile-collapsed h4 button::after { content: "›"; }
+    #lb.mobile-collapsed #lbrows, #lb.mobile-collapsed #teamscore { display: none !important; }
+    #lbrows { max-height: 30dvh; overflow: auto; }
+    .lrow { height: 21px; gap: 4px; padding: 0 4px; }
+    .lrow .rk { width: 15px; height: 15px; line-height: 15px; font-size: 9px; }
+    .lrow .lv { display: none; }
+    .lrow .sc { min-width: 26px; font-size: 10px; }
+    #teamscore { max-height: 30dvh; overflow: auto; }
+    #teamscore .team-panel { padding: 4px; }
+    .team-panel-heading { font-size: 9px; }
+    .team-player-row, .survival-player-row { font-size: 9px; padding: 3px 4px; }
+    .survival-summary { gap: 2px; padding-bottom: 4px; }
+    .survival-summary strong { font-size: 14px; }
+    .survival-summary span { font-size: 8px; }
+
+    #minimap { left: max(7px, env(safe-area-inset-left)); width: 104px; height: 104px; border-radius: 9px; }
+    #stats {
+      top: max(8px, env(safe-area-inset-top)); bottom: auto; left: max(8px, env(safe-area-inset-left));
+      width: min(184px, 48vw); padding: 5px; border-radius: 8px;
+    }
+    #stats.show { animation: none; }
+    #stats .hdr { margin: 0; }
+    #stats .hdr button {
+      display: flex; align-items: center; justify-content: space-between; gap: 6px;
+      min-height: 26px; padding: 1px 3px; border-radius: 5px; color: var(--fg);
+      font: inherit; font-size: 11px; font-weight: 800; text-align: left; pointer-events: auto;
+    }
+    #stats .hdr button::after { content: "+"; color: #a9dcff; font-size: 16px; line-height: 1; }
+    #stats.open .hdr button::after { content: "−"; }
+    #stats:not(.open) #rows { display: none; }
+    #stats.open #rows { display: block; max-height: 48dvh; overflow: auto; padding-top: 4px; }
+    .row { gap: 4px; margin: 2px 0; font-size: 10px; }
+    .row .lbl { max-width: 68px; font-size: 10px; }
+    .pips { gap: 1px; }
+    .pip { width: 5px; height: 9px; }
+    .row button { min-width: 24px; min-height: 24px; padding: 1px 6px; }
+    body.choosing-class #stats { display: none !important; }
+
+    #classes {
+      top: max(8px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+      display: flex; flex-wrap: nowrap; justify-content: center; align-items: stretch; gap: 5px;
+      width: calc(100vw - 16px); max-width: 620px; max-height: 98px;
+      overflow-x: auto; overflow-y: hidden; padding: 5px;
+      border: 1px solid #ffffff24; border-radius: 9px;
+      background: #10151def; box-shadow: 0 5px 18px #0008; scrollbar-width: none;
+    }
+    #classes::-webkit-scrollbar { display: none; }
+    #classes .evo { flex: 0 0 auto; width: auto; margin: 0 2px 0 0; align-self: center; font-size: 9px; letter-spacing: .12em; }
+    #classes button.evo-card {
+      flex: 0 0 82px; width: 82px; min-height: 82px; height: 82px;
+      padding: 3px; gap: 1px; border-radius: 7px; animation: none;
+      box-shadow: 0 1px 0 #0008, inset 0 1px 0 #fff;
+    }
+    #classes .evo-preview { width: 66px; height: 40px; }
+    #classes .evo-name { font-size: 9px; line-height: 1.1; }
+    #classes .evo-role { font-size: 7px; }
+    #classes .evo-strength, #classes .evo-tradeoff { display: none; }
+    body.choosing-class #lb { top: calc(env(safe-area-inset-top) + 108px); }
+
+    #xp { width: min(220px, 48vw); bottom: max(7px, env(safe-area-inset-bottom)); }
+    #xp .bar { height: 10px; border-width: 1px; border-radius: 6px; }
+    #xp .txt { margin-top: 1px; font-size: 9px; }
+    #killfeed {
+      right: max(7px, env(safe-area-inset-right));
+      bottom: max(34px, calc(env(safe-area-inset-bottom) + 30px));
+      width: min(180px, 43vw); max-height: 19dvh; overflow: hidden; gap: 3px;
+    }
+    .killfeed-row { padding: 3px 5px; font-size: 9px; line-height: 1.2; }
+    .killfeed-row:nth-child(n+3) { display: none; }
+    #toast { top: 19%; width: 92vw; white-space: normal; }
+    #toast .big { font-size: clamp(22px, 7vw, 34px); }
+    #toast .sub { font-size: 11px; }
+
+    #menu { padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom)); }
+    .card {
+      width: min(480px, 96vw);
+      max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px);
+      padding: 14px; border-radius: 10px;
+    }
+    .card h1 { font-size: 21px; }
+    #mode-select { gap: 5px; margin-top: 8px; }
+    #mode-select button { min-height: 50px; padding: 8px 3px; font-size: 10px; }
+    #mode-select button small { font-size: 8px; line-height: 1.15; }
+    #mode-help { min-height: 2.2em; font-size: 10px; }
+    .small { font-size: 10px; line-height: 1.35; }
+    #classguide-details { margin-top: 8px; }
+  }
+
+  @media (max-height: 520px) and (pointer: coarse) {
+    #lb { max-height: 42dvh; }
+    #stats.open #rows { max-height: 42dvh; }
+    #classes { max-height: 92px; }
+    #classes button.evo-card { height: 76px; min-height: 76px; }
+    .card { padding: 10px; }
+    .card .small { margin-top: 5px; }
+  }
+
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <canvas id="minimap" class="hud" width="176" height="176" hidden aria-label="Co-op Survival minimap showing allies, zombies and health drops"></canvas>
-<div id="lb" class="hud"><h4 id="lbtitle">LEADERBOARD</h4><div id="teamscore" hidden></div><div id="lbrows"></div></div>
+<div id="lb" class="hud mobile-collapsed"><h4><button id="lbtitle" type="button" aria-expanded="false">LEADERBOARD</button></h4><div id="teamscore" hidden></div><div id="lbrows"></div></div>
 <div id="killfeed" class="hud" aria-live="polite" aria-label="Recent eliminations"></div>
 <div id="classes" class="hud"></div>
 <div id="devtools" hidden>
@@ -239,7 +347,7 @@
     <small>Ignores level and evolution requirements. Your level, XP and skill points stay unchanged.</small>
   </div>
 </div>
-<div id="stats" class="hud"><div class="hdr">Upgrades <b id="pts"></b></div><div id="rows"></div></div>
+<div id="stats" class="hud"><div class="hdr"><button id="stats-toggle" type="button" aria-expanded="false">Upgrades <b id="pts"></b></button></div><div id="rows"></div></div>
 <div id="xp" class="hud"><div class="bar"><div class="fill" id="xpfill"></div></div><div class="txt" id="xptxt"></div></div>
 <div id="toast" class="hud"><div class="big" id="toastbig"></div><div class="sub" id="toastsub"></div></div>
 <div id="menu">

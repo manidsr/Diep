@@ -639,23 +639,44 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, W: number, H: number,
   ctx.fillStyle = '#77ff9a'; ctx.fillText('HEALS', 104, H - 8); ctx.restore();
 }
 
-/** Virtual joysticks are shown on touch devices after the first touch. */
+/** Minimal touch hints; active sticks become visible only while a thumb is down. */
 export function drawSticks(ctx: CanvasRenderingContext2D, W: number, H: number, input: Input) {
   if (!input.touchSeen) return;
   const draw = (stick: { ox: number; oy: number; x: number; y: number } | null, hintX: number, hintY: number, color: string) => {
+    const active = !!stick;
     const ox = stick ? stick.ox : hintX, oy = stick ? stick.oy : hintY;
-    ctx.globalAlpha = stick ? 0.5 : 0.18;
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ox, oy, STICK_RADIUS, 0, Math.PI * 2); ctx.fill();
-    if (stick) {
-      const dx = stick.x - stick.ox, dy = stick.y - stick.oy;
+    ctx.save();
+    if (active) {
+      ctx.globalAlpha = 0.07;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ox, oy, STICK_RADIUS, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.42;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(ox, oy, STICK_RADIUS, 0, Math.PI * 2); ctx.stroke();
+
+      const dx = stick!.x - stick!.ox, dy = stick!.y - stick!.oy;
       const length = Math.hypot(dx, dy), factor = length > STICK_RADIUS ? STICK_RADIUS / length : 1;
-      ctx.fillStyle = color; ctx.beginPath();
-      ctx.arc(ox + dx * factor, oy + dy * factor, 26, 0, Math.PI * 2); ctx.fill();
+      const knobX = ox + dx * factor, knobY = oy + dy * factor;
+      ctx.globalAlpha = 0.48;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(knobX, knobY); ctx.stroke();
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(knobX, knobY, 18, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.72;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(knobX, knobY, 18, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      ctx.globalAlpha = 0.13;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(ox, oy, 32, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ox, oy, 3, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.globalAlpha = 1;
+    ctx.restore();
   };
-  draw(input.moveStick, Math.min(110, W * 0.2), H - Math.min(110, H * 0.3), '#4aa3ff');
-  draw(input.aimStick, W - Math.min(110, W * 0.2), H - Math.min(110, H * 0.3), '#ff6a6a');
+  const insetX = Math.min(88, Math.max(64, W * 0.18));
+  const insetY = Math.min(88, Math.max(64, H * 0.22));
+  draw(input.moveStick, insetX, H - insetY, '#4aa3ff');
+  draw(input.aimStick, W - insetX, H - insetY, '#ff6a6a');
 }
 
 

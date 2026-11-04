@@ -306,8 +306,29 @@ for (const id of CLASS_IDS) {
 
 // ---------- HUD ----------
 const statsEl = $('stats'), rowsEl = $('rows'), ptsEl = $('pts'), classesEl = $('classes');
+const statsToggle = $<HTMLButtonElement>('stats-toggle');
+const leaderboardEl = $('lb');
+const leaderboardToggle = $<HTMLButtonElement>('lbtitle');
 const xpEl = $('xp'), toastEl = $('toast');
 const devTools = $('devtools');
+
+function isCompactHud(): boolean {
+  return window.matchMedia('(max-width: 700px), (max-height: 520px) and (pointer: coarse)').matches;
+}
+if (!isCompactHud()) {
+  leaderboardEl.classList.remove('mobile-collapsed');
+  leaderboardToggle.setAttribute('aria-expanded', 'true');
+}
+statsToggle.addEventListener('click', () => {
+  if (!isCompactHud()) return;
+  const open = statsEl.classList.toggle('open');
+  statsToggle.setAttribute('aria-expanded', String(open));
+});
+leaderboardToggle.addEventListener('click', () => {
+  if (!isCompactHud()) return;
+  const collapsed = leaderboardEl.classList.toggle('mobile-collapsed');
+  leaderboardToggle.setAttribute('aria-expanded', String(!collapsed));
+});
 const devToggle = $<HTMLButtonElement>('devtoggle');
 const devClassSelect = $<HTMLSelectElement>('devclass');
 const devApply = $<HTMLButtonElement>('devapply');
@@ -390,6 +411,10 @@ function updateHud(m: SelfSnap) {
     hudKey = key;
     $('xptxt').textContent = m.downed ? 'DOWNED · stay close to an ally to be revived' : `Lv ${m.lv} ${CLASS_BY_ID[m.cls]?.name ?? ''} — ${m.xp} xp`;
     statsEl.classList.toggle('show', !m.downed && m.alive && m.pts > 0);
+    if (m.pts <= 0 || m.downed || !m.alive) {
+      statsEl.classList.remove('open');
+      statsToggle.setAttribute('aria-expanded', 'false');
+    }
     ptsEl.textContent = m.pts > 0 ? `(x${m.pts})` : '';
     if (m.pts !== lastPts && m.pts > 0) retrigger(ptsEl, 'bump');
     lastPts = m.pts;
@@ -406,6 +431,7 @@ function updateHud(m: SelfSnap) {
   }
 
   const ok = m.opts.join(',');
+  document.body.classList.toggle('choosing-class', m.opts.length > 0);
   if (ok !== optKey) {
     optKey = ok;
     classesEl.replaceChildren();

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { drawFrame, type View } from '../src/client/render';
+import { drawFrame, drawSticks, type View } from '../src/client/render';
+import type { Input } from '../src/client/input';
 
 function mockCanvasContext() {
   let saveDepth = 0;
@@ -33,4 +34,19 @@ test('rendering two players keeps the arena camera transform intact for both tan
   drawFrame(ctx, 800, 600, { x: 1000, y: 1100 }, view, 2);
 
   assert.equal(saveDepth(), 0, 'every tank must restore only its own canvas state, not pop the camera transform');
+});
+
+test('touch control hints keep canvas drawing state isolated', () => {
+  const { ctx, saveDepth } = mockCanvasContext();
+  const idle = { touchSeen: true, moveStick: null, aimStick: null } as unknown as Input;
+  const active = {
+    touchSeen: true,
+    moveStick: { id: 1, ox: 70, oy: 760, x: 95, y: 744 },
+    aimStick: { id: 2, ox: 320, oy: 760, x: 300, y: 740 },
+  } as unknown as Input;
+
+  drawSticks(ctx, 390, 844, idle);
+  drawSticks(ctx, 390, 844, active);
+
+  assert.equal(saveDepth(), 0, 'touch controls must not leak canvas drawing state into the next frame');
 });
