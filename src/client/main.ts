@@ -20,13 +20,8 @@ const RESUME_TOKEN_KEY = `diep-resume:${location.host}`;
 let resumeToken = '';
 let resumeOnReconnect = false;
 let resumeAttempt = false;
-try {
-  const savedToken = localStorage.getItem(RESUME_TOKEN_KEY) ?? '';
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(savedToken)) {
-    resumeToken = savedToken;
-    resumeOnReconnect = true;
-  } else if (savedToken) localStorage.removeItem(RESUME_TOKEN_KEY);
-} catch { /* Session recovery is optional when browser storage is unavailable. */ }
+// A fresh page visit always returns to the mode picker. The in-memory token still
+// restores the tank after a network drop without silently rejoining Survival on reload.
 let selectedMode: GameMode = 'ffa';
 let devCheatsEnabled = false;
 let lastDevClass = '';
@@ -53,15 +48,11 @@ function setSelectedMode(mode: GameMode) {
     : mode === 'survival'
       ? 'Cooperate with everyone. Fight off zombie waves, earn XP from kills and survive as long as you can.'
       : 'Every tank fights for itself. Earn XP and climb the individual leaderboard.';
-  try { localStorage.setItem('game-mode', mode); } catch { /* storage may be blocked */ }
 }
 modeFfaBtn.addEventListener('click', () => setSelectedMode('ffa'));
 modeTeamsBtn.addEventListener('click', () => setSelectedMode('teams'));
 modeSurvivalBtn.addEventListener('click', () => setSelectedMode('survival'));
-try {
-  const savedMode = localStorage.getItem('game-mode');
-  setSelectedMode(savedMode === 'teams' || savedMode === 'survival' ? savedMode : 'ffa');
-} catch { setSelectedMode('ffa'); }
+setSelectedMode('ffa');
 const deathPanel = $('deathpanel');
 const killFeedEl = $('killfeed');
 const recentFeed: string[] = [];

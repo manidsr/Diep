@@ -264,23 +264,35 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     }
   }
 
-  if (!boss && zombie.kind === 'armoured') {
+  if (!boss && zombie.kind === 'shambler') {
+    ctx.strokeStyle = '#b4d57b'; ctx.lineWidth = Math.max(2, r * 0.13); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-r * 0.72, r * 0.15); ctx.lineTo(-r * 1.38, r * 0.7);
+    ctx.moveTo(r * 0.72, r * 0.18); ctx.lineTo(r * 1.35, r * 0.62); ctx.stroke();
+    ctx.fillStyle = '#d5e2a0'; ctx.beginPath(); ctx.moveTo(-r * 0.55, -r * 0.65);
+    ctx.lineTo(-r * 0.85, -r * 1.22); ctx.lineTo(-r * 0.15, -r * 0.82); ctx.fill();
+  } else if (!boss && zombie.kind === 'armoured') {
     ctx.beginPath(); ctx.arc(0, 0, r * 1.36, 0, Math.PI * 2);
     ctx.strokeStyle = '#dce4ea'; ctx.lineWidth = Math.max(4, r * 0.2); ctx.stroke();
     ctx.beginPath(); ctx.arc(0, 0, r * 1.06, 0, Math.PI * 2); ctx.strokeStyle = '#49535d'; ctx.lineWidth = 2; ctx.stroke();
   } else if (!boss && zombie.kind === 'medic') {
     ctx.fillStyle = '#d8ffe4'; ctx.fillRect(-r * 0.16, -r * 0.78, r * 0.32, r * 1.56);
     ctx.fillRect(-r * 0.78, -r * 0.16, r * 1.56, r * 0.32);
+    ctx.strokeStyle = '#eafff0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, r * 1.18, 0, Math.PI * 2); ctx.stroke();
   } else if (!boss && zombie.kind === 'splitter') {
     ctx.strokeStyle = palette.accent; ctx.lineWidth = 3; ctx.beginPath();
     ctx.arc(-r * 0.25, 0, r * 0.82, -1.1, 1.1); ctx.arc(r * 0.25, 0, r * 0.82, Math.PI - 1.1, Math.PI + 1.1); ctx.stroke();
   } else if (!boss && zombie.kind === 'stalker') {
     ctx.shadowColor = palette.accent; ctx.shadowBlur = 14; ctx.strokeStyle = palette.accent; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(0, 0, r * 1.4, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#b7c4ff'; ctx.fillRect(-r * 0.55, -r * 0.22, r * 0.34, r * 0.09); ctx.fillRect(r * 0.2, -r * 0.22, r * 0.34, r * 0.09);
   } else if (!boss && zombie.kind === 'commander') {
     ctx.fillStyle = palette.accent; ctx.strokeStyle = palette.stroke; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(-r * 0.7, -r * 0.65); ctx.lineTo(-r * 0.42, -r * 1.5);
     ctx.lineTo(0, -r * 0.92); ctx.lineTo(r * 0.42, -r * 1.5); ctx.lineTo(r * 0.7, -r * 0.65); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  if (!boss && zombie.kind === 'tank') {
+    ctx.fillStyle = '#929aa2'; ctx.strokeStyle = '#343c45'; ctx.lineWidth = 2;
+    for (const side of [-1, 1]) { ctx.beginPath(); ctx.moveTo(side * r * 0.1, -r * 0.72); ctx.lineTo(side * r * 0.8, -r * 0.52); ctx.lineTo(side * r * 0.72, r * 0.45); ctx.lineTo(side * r * 0.08, r * 0.66); ctx.closePath(); ctx.fill(); ctx.stroke(); }
   }
   if (!boss && zombie.kind === 'guardian') {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
@@ -355,6 +367,8 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
 
   if (!boss && zombie.kind === 'exploder') {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 90);
+    ctx.strokeStyle = '#ff9a5b'; ctx.lineWidth = 3 + pulse * 2; ctx.beginPath();
+    ctx.arc(0, 0, r * (1.35 + pulse * 0.18), 0, Math.PI * 2); ctx.stroke();
     ctx.beginPath(); ctx.arc(0, 0, r * (0.55 + pulse * 0.12), 0, Math.PI * 2);
     ctx.fillStyle = '#ff7546'; ctx.globalAlpha = 0.5 + pulse * 0.45; ctx.fill(); ctx.globalAlpha = 1;
   } else if (!boss && zombie.kind === 'tank') {
@@ -368,11 +382,16 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
       ctx.closePath(); ctx.fill(); ctx.stroke();
     }
   } else if (!boss && zombie.kind === 'ranger') {
-    ctx.strokeStyle = palette.accent; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(0, -r * 0.8); ctx.lineTo(0, -r * 1.32); ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, -r * 1.38, r * 0.13, 0, Math.PI * 2);
-    ctx.fillStyle = palette.accent; ctx.fill();
+    ctx.save(); ctx.rotate(zombie.angle);
+    ctx.strokeStyle = '#d8f5ff'; ctx.lineWidth = Math.max(3, r * 0.16);
+    ctx.beginPath(); ctx.moveTo(r * 0.25, -r * 0.52); ctx.lineTo(r * 1.55, -r * 0.52); ctx.stroke();
+    ctx.strokeStyle = palette.accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(r * 0.35, -r * 0.82); ctx.lineTo(r * 1.25, -r * 0.22); ctx.stroke();
+    ctx.beginPath(); ctx.arc(r * 1.2, -r * 0.52, r * 0.12, 0, Math.PI * 2); ctx.fillStyle = palette.accent; ctx.fill();
+    ctx.restore();
   } else if (!boss && zombie.kind === 'bomber') {
+    ctx.strokeStyle = '#ffcc74'; ctx.lineWidth = 3; ctx.beginPath();
+    ctx.moveTo(-r * 0.45, -r * 0.7); ctx.lineTo(-r * 0.82, -r * 1.25); ctx.lineTo(-r * 0.35, -r * 1.38); ctx.stroke();
     ctx.beginPath(); ctx.arc(0, 0, r * 0.46, 0, Math.PI * 2);
     ctx.fillStyle = '#ff744b'; ctx.globalAlpha = 0.45 + (zombie.specialPhase === 'windup' ? 0.45 : 0);
     ctx.fill(); ctx.globalAlpha = 1;

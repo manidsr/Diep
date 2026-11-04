@@ -23,6 +23,29 @@ const SURVIVAL_PERKS: { id: string; title: string; description: string; max: num
   { id: 'emergencyShield', title: 'Emergency Shield', description: 'A brief shield triggers at critical health', max: 2 },
   { id: 'piercingRounds', title: 'Piercing Rounds', description: 'Projectiles pass through one more enemy per stack', max: 3 },
   { id: 'explosiveImpact', title: 'Explosive Impact', description: 'Projectile hits splash nearby zombies', max: 3 },
+  { id: 'longshot', title: 'Longshot Coils', description: '+10% projectile speed per stack', max: 4 },
+  { id: 'ironSkin', title: 'Iron Skin', description: 'Take 6% less damage per stack', max: 4 },
+  { id: 'fleetfoot', title: 'Fleetfoot', description: '+6% movement speed per stack', max: 4 },
+  { id: 'fieldMedic', title: 'Field Medic', description: '+18% health regeneration per stack', max: 4 },
+  { id: 'criticalCore', title: 'Critical Core', description: '+6% chance for a double-damage shot per stack', max: 4 },
+  { id: 'bossHunter', title: 'Boss Hunter', description: '+16% damage against bosses per stack', max: 4 },
+  { id: 'executioner', title: 'Executioner', description: '+18% damage against wounded enemies per stack', max: 3 },
+  { id: 'scavenger', title: 'Scavenger', description: '+12% shared XP from orbs per stack', max: 4 },
+  { id: 'luckyFind', title: 'Lucky Find', description: '+8% chance for zombies to drop healing per stack', max: 5 },
+  { id: 'xpMagnet', title: 'XP Magnet', description: 'Attract XP orbs sooner and from farther away', max: 3 },
+  { id: 'steadyAim', title: 'Steady Aim', description: 'Reduce weapon spread by 12% per stack', max: 4 },
+  { id: 'recoilDampers', title: 'Recoil Dampers', description: 'Reduce firing recoil by 12% per stack', max: 4 },
+  { id: 'hotRounds', title: 'Hot Rounds', description: 'Shots burn enemies for damage over time', max: 3 },
+  { id: 'rescueProtocol', title: 'Rescue Protocol', description: 'Revive allies faster and from farther away', max: 3 },
+  { id: 'secondWind', title: 'Second Wind', description: 'Revive with more health and protection', max: 3 },
+  { id: 'armorPiercer', title: 'Armour Piercer', description: 'Ignore more of Armoured zombies’ damage reduction', max: 4 },
+  { id: 'overdrive', title: 'Overdrive', description: 'Move faster while firing', max: 3 },
+  { id: 'chainShot', title: 'Chain Shot', description: 'Hits arc damage to another nearby zombie', max: 3 },
+  { id: 'adrenaline', title: 'Adrenaline', description: 'Deal more damage while your health is low', max: 3 },
+  { id: 'shrapnel', title: 'Shrapnel', description: 'Every fourth shot bursts into a larger blast', max: 3 },
+  { id: 'vitalCore', title: 'Vital Core', description: '+8% maximum health per stack', max: 4 },
+  { id: 'concussiveRounds', title: 'Concussive Rounds', description: '+20% damage-based knockback per stack', max: 3 },
+  { id: 'droneTactician', title: 'Drone Tactician', description: '+15% drone damage and +8% drone speed per stack', max: 4 },
 ];
 const RARITY_SCORE: Record<RewardRarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3 };
 
@@ -58,7 +81,7 @@ export interface Bullet {
   /** Hostile projectiles are used by survival bosses, never by player weapons. */
   hostile?: boolean;
   hostileName?: string;
-  explosionRadius?: number; exploded?: boolean; chilled?: boolean;
+  explosionRadius?: number; exploded?: boolean; chilled?: boolean; chained?: boolean;
 }
 export interface Zombie {
   id: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
@@ -69,6 +92,7 @@ export interface Zombie {
   bossAimX: number; bossAimY: number; bossPattern: number;
   specialPhase: ZombieSpecialPhase; specialTimer: number; specialCooldown: number; specialAimX: number; specialAimY: number;
   attackCooldown: number; damageBy: Map<number, number>; slowT: number;
+  burnT?: number; burnDps?: number; burnTick?: number; burnOwnerId?: number | null;
 }
 export interface Shape {
   id: number; kind: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
@@ -486,6 +510,17 @@ export class Game {
     zombie.attackCooldown = Math.max(0, zombie.attackCooldown - dt);
     zombie.slowT = Math.max(0, zombie.slowT - dt);
     zombie.staggerT = Math.max(0, zombie.staggerT - dt);
+    zombie.burnT = Math.max(0, (zombie.burnT ?? 0) - dt);
+    if (zombie.hp > 0 && (zombie.burnT ?? 0) > 0) {
+      zombie.burnTick = (zombie.burnTick ?? 0) - dt;
+      if (zombie.burnTick <= 0) {
+        zombie.burnTick = 0.5;
+        const burnDamage = (zombie.burnDps ?? 0) * 0.5;
+        zombie.hp -= burnDamage;
+        if (zombie.burnOwnerId != null) zombie.damageBy.set(zombie.burnOwnerId, (zombie.damageBy.get(zombie.burnOwnerId) ?? 0) + burnDamage);
+        zombie.hitFlash = Math.max(zombie.hitFlash, 0.3);
+      }
+    }
     if (zombie.kind === 'medic') {
       for (const ally of this.zombies) if (ally !== zombie && ally.hp > 0 && Math.hypot(ally.x - zombie.x, ally.y - zombie.y) <= 205)
         ally.hp = Math.min(ally.maxHp, ally.hp + ally.maxHp * 0.045 * dt);
@@ -903,13 +938,22 @@ export class Game {
     for (const downed of this.players.values()) {
       if (!downed.alive || !downed.downed) continue;
       downed.bleedoutT = 0;
-      const helperNearby = [...this.players.values()].some((ally) => ally.id !== downed.id && ally.connected && ally.alive && !ally.downed &&
-        Math.hypot(ally.x - downed.x, ally.y - downed.y) <= 122 && Math.hypot(ally.vx, ally.vy) <= 155);
-      if (helperNearby) downed.reviveProgress = Math.min(REVIVE_SECONDS, downed.reviveProgress + dt);
+      let helper: Player | undefined;
+      let helperStacks = 0;
+      for (const ally of this.players.values()) {
+        if (ally.id === downed.id || !ally.connected || !ally.alive || ally.downed || Math.hypot(ally.vx, ally.vy) > 155) continue;
+        const stacks = this.perkCount(ally, 'rescueProtocol');
+        if (Math.hypot(ally.x - downed.x, ally.y - downed.y) > 122 + stacks * 18) continue;
+        if (!helper || stacks > helperStacks) { helper = ally; helperStacks = stacks; }
+      }
+      const reviveSeconds = Math.max(1.55, REVIVE_SECONDS * (1 - helperStacks * 0.12));
+      if (helper) downed.reviveProgress = Math.min(reviveSeconds, downed.reviveProgress + dt);
       else downed.reviveProgress = Math.max(0, downed.reviveProgress - dt * 0.12);
-      if (downed.reviveProgress >= REVIVE_SECONDS) {
+      if (downed.reviveProgress >= reviveSeconds) {
         downed.downed = false; downed.bleedoutT = 0; downed.reviveProgress = 0;
-        downed.hp = Math.max(1, downed.maxHp * 0.5); downed.protT = 2;
+        const secondWind = this.perkCount(downed, 'secondWind');
+        downed.hp = Math.max(1, downed.maxHp * Math.min(0.82, 0.5 + secondWind * 0.1));
+        downed.protT = 2 + secondWind * 0.3;
         downed.lastDamageT = this.time;
         downed.vx = downed.vy = downed.kvx = downed.kvy = downed.rvx = downed.rvy = 0;
       }
@@ -940,7 +984,8 @@ export class Game {
 
   private spawnHealthDrop(zombie: Zombie) {
     if (this.healthDrops.length >= 12) return;
-    if (!zombie.bossKind && this.rng() >= 0.14) return;
+    const luck = [...this.players.values()].reduce((best, player) => Math.max(best, this.perkCount(player, 'luckyFind')), 0);
+    if (!zombie.bossKind && this.rng() >= Math.min(0.6, 0.14 + luck * 0.08)) return;
     this.healthDrops.push({
       id: this.nextId++, x: zombie.x, y: zombie.y, r: zombie.bossKind ? 13 : 10,
       heal: zombie.bossKind ? 85 + this.wave * 2 : 28 + Math.min(34, this.wave * 1.3), life: 24,
@@ -974,7 +1019,10 @@ export class Game {
     this.xpDrops.push({ id: this.nextId++, x: zombie.x, y: zombie.y, r: zombie.bossKind ? 15 : 8, xp: zombie.xp, life: 34, age: 0 });
   }
   private collectXpDrop(drop: XpDrop) {
-    for (const player of this.players.values()) if (player.alive) this.addXp(player, drop.xp);
+    for (const player of this.players.values()) if (player.alive) {
+      const bonus = this.perkCount(player, 'scavenger') * 0.12;
+      this.addXp(player, Math.max(1, Math.round(drop.xp * (1 + bonus))));
+    }
     drop.life = 0;
   }
   private shareAllXpDrops() { for (const drop of this.xpDrops) this.collectXpDrop(drop); this.xpDrops = []; }
@@ -985,18 +1033,19 @@ export class Game {
       const collector = [...this.players.values()].find((player) => player.connected && player.alive && !player.downed &&
         Math.hypot(player.x - drop.x, player.y - drop.y) <= player.r + drop.r + 10);
       if (collector) { this.collectXpDrop(drop); continue; }
-      if (drop.age >= 10) {
-        let nearest: Player | undefined, nearestDistance = Infinity;
-        for (const player of this.players.values()) {
-          if (!player.connected || !player.alive || player.downed) continue;
-          const distance = Math.hypot(player.x - drop.x, player.y - drop.y);
-          if (distance < nearestDistance) { nearest = player; nearestDistance = distance; }
-        }
-        if (nearest) {
-          const dx = nearest.x - drop.x, dy = nearest.y - drop.y, distance = Math.max(1, nearestDistance);
-          const travel = Math.min(distance, 210 * dt); drop.x += dx / distance * travel; drop.y += dy / distance * travel;
-          if (distance <= nearest.r + drop.r + 8) this.collectXpDrop(drop);
-        }
+      let nearest: Player | undefined, nearestDistance = Infinity, nearestMagnet = 0;
+      for (const player of this.players.values()) {
+        if (!player.connected || !player.alive || player.downed) continue;
+        const distance = Math.hypot(player.x - drop.x, player.y - drop.y);
+        if (distance < nearestDistance) { nearest = player; nearestDistance = distance; nearestMagnet = this.perkCount(player, 'xpMagnet'); }
+      }
+      const magnetRange = 180 + nearestMagnet * 120;
+      const magnetDelay = Math.max(2, 10 - nearestMagnet * 2);
+      if (nearest && (drop.age >= magnetDelay || (nearestMagnet > 0 && nearestDistance <= magnetRange))) {
+        const dx = nearest.x - drop.x, dy = nearest.y - drop.y, distance = Math.max(1, nearestDistance);
+        const travel = Math.min(distance, (210 + nearestMagnet * 65) * dt);
+        drop.x += dx / distance * travel; drop.y += dy / distance * travel;
+        if (distance <= nearest.r + drop.r + 8) this.collectXpDrop(drop);
       }
       if (drop.life <= 0) this.collectXpDrop(drop);
     }
@@ -1072,8 +1121,12 @@ export class Game {
     const inputLen = Math.hypot(ix, iy);
     if (inputLen > 1) { ix /= inputLen; iy /= inputLen; }
     const k = 1 - Math.exp(-dt * 7);
-    p.vx += (ix * p.d.moveSpeed - p.vx) * k;
-    p.vy += (iy * p.d.moveSpeed - p.vy) * k;
+    const lowHealth = p.hp <= p.maxHp * 0.35;
+    const moveBonus = this.mode === 'survival'
+      ? 1 + this.perkCount(p, 'fleetfoot') * 0.06 + (f ? this.perkCount(p, 'overdrive') * 0.06 : 0) + (lowHealth ? this.perkCount(p, 'adrenaline') * 0.025 : 0)
+      : 1;
+    p.vx += (ix * p.d.moveSpeed * moveBonus - p.vx) * k;
+    p.vy += (iy * p.d.moveSpeed * moveBonus - p.vy) * k;
     p.x += (p.vx + p.kvx + p.rvx) * dt;
     p.y += (p.vy + p.kvy + p.rvy) * dt;
     const dec = Math.exp(-dt * 6);
@@ -1087,7 +1140,8 @@ export class Game {
     if (p.protT > 0) p.protT -= dt;
     p.emergencyShieldCd = Math.max(0, p.emergencyShieldCd - dt);
     if (this.time - p.lastDamageT > REGEN_DELAY_S && p.hp < p.maxHp) {
-      p.hp = Math.min(p.maxHp, p.hp + p.maxHp * p.d.regenFrac * dt);
+      const regenBonus = this.mode === 'survival' ? 1 + this.perkCount(p, 'fieldMedic') * 0.18 : 1;
+      p.hp = Math.min(p.maxHp, p.hp + p.maxHp * p.d.regenFrac * regenBonus * dt);
     }
 
     // Stealth requires a genuinely stationary, non-firing player. Damage reveals immediately.
@@ -1133,14 +1187,15 @@ export class Game {
   private fireBarrel(p: Player, barrel: BarrelDef, direction: number, origin?: Target) {
     if (this.bullets.length >= MAX_BULLETS) return;
     const cls = CLASS_BY_ID[p.cls];
-    const spreadAngle = direction + (barrel.spread ? (this.rng() * 2 - 1) * barrel.spread : 0);
+    const spreadReduction = this.mode === 'survival' ? Math.max(0.48, 1 - this.perkCount(p, 'steadyAim') * 0.12) : 1;
+    const spreadAngle = direction + (barrel.spread ? (this.rng() * 2 - 1) * barrel.spread * spreadReduction : 0);
     const sc = p.r / 26;
     const cx = Math.cos(direction), cy = Math.sin(direction);
     const bulletRadius = barrel.width * 0.5 * sc;
     const kind = barrel.projectile ?? 'bullet';
     const muzzleX = origin?.x ?? (p.x + cx * barrel.length * sc - cy * barrel.offset * sc);
     const muzzleY = origin?.y ?? (p.y + cy * barrel.length * sc + cx * barrel.offset * sc);
-    let speed = p.d.bulletSpeed * (barrel.speedMul ?? 1);
+    let speed = p.d.bulletSpeed * (barrel.speedMul ?? 1) * (this.mode === 'survival' ? 1 + this.perkCount(p, 'longshot') * 0.1 : 1);
     let life = BULLET_LIFE_S * (cls.bulletLifeMul ?? 1);
     if (kind === 'trap') { speed = 0; life = cls.trapLife ?? 9; }
     else if (kind === 'missile') { speed *= 0.52; life *= 1.6; }
@@ -1148,17 +1203,19 @@ export class Game {
     else if (kind === 'drone') { speed *= 0.55; life = DRONE_LIFE_S; }
 
     const perkDamage = this.mode === 'survival' ? 1 + this.perkCount(p, 'heavyRounds') * 0.15 : 1;
+    const critical = this.mode === 'survival' && this.rng() < this.perkCount(p, 'criticalCore') * 0.06 ? 2 : 1;
     let explosionRadius: number | undefined, chilled = false;
     if (this.mode === 'survival' && kind === 'bullet') {
       p.shotsFired++;
       if (this.perkCount(p, 'blastRounds') > 0 && p.shotsFired % 5 === 0) explosionRadius = 64;
       if (this.perkCount(p, 'explosiveImpact') > 0) explosionRadius = Math.max(explosionRadius ?? 0, 34 + this.perkCount(p, 'explosiveImpact') * 8);
+      if (this.perkCount(p, 'shrapnel') > 0 && p.shotsFired % 4 === 0) explosionRadius = Math.max(explosionRadius ?? 0, 58 + this.perkCount(p, 'shrapnel') * 12);
       chilled = this.perkCount(p, 'cryoRounds') > 0;
     }
     const bullet: Bullet = {
       id: this.nextId++, owner: p.id, x: muzzleX, y: muzzleY,
       vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed,
-      r: bulletRadius, dmg: p.d.bulletDamage * (barrel.damageMul ?? 1) * perkDamage,
+      r: bulletRadius, dmg: p.d.bulletDamage * (barrel.damageMul ?? 1) * perkDamage * critical,
       hp: kind === 'drone' ? 8 : kind === 'trap' ? 100 : p.d.bulletHp + (this.mode === 'survival' ? this.perkCount(p, 'piercingRounds') : 0),
       life, hit: new Set(), kind, angle: spreadAngle,
       maxSpeed: kind === 'missile' ? p.d.bulletSpeed * 1.45 : speed,
@@ -1167,10 +1224,12 @@ export class Game {
     };
     this.bullets.push(bullet);
 
-    // Recoil is per barrel and based on projectile cross-sectional area.
-    // Rear barrels naturally propel the tank forward because recoil opposes their shot direction.
-    const sizeRatio = barrel.width / 20;
-    const recoilDistance = BASE_RECOIL_DISTANCE * sizeRatio * sizeRatio * (barrel.recoil ?? 1);
+    // Recoil follows projectile damage, not barrel width alone. Normalising across
+    // a volley keeps multi-barrel tanks controllable; high-rate light guns stay light.
+    const damageRatio = Math.sqrt(clamp(bullet.dmg / Math.max(1, p.d.bulletDamage), 0.04, 4));
+    const volleyScale = 1 / Math.sqrt(Math.max(1, cls.barrels.length));
+    const dampers = this.mode === 'survival' ? Math.max(0.5, 1 - this.perkCount(p, 'recoilDampers') * 0.12) : 1;
+    const recoilDistance = clamp(BASE_RECOIL_DISTANCE * damageRatio * volleyScale * (barrel.recoil ?? 1) * dampers, 0, BASE_RECOIL_DISTANCE * 2.5);
     const recoilImpulse = recoilDistance * SERVER_TICK_HZ * (1 - RECOIL_DECAY_PER_TICK);
     p.rvx -= Math.cos(spreadAngle) * recoilImpulse;
     p.rvy -= Math.sin(spreadAngle) * recoilImpulse;
@@ -1360,7 +1419,7 @@ export class Game {
       drone.vy = Math.sin(drone.angle) * speed;
     }
 
-    drone.dmg = owner.d.bulletDamage * (cls.droneDamageMul ?? 0.85);
+    drone.dmg = owner.d.bulletDamage * (cls.droneDamageMul ?? 0.85) * (1 + this.perkCount(owner, 'droneTactician') * 0.15);
     drone.x += drone.vx * dt;
     drone.y += drone.vy * dt;
   }
@@ -1623,16 +1682,31 @@ export class Game {
       if (bullet.kind === 'drone' && bullet.attackState && bullet.attackState !== 'dive') return;
       if (!this.projectileCanHit(bullet, zombie.id)) return;
       if (bullet.kind === 'drone') bullet.hit.add(zombie.id);
+      const owner = this.players.get(bullet.owner);
       const guardianMul = this.isZombieProtected(zombie) ? 0.58 : 1;
-      const armourMul = zombie.kind === 'armoured' ? 0.58 : 1;
+      const armourStacks = this.mode === 'survival' ? this.perkCount(owner, 'armorPiercer') : 0;
+      const armourMul = zombie.kind === 'armoured' ? Math.min(0.96, 0.58 + armourStacks * 0.09) : 1;
       const bossMul = zombie.bossKind ? 0.84 : 1;
-      const dealt = bullet.dmg * guardianMul * armourMul * bossMul;
+      let perkMul = 1;
+      if (owner && this.mode === 'survival') {
+        if (zombie.bossKind) perkMul *= 1 + this.perkCount(owner, 'bossHunter') * 0.16;
+        if (zombie.hp <= zombie.maxHp * 0.35) perkMul *= 1 + this.perkCount(owner, 'executioner') * 0.18;
+        if (owner.hp <= owner.maxHp * 0.35) perkMul *= 1 + this.perkCount(owner, 'adrenaline') * 0.12;
+      }
+      const dealt = bullet.dmg * guardianMul * armourMul * bossMul * perkMul;
       zombie.hp -= dealt;
       zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
-      const owner = this.players.get(bullet.owner);
       if (owner && this.mode === 'survival') {
         if (this.perkCount(owner, 'lifesteal') > 0) owner.hp = Math.min(owner.maxHp, owner.hp + dealt * 0.05 * this.perkCount(owner, 'lifesteal'));
         if (bullet.chilled) zombie.slowT = Math.max(zombie.slowT, 3);
+        const hotStacks = this.perkCount(owner, 'hotRounds');
+        if (hotStacks > 0) {
+          zombie.burnT = Math.max(zombie.burnT ?? 0, 3);
+          zombie.burnDps = Math.max(zombie.burnDps ?? 0, dealt * 0.09 * hotStacks);
+          zombie.burnTick = Math.min(zombie.burnTick ?? 0.5, 0.5);
+          zombie.burnOwnerId = owner.id;
+        }
+        if (this.perkCount(owner, 'chainShot') > 0 && !bullet.chained) this.chainSurvivalImpact(bullet, zombie, dealt);
         if (bullet.explosionRadius && !bullet.exploded) this.explodeSurvivalImpact(bullet, zombie);
       }
       const shotSpeed = Math.hypot(bullet.vx, bullet.vy);
@@ -1640,12 +1714,9 @@ export class Game {
       const hitY = shotSpeed > 0.001 ? bullet.vy / shotSpeed : Math.sin(bullet.angle);
       zombie.hitFlash = 1;
       zombie.hitAngle = Math.atan2(hitY, hitX);
-      // Bosses are immovable and cannot be stagger-locked by rapid fire.
-      if (!zombie.bossKind) {
-        const impact = clamp(shotSpeed * 0.11 + bullet.dmg * 0.28, 24, 140);
-        zombie.kvx += hitX * impact; zombie.kvy += hitY * impact;
-        zombie.staggerT = Math.max(zombie.staggerT, Math.min(0.24, 0.06 + bullet.dmg * 0.001));
-      }
+      // Bosses are immovable. Regular enemies receive damage-based knockback;
+      // light rapid-fire hits cannot build unlimited velocity or stagger-lock them.
+      if (!zombie.bossKind) this.applyZombieKnockback(zombie, hitX, hitY, dealt, shotSpeed, owner);
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0)
         : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
@@ -1670,10 +1741,46 @@ export class Game {
     }
   }
 
+  private applyZombieKnockback(zombie: Zombie, dirX: number, dirY: number, damage: number, shotSpeed: number, owner?: Player) {
+    const mass: Record<ZombieKind, number> = {
+      shambler: 1, runner: 0.82, tank: 0.48, ranger: 0.88, guardian: 0.62, bomber: 0.9,
+      leaper: 0.76, armoured: 0.4, medic: 0.92, exploder: 0.86, splitter: 0.78, stalker: 0.72, commander: 0.68,
+    };
+    const concussive = this.mode === 'survival' ? 1 + this.perkCount(owner, 'concussiveRounds') * 0.2 : 1;
+    const impulse = (Math.sqrt(Math.max(0, damage)) * 3.4 + Math.max(0, shotSpeed - 250) * 0.006) * mass[zombie.kind] * concussive;
+    zombie.kvx += dirX * impulse; zombie.kvy += dirY * impulse;
+    const maxSpeed = zombie.kind === 'tank' ? 38 : zombie.kind === 'armoured' ? 32 : zombie.kind === 'guardian' ? 44 : zombie.kind === 'runner' ? 72 : 58;
+    const current = Math.hypot(zombie.kvx, zombie.kvy);
+    if (current > maxSpeed) { zombie.kvx = zombie.kvx / current * maxSpeed; zombie.kvy = zombie.kvy / current * maxSpeed; }
+    const stagger = clamp((damage - 9) / 55, 0, 1) * 0.16;
+    if (stagger > 0) zombie.staggerT = Math.max(zombie.staggerT, stagger);
+  }
+
+  private chainSurvivalImpact(bullet: Bullet, directHit: Zombie, damage: number) {
+    const owner = this.players.get(bullet.owner);
+    if (!owner) return;
+    bullet.chained = true;
+    const stacks = this.perkCount(owner, 'chainShot');
+    const radius = 100 + stacks * 25;
+    let target: Zombie | undefined, nearest = radius;
+    for (const zombie of this.zombies) {
+      if (zombie === directHit || zombie.hp <= 0) continue;
+      const distance = Math.hypot(zombie.x - directHit.x, zombie.y - directHit.y);
+      if (distance >= nearest) continue;
+      target = zombie; nearest = distance;
+    }
+    if (!target) return;
+    const armour = target.kind === 'armoured' ? Math.min(0.96, 0.58 + this.perkCount(owner, 'armorPiercer') * 0.09) : 1;
+    const chainDamage = damage * (0.14 + stacks * 0.06) * armour * (target.bossKind ? 0.84 : 1);
+    target.hp -= chainDamage;
+    target.damageBy.set(owner.id, (target.damageBy.get(owner.id) ?? 0) + chainDamage);
+    target.hitFlash = Math.max(target.hitFlash, 0.65);
+  }
+
   private explodeSurvivalImpact(bullet: Bullet, directHit: Zombie) {
     bullet.exploded = true;
     const radius = bullet.explosionRadius ?? 0, owner = this.players.get(bullet.owner);
-    const splash = bullet.dmg * (this.perkCount(owner, 'blastRounds') > 0 ? 0.42 : 0.28);
+    const splash = bullet.dmg * Math.min(0.62, (this.perkCount(owner, 'blastRounds') > 0 ? 0.42 : 0.28) + this.perkCount(owner, 'shrapnel') * 0.07);
     for (const zombie of this.zombies) {
       if (zombie === directHit || zombie.hp <= 0 || Math.hypot(zombie.x - bullet.x, zombie.y - bullet.y) > radius + zombie.r) continue;
       const dealt = splash * (zombie.kind === 'armoured' ? 0.58 : 1) * (zombie.bossKind ? 0.84 : 1);
@@ -1724,8 +1831,9 @@ export class Game {
 
   private hurtPlayer(p: Player, amount: number, byId: number | null, byName: string) {
     if (!p.connected || !p.alive || p.downed || amount <= 0) return;
-    p.hp -= amount;
-    p.damageTaken += amount;
+    const reduced = this.mode === 'survival' ? amount * Math.max(0.68, 1 - this.perkCount(p, 'ironSkin') * 0.06) : amount;
+    p.hp -= reduced;
+    p.damageTaken += reduced;
     const attacker = byId == null ? undefined : this.players.get(byId);
     if (attacker && attacker.id !== p.id) attacker.damageDealt += amount;
     p.lastDamageT = this.time;
@@ -1789,7 +1897,7 @@ export class Game {
       id: this.nextId++, owner: owner.id, x: shape.x, y: shape.y, vx: 0, vy: 0,
       r: 12, dmg: owner.d.bulletDamage * (cls.droneDamageMul ?? 0.6), hp: 8,
       life: DRONE_LIFE_S, hit: new Set(), kind: 'drone', angle: owner.angle,
-      maxSpeed: 300 * (cls.droneSpeedMul ?? 1), turnRate: 4.6, formationSlot,
+      maxSpeed: 300 * (cls.droneSpeedMul ?? 1) * (1 + this.perkCount(p, 'droneTactician') * 0.08), turnRate: 4.6, formationSlot,
       attackState: 'guard', attackCooldown: 0,
     });
   }
@@ -1828,6 +1936,7 @@ export class Game {
     const card = offer?.cards.find((entry) => entry.id === perkId), perk = SURVIVAL_PERKS.find((entry) => entry.id === perkId);
     if (this.mode !== 'survival' || !player?.alive || !card || !perk) return false;
     player.survivalPerks[perkId] = Math.min(perk.max, (player.survivalPerks[perkId] ?? 0) + 1);
+    this.refresh(player);
     player.rewardOffers.shift(); return true;
   }
 
@@ -1840,7 +1949,8 @@ export class Game {
   private refresh(p: Player) {
     const previousMax = p.maxHp;
     p.d = deriveStats(p.level, p.stats, p.cls);
-    p.maxHp = p.d.maxHp;
+    const vitality = this.mode === 'survival' ? 1 + this.perkCount(p, 'vitalCore') * 0.08 : 1;
+    p.maxHp = p.d.maxHp * vitality;
     p.r = p.d.radius;
     if (previousMax > 0) p.hp = Math.min(p.maxHp, p.hp * (p.maxHp / previousMax));
     p.pts = statPointsEarned(p.level) - p.stats.reduce((sum, value) => sum + value, 0);

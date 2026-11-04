@@ -101,6 +101,22 @@ test('recoil pushes opposite the shot and weapon definitions change its strength
   rangerGame.step(DT);
   assert.ok(Math.abs(ranger.rvx) > basicKick * 1.5, 'Ranger should have a stronger per-shot kick');
 
+  const machineGame = fresh();
+  const machine = machineGame.addPlayer('machine')!;
+  assert.ok(machineGame.debugSetClass(machine.id, 'machine'));
+  machine.x = 1000; machine.y = 1000; machine.protT = 0;
+  machineGame.setInput(machine.id, { mx: 0, my: 0, a: 0, f: true });
+  machineGame.step(DT);
+  assert.ok(Math.abs(machine.rvx) < basicKick * 0.4, 'light rapid-fire bullets should create much less tank recoil');
+
+  const destroyerGame = fresh();
+  const destroyer = destroyerGame.addPlayer('destroyer')!;
+  assert.ok(destroyerGame.debugSetClass(destroyer.id, 'destroyer'));
+  destroyer.x = 1000; destroyer.y = 1000; destroyer.protT = 0;
+  destroyerGame.setInput(destroyer.id, { mx: 0, my: 0, a: 0, f: true });
+  destroyerGame.step(DT);
+  assert.ok(Math.abs(destroyer.rvx) < basicKick * 3, 'heavy cannons should feel strong without becoming uncontrollable');
+
   const flankGame = fresh();
   const flank = flankGame.addPlayer('flank')!;
   assert.ok(flankGame.debugSetClass(flank.id, 'flank'));
@@ -109,6 +125,25 @@ test('recoil pushes opposite the shot and weapon definitions change its strength
   flankGame.step(DT);
   assert.ok(Math.hypot(flank.rvx, flank.rvy) < 0.001, 'opposing Flank Guard barrels should cancel recoil');
 });
+test('enemy knockback scales with damage and light hits cannot build unlimited velocity', () => {
+  const impulseFor = (damage: number) => {
+    const game = new Game(seeded(141), 0, 'survival');
+    const player = game.addPlayer('shooter')!;
+    run(game, 1.5);
+    const zombie = game.zombies[0]!;
+    Object.assign(zombie, { x: 1200, y: 1200, hp: 1000, maxHp: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0, protT: 0 });
+    game.bullets.push({ id: 88001, owner: player.id, x: zombie.x, y: zombie.y, vx: 0, vy: 0,
+      r: 8, dmg: damage, hp: 5, life: 2, hit: new Set<number>(), kind: 'bullet', angle: 0, maxSpeed: 0, turnRate: 0 });
+    game.step(DT);
+    return Math.hypot(zombie.kvx, zombie.kvy);
+  };
+  const light = impulseFor(2);
+  const heavy = impulseFor(28);
+  assert.ok(light > 0, 'even light hits should have a small physical response');
+  assert.ok(heavy > light * 1.8, 'heavier damage should make a clearly stronger impact');
+  assert.ok(light < 12, 'small bullets must not apply the old minimum 24-unit knockback');
+});
+
 test('developer class override bypasses evolution but preserves level and XP', () => {
   const g = fresh();
   const p = g.addPlayer('dev')!;
@@ -651,6 +686,20 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
   assert.ok(Math.hypot(zombie.kvx, zombie.kvy) > 0, 'projectile impacts should knock zombies back');
   assert.ok(zombie.staggerT > 0, 'strong impacts briefly stagger zombies');
   assert.equal(game.zombies.some((entry) => entry.id === zombie.id), false);
+});
+
+test('Survival perk effects cover movement, defence, health and damage upgrades', () => {
+  const game = new Game(seeded(143), 0, 'survival');
+  const player = game.addPlayer('perk tester')!;
+  const internal = game as unknown as { refresh: (player: typeof player) => void; hurtPlayer: (player: typeof player, amount: number, byId: number | null, name: string) => void };
+  const baseMax = player.maxHp;
+  player.survivalPerks.vitalCore = 2;
+  internal.refresh(player);
+  assert.ok(player.maxHp > baseMax, 'Vital Core raises maximum health');
+  const before = player.hp;
+  player.survivalPerks.ironSkin = 2;
+  internal.hurtPlayer(player, 10, null, 'test hit');
+  assert.ok(Math.abs((before - player.hp) - 8.8) < 0.01, 'Iron Skin reduces incoming Survival damage');
 });
 
 test('Survival rewards are independent, non-blocking and reset between runs', () => {
