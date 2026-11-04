@@ -346,6 +346,8 @@ export class Game {
 
     let goalX: number, goalY: number;
     let attackRun = false;
+    let orbitalAttack = false;
+    let orbitCruiseSpeed = 0;
     let targetDistance = Number.POSITIVE_INFINITY;
 
     if (leashRetreat) {
@@ -354,16 +356,21 @@ export class Game {
       goalY = owner.y + Math.sin(slotAngle) * regroupRadius;
     } else if (target) {
       attackRun = true;
+      orbitalAttack = true;
       const dx = target.x - drone.x, dy = target.y - drone.y;
       targetDistance = Math.hypot(dx, dy);
-      // Give every drone a stable slot around the target instead of sending
-      // the whole squad into its centre. Extra drone rings stay just behind
-      // the first attack line rather than piling into the same position.
+      // Each drone keeps its own phase but continuously sweeps around the
+      // target. The orbit sits just inside contact range, so the squad clips
+      // the target as it passes instead of camping at fixed compass points.
       const ownerFacingTarget = Math.atan2(owner.y - target.y, owner.x - target.x);
-      const attackAngle = ownerFacingTarget + (ringIndex / 8) * Math.PI * 2 + ring * 0.28;
-      const attackRadius = (target.r ?? 24) + drone.r * 0.35 + ring * drone.r * 0.8;
-      goalX = target.x + Math.cos(attackAngle) * attackRadius;
-      goalY = target.y + Math.sin(attackAngle) * attackRadius;
+      const slotPhase = ownerFacingTarget + (ringIndex / 8) * Math.PI * 2 + ring * 0.28;
+      const orbitRate = 1.35;
+      const orbitWobble = Math.sin(this.time * 2.4 + ringIndex * 1.7) * 0.16;
+      const orbitRadius = (target.r ?? 24) + drone.r * (0.68 + orbitWobble) + ring * drone.r * 0.85;
+      const orbitAngle = slotPhase + this.time * orbitRate;
+      goalX = target.x + Math.cos(orbitAngle) * orbitRadius;
+      goalY = target.y + Math.sin(orbitAngle) * orbitRadius;
+      orbitCruiseSpeed = orbitRadius * orbitRate;
     } else if (manualCommand) {
       // Right-click / Shift remains direct, but Overlord commands cannot exceed
       // the tether's safe attack radius.
@@ -398,7 +405,9 @@ export class Game {
       separationX += (dx / distance) * push;
       separationY += (dy / distance) * push;
     }
-    const separationWeight = 1;
+    // Orbit slots already separate the squad. Only a light nudge is needed
+    // during a dive, otherwise separation can spoil the circular motion.
+    const separationWeight = orbitalAttack ? 0.18 : 1;
     const steerX = goalX - drone.x + separationX * (drone.r * 8 + 28) * separationWeight;
     const steerY = goalY - drone.y + separationY * (drone.r * 8 + 28) * separationWeight;
     const desired = Math.atan2(steerY, steerX);
@@ -408,7 +417,9 @@ export class Game {
     const distanceToGoal = Math.hypot(steerX, steerY);
     const currentSpeed = Math.hypot(drone.vx, drone.vy);
     const speedFactor = attackRun ? clamp(distanceToGoal / 165, 0.035, 1) : clamp(distanceToGoal / 150, 0.38, 1);
-    const desiredSpeed = drone.maxSpeed * speedFactor;
+    const desiredSpeed = orbitalAttack
+      ? clamp(orbitCruiseSpeed + distanceToGoal * 1.35, 48, drone.maxSpeed * 0.85)
+      : drone.maxSpeed * speedFactor;
     const speed = currentSpeed + (desiredSpeed - currentSpeed) * (1 - Math.exp(-dt * (attackRun ? 5 : 3.5)));
     drone.vx = Math.cos(drone.angle) * speed;
     drone.vy = Math.sin(drone.angle) * speed;

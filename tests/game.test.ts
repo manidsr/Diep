@@ -293,28 +293,43 @@ test('Overlord drones stay inside their tether and recall when overextended', ()
   ), 'no drone should escape the visible tether boundary');
 });
 
-test('drone squads surround a target instead of stacking at its centre', () => {
+test('drone squads circle targets and keep hitting them instead of stacking', () => {
   const game = fresh();
-  const player = place(game, game.addPlayer('spread-drones')!.id, 1000, 1000);
+  const player = place(game, game.addPlayer('orbit-drones')!.id, 1000, 1000);
   assert.ok(game.debugSetClass(player.id, 'overlord'));
   const hex = {
     id: 9920, kind: 2, x: 1260, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
     r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
   };
   game.shapes.push(hex);
-  // Keep this fixture stationary so the test measures drone spacing, not
-  // knockback moving the target away from the squad during repeated contacts.
+  // Keep the fixture stationary so the test measures the drone orbit itself.
   (game as unknown as { updateShape: (shape: unknown, dt: number) => void }).updateShape = () => {};
   game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
   run(game, 8);
 
   const drones = game.bullets.filter((bullet) => bullet.owner === player.id && bullet.kind === 'drone');
   assert.equal(drones.length, 8);
-  const occupiedSectors = new Set(drones.map((drone) => {
-    const angle = (Math.atan2(drone.y - hex.y, drone.x - hex.x) + Math.PI * 2) % (Math.PI * 2);
-    return Math.floor(angle / (Math.PI / 4));
-  }));
-  assert.ok(occupiedSectors.size >= 6, `drones should surround the target across the ring, sectors=${occupiedSectors.size}`);
+  const angleBefore = new Map(drones.map((drone) => [
+    drone.id, Math.atan2(drone.y - hex.y, drone.x - hex.x),
+  ]));
+  assert.ok(hex.hp < hex.maxHp, 'orbiting drones should damage the target on contact');
+  assert.ok(drones.every((drone) => {
+    const distance = Math.hypot(drone.x - hex.x, drone.y - hex.y);
+    return distance < hex.r + drone.r * 1.25;
+  }), 'drones should orbit close enough to clip the target');
+
+  const hpBeforeNextPass = hex.hp;
+  run(game, 1);
+  assert.ok(hex.hp < hpBeforeNextPass, 'drones should deal another contact hit as they circle back');
+
+  const movingInOrbitDirection = drones.filter((drone) => {
+    const before = angleBefore.get(drone.id)!;
+    const after = Math.atan2(drone.y - hex.y, drone.x - hex.x);
+    const progress = Math.atan2(Math.sin(after - before), Math.cos(after - before));
+    return progress > 0.25;
+  }).length;
+  assert.ok(movingInOrbitDirection >= 6,
+    `most drones should visibly sweep around the target, moving=${movingInOrbitDirection}`);
 
   let closestPair = Number.POSITIVE_INFINITY;
   for (let i = 0; i < drones.length; i++) {
@@ -323,7 +338,6 @@ test('drone squads surround a target instead of stacking at its centre', () => {
     }
   }
   assert.ok(closestPair > 8, `drones should not occupy one pile: closest pair=${closestPair}`);
-  assert.ok(hex.hp < hex.maxHp, 'distributed drones should still damage the target');
 });
 
 test('a drone can damage the same object again after its contact cooldown', () => {
