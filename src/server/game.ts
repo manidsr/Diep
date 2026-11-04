@@ -16,7 +16,7 @@ export interface Player {
   r: number; angle: number; hp: number; maxHp: number;
   level: number; xp: number; pts: number; stats: number[]; cls: string;
   team: TeamId | null; matchKills: number;
-  alive: boolean; downed: boolean; bleedoutT: number; reviveProgress: number; protT: number; lastDamageT: number;
+  alive: boolean; connected: boolean; downed: boolean; bleedoutT: number; reviveProgress: number; protT: number; lastDamageT: number;
   lastHit: { id: number | null; name: string; classId: string | null } | null;
   kills: number; damageDealt: number; damageTaken: number; lifeStartedAt: number;
   input: { mx: number; my: number; a: number; f: boolean; secondary: boolean; spin: boolean };
@@ -122,7 +122,7 @@ export class Game {
       id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
       r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, pts: 0, stats, cls: 'basic',
       team: this.mode === 'teams' ? this.assignTeam() : null, matchKills: 0,
-      alive: true, downed: false, bleedoutT: 0, reviveProgress: 0,
+      alive: true, connected: true, downed: false, bleedoutT: 0, reviveProgress: 0,
       protT: 0, lastDamageT: -99, lastHit: null,
       kills: 0, damageDealt: 0, damageTaken: 0, lifeStartedAt: 0,
       input: { mx: 0, my: 0, a: 0, f: false, secondary: false, spin: false },
@@ -137,8 +137,8 @@ export class Game {
   }
 
   private assignTeam(): TeamId {
-    const blue = [...this.players.values()].filter((player) => player.team === 'blue').length;
-    const red = [...this.players.values()].filter((player) => player.team === 'red').length;
+    const blue = [...this.players.values()].filter((player) => player.connected && player.team === 'blue').length;
+    const red = [...this.players.values()].filter((player) => player.connected && player.team === 'red').length;
     return blue <= red ? 'blue' : 'red';
   }
 
@@ -152,9 +152,33 @@ export class Game {
     }
   }
 
+  /** Freeze a disconnected player during the reconnect grace period. */
+  suspendPlayer(id: number): boolean {
+    const p = this.players.get(id);
+    if (!p) return false;
+    p.connected = false;
+    p.input = { mx: 0, my: 0, a: p.angle, f: false, secondary: false, spin: false };
+    p.wasFiring = false; p.wasSecondary = false;
+    p.vx = p.vy = p.kvx = p.kvy = p.rvx = p.rvy = 0;
+    this.bullets = this.bullets.filter((bullet) => bullet.owner !== id);
+    return true;
+  }
+
+  /** Re-enable a suspended player without resetting their progression or position. */
+  resumePlayer(id: number): boolean {
+    const p = this.players.get(id);
+    if (!p) return false;
+    p.connected = true;
+    p.input = { mx: 0, my: 0, a: p.angle, f: false, secondary: false, spin: false };
+    p.wasFiring = false; p.wasSecondary = false;
+    p.vx = p.vy = p.kvx = p.kvy = p.rvx = p.rvy = 0;
+    return true;
+  }
+
   respawn(id: number, name?: string) {
     const p = this.players.get(id);
     if (!p) return;
+    p.connected = true;
     if (this.mode === 'survival' && this.survivalGameOver) this.resetSurvivalRun();
     if (name) p.name = name;
     p.level = 1; p.xp = 0; p.stats = STAT_KEYS.map(() => 0); p.cls = 'basic'; p.maxHp = 0;
@@ -192,7 +216,7 @@ export class Game {
       let nearestPlayer = 1200;
       let playerTraffic = 0;
       for (const other of this.players.values()) {
-        if (!other.alive || other.downed) continue;
+        if (!other.connected || !other.alive || other.downed) continue;
         const distance = Math.hypot(x - other.x, y - other.y);
         nearestPlayer = Math.min(nearestPlayer, distance);
         if (distance < 520) playerTraffic += (520 - distance) / 520;
@@ -222,7 +246,7 @@ export class Game {
   // ---------- validated player intents ----------
   setInput(id: number, input: { mx: number; my: number; a: number; f: boolean; secondary?: boolean; spin?: boolean }) {
     const p = this.players.get(id);
-    if (!p || !p.alive || p.downed) return;
+    if (!p || !p.connected || !p.alive || p.downed) return;
     const unit = (v: number) => Number.isFinite(v) ? clamp(v, -1, 1) : 0;
     p.input = {
       mx: unit(input.mx), my: unit(input.my),
@@ -278,7 +302,7 @@ export class Game {
   step(dt: number) {
     this.time += dt;
     this.tick++;
-    for (const p of this.players.values()) if (p.alive && !p.downed) this.updatePlayer(p, dt);
+    for (const p of this.players.values()) if (p.connected && p.alive && !p.downed) this.updatePlayer(p, dt);
     for (const s of this.shapes) this.updateShape(s, dt);
     if (this.mode === 'survival') for (const zombie of this.zombies) this.updateZombie(zombie, dt);
 
@@ -356,7 +380,7 @@ export class Game {
 
   private spawnZombie(forceKind?: ZombieKind) {
     if (this.zombies.length >= MAX_ZOMBIES) return false;
-    const living = [...this.players.values()].filter((player) => player.alive && !player.downed);
+    const living = [...this.players.values()].filter((player) => player.connected && player.alive && !player.downed);
     if (!living.length) return false;
     const size = this.arenaSize;
     let best = { x: 70, y: 70 }, bestDistance = -Infinity;
@@ -418,11 +442,11 @@ export class Game {
     zombie.staggerT = Math.max(0, zombie.staggerT - dt);
     zombie.hitFlash = Math.max(0, zombie.hitFlash * Math.exp(-dt * 8));
     let target = zombie.targetId == null ? undefined : this.players.get(zombie.targetId);
-    if (!target?.alive || target.downed) {
+    if (!target?.connected || !target.alive || target.downed) {
       target = undefined;
       let bestScore = Infinity;
       for (const player of this.players.values()) {
-        if (!player.alive || player.downed) continue;
+        if (!player.connected || !player.alive || player.downed) continue;
         const distance = Math.hypot(player.x - zombie.x, player.y - zombie.y);
         const pursuers = this.zombies.reduce((count, other) =>
           count + (other !== zombie && other.targetId === player.id ? 1 : 0), 0);
@@ -575,7 +599,7 @@ export class Game {
     bomber.hitFlash = 1;
     const radius = 158;
     for (const player of this.players.values()) {
-      if (!player.alive || player.downed || player.protT > 0) continue;
+      if (!player.connected || !player.alive || player.downed || player.protT > 0) continue;
       const dx = player.x - bomber.x, dy = player.y - bomber.y;
       const distance = Math.hypot(dx, dy);
       if (distance > radius + player.r) continue;
@@ -692,7 +716,7 @@ export class Game {
     const radius = 255 + boss.r * 0.78;
     boss.hitFlash = 1;
     for (const player of this.players.values()) {
-      if (!player.alive || player.downed || player.protT > 0) continue;
+      if (!player.connected || !player.alive || player.downed || player.protT > 0) continue;
       const dx = player.x - boss.x, dy = player.y - boss.y;
       const distance = Math.hypot(dx, dy);
       if (distance > radius + player.r) continue;
@@ -787,7 +811,7 @@ export class Game {
       if (!downed.alive || !downed.downed) continue;
       downed.bleedoutT = Math.max(0, downed.bleedoutT - dt);
       const helperNearby = [...this.players.values()].some((ally) => {
-        if (ally.id === downed.id || !ally.alive || ally.downed) return false;
+        if (ally.id === downed.id || !ally.connected || !ally.alive || ally.downed) return false;
         return Math.hypot(ally.x - downed.x, ally.y - downed.y) <= 88 &&
           Math.hypot(ally.vx, ally.vy) <= 90;
       });
@@ -840,7 +864,7 @@ export class Game {
     this.healthDrops = this.healthDrops.filter((drop) => drop.life > 0);
     for (const drop of this.healthDrops) {
       const collector = [...this.players.values()].find((player) =>
-        player.alive && !player.downed && player.hp < player.maxHp &&
+        player.connected && player.alive && !player.downed && player.hp < player.maxHp &&
         Math.hypot(player.x - drop.x, player.y - drop.y) <= player.r + drop.r + 8
       );
       if (!collector) continue;
@@ -1192,7 +1216,7 @@ export class Game {
 
   private findTargetById(id: number): Target | null {
     const player = this.players.get(id);
-    if (player?.alive) {
+    if (player?.connected && player.alive) {
       return { id: player.id, x: player.x, y: player.y, r: player.r, vx: player.vx, vy: player.vy };
     }
     const shape = this.shapes.find((candidate) => candidate.id === id);
@@ -1206,7 +1230,7 @@ export class Game {
     let bestScore = Number.POSITIVE_INFINITY;
     if (this.mode !== 'survival') {
       for (const p of this.players.values()) {
-        if (!p.alive || p.id === owner.id || (owner.team != null && p.team === owner.team)) continue;
+        if (!p.connected || !p.alive || p.id === owner.id || (owner.team != null && p.team === owner.team)) continue;
         const dx = p.x - owner.x, dy = p.y - owner.y;
         const distance = Math.hypot(dx, dy);
         if (distance > range) continue;
@@ -1324,7 +1348,7 @@ export class Game {
   // ---------- collisions ----------
   private collideAll(dt: number) {
     const entities: Ent[] = [];
-    for (const p of this.players.values()) if (p.alive && !p.downed) entities.push({ k: 0, o: p });
+    for (const p of this.players.values()) if (p.connected && p.alive && !p.downed) entities.push({ k: 0, o: p });
     for (const s of this.shapes) entities.push({ k: 1, o: s });
     for (const b of this.bullets) if (b.hp > 0 && b.life > 0) entities.push({ k: 2, o: b });
     for (const zombie of this.zombies) if (zombie.hp > 0) entities.push({ k: 3, o: zombie });
@@ -1505,7 +1529,7 @@ export class Game {
   }
 
   private hurtPlayer(p: Player, amount: number, byId: number | null, byName: string) {
-    if (!p.alive || p.downed || amount <= 0) return;
+    if (!p.connected || !p.alive || p.downed || amount <= 0) return;
     p.hp -= amount;
     p.damageTaken += amount;
     const attacker = byId == null ? undefined : this.players.get(byId);
@@ -1590,7 +1614,7 @@ export class Game {
 
   // ---------- output ----------
   leaderboard(limit = 10) {
-    return [...this.players.values()].filter((p) => p.alive).sort((a, b) => b.xp - a.xp).slice(0, limit)
+    return [...this.players.values()].filter((p) => p.connected && p.alive).sort((a, b) => b.xp - a.xp).slice(0, limit)
       .map((p) => ({ id: p.id, name: p.name, score: p.xp, lv: p.level }));
   }
 
@@ -1599,7 +1623,7 @@ export class Game {
       wave: this.wave, zombieKills: this.zombieKills, zombiesRemaining: this.zombies.length + this.waveSpawnRemaining,
       nextWaveIn: Math.ceil(this.waveIntermission), elapsed: Math.floor(this.survivalElapsed),
       gameOver: this.survivalGameOver,
-      top: [...this.players.values()].sort((a, b) => b.kills - a.kills || b.xp - a.xp).slice(0, limit)
+      top: [...this.players.values()].filter((player) => player.connected).sort((a, b) => b.kills - a.kills || b.xp - a.xp).slice(0, limit)
         .map((player) => ({ id: player.id, name: player.name, kills: player.kills, xp: player.xp, lv: player.level,
           alive: player.alive && !player.downed, downed: player.downed })),
     };
@@ -1607,7 +1631,7 @@ export class Game {
 
   teamLeaderboard(limit = 5) {
     const members = <T extends TeamId>(team: T) => [...this.players.values()]
-      .filter((player) => player.team === team)
+      .filter((player) => player.connected && player.team === team)
       .sort((a, b) => b.matchKills - a.matchKills || b.level - a.level)
       .slice(0, limit)
       .map((player) => ({ id: player.id, name: player.name, score: player.matchKills,
@@ -1637,7 +1661,7 @@ export class Game {
         bossKind: zombie.bossKind, bossPhase: zombie.bossPhase, bossTimer: r2(zombie.bossTimer),
         specialPhase: zombie.specialPhase, specialTimer: r2(zombie.specialTimer),
       })),
-      d: [...this.players.values()].filter((player) => player.alive && player.downed).map((player) => ({
+      d: [...this.players.values()].filter((player) => player.connected && player.alive && player.downed).map((player) => ({
         id: player.id, name: player.name, x: r1(player.x), y: r1(player.y), r: r1(player.r),
         reviveProgress: r2(player.reviveProgress / 4), bleedout: r1(player.bleedoutT),
       })),
@@ -1649,7 +1673,7 @@ export class Game {
         cls: me.cls, opts: me.alive && !me.downed ? classOptions(me.cls, me.level) : [], fov: me.d.fovMul * focus,
         team: me.team,
       },
-      p: [...this.players.values()].filter((player) => player.alive && !player.downed &&
+      p: [...this.players.values()].filter((player) => player.connected && player.alive && !player.downed &&
         (this.mode === 'survival' || near(player.x, player.y, player.r))).map((player) => ({
         id: player.id, name: player.name, x: r1(player.x), y: r1(player.y), a: r2(player.angle),
         hp: r1(player.hp), mhp: r1(player.maxHp), r: r1(player.r), lv: player.level,

@@ -1,4 +1,4 @@
-import { MAX_NAME_LEN, STAT_KEYS } from './config';
+import { CLASS_IDS, MAX_NAME_LEN, STAT_KEYS } from './config';
 
 export const MAX_MESSAGE_BYTES = 256;
 
@@ -7,7 +7,7 @@ export type TeamId = 'blue' | 'red';
 export type GameMode = 'ffa' | 'teams' | 'survival';
 
 export type ClientMessage =
-  | { t: 'join'; name: string; mode?: GameMode }
+  | { t: 'join'; name: string; mode?: GameMode; resumeToken?: string }
   | { t: 'input'; mx: number; my: number; a: number; f: boolean; secondary?: boolean; spin?: boolean }
   | { t: 'upgrade'; stat: number }
   | { t: 'class'; id: string }
@@ -33,10 +33,13 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   const message = parsed as Record<string, unknown>;
   switch (message.t) {
     case 'join':
+      if (message.resumeToken !== undefined &&
+          (typeof message.resumeToken !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.resumeToken))) return null;
       return {
         t: 'join',
         name: sanitizeName(message.name),
         mode: message.mode === 'teams' ? 'teams' : message.mode === 'survival' ? 'survival' : 'ffa',
+        ...(typeof message.resumeToken === 'string' ? { resumeToken: message.resumeToken } : {}),
       };
     case 'input':
       if (!num(message.mx) || !num(message.my) || !num(message.a)) return null;
@@ -54,7 +57,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return { t: 'upgrade', stat: message.stat as number };
     case 'class':
     case 'devClass':
-      if (typeof message.id !== 'string' || message.id.length > 24 || !/^[a-z0-9_-]+$/.test(message.id)) return null;
+      if (typeof message.id !== 'string' || !CLASS_IDS.includes(message.id as (typeof CLASS_IDS)[number])) return null;
       return { t: message.t, id: message.id };
     default:
       return null;
@@ -106,7 +109,7 @@ export interface Snapshot {
   h: HealthDropSnap[];
 }
 export type ServerMessage =
-  | { t: 'welcome'; id: number; arena: number; hz: number; devCheats: boolean; mode: GameMode }
+  | { t: 'welcome'; id: number; arena: number; hz: number; devCheats: boolean; mode: GameMode; resumeToken: string }
   | Snapshot
   | { t: 'lb'; mode: 'ffa'; top: { id: number; name: string; score: number; lv: number }[] }
   | {

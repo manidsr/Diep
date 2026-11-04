@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseClientMessage, sanitizeName } from '../src/shared/protocol';
+import { CLASS_IDS } from '../src/shared/config';
 
 test('rejects malformed, oversized and unknown messages', () => {
   for (const bad of ['', 'nope', '[]', 'null', '{"t":"x"}', '{"t":"input","mx":"1","my":0,"a":0}', '{"t":"input","mx":1,"my":0}',
@@ -43,4 +44,21 @@ test('join protocol supports FFA and Team Mode selection', () => {
   assert.deepEqual(parseClientMessage('{"t":"join","name":"Horde","mode":"survival"}'), {
     t: 'join', name: 'Horde', mode: 'survival',
   });
+});
+
+test('class protocol accepts every case-sensitive roster ID and rejects unknown IDs', () => {
+  for (const id of CLASS_IDS) {
+    assert.deepEqual(parseClientMessage(JSON.stringify({ t: 'class', id })), { t: 'class', id });
+    assert.deepEqual(parseClientMessage(JSON.stringify({ t: 'devClass', id })), { t: 'devClass', id });
+  }
+  assert.equal(parseClientMessage('{"t":"class","id":"not-a-class"}'), null);
+  assert.equal(parseClientMessage('{"t":"class","id":"TRIANGLE"}'), null);
+});
+
+test('join protocol validates optional reconnect tokens', () => {
+  const token = '123e4567-e89b-42d3-a456-426614174000';
+  assert.deepEqual(parseClientMessage(JSON.stringify({ t: 'join', name: 'Alice', mode: 'ffa', resumeToken: token })), {
+    t: 'join', name: 'Alice', mode: 'ffa', resumeToken: token,
+  });
+  assert.equal(parseClientMessage('{"t":"join","name":"Alice","resumeToken":"not-a-token"}'), null);
 });

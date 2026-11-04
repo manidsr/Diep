@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,14 +20,17 @@ const KILL_MSGS_PER_SEC = 600;
 
 interface Conn {
   ws: WebSocket; playerId: number | null; game: Game | null; mode: GameMode | null;
-  count: number; windowStart: number; alive: boolean;
+  count: number; windowStart: number; alive: boolean; sessionToken: string | null;
+}
+interface ResumeSession {
+  game: Game; playerId: number; owner: Conn | null; expiresAt: number;
 }
 
 export interface RunningServer {
   http: Server; game: Game; teamGame: Game; survivalGame: Game; port: number; close(): Promise<void>;
 }
 
-export async function startServer(opts: { port?: number; host?: string; game?: Game; teamGame?: Game; survivalGame?: Game; devCheats?: boolean } = {}): Promise<RunningServer> {
+export async function startServer(opts: { port?: number; host?: string; game?: Game; teamGame?: Game; survivalGame?: Game; devCheats?: boolean; reconnectGraceMs?: number } = {}): Promise<RunningServer> {
   const host = opts.host ?? '0.0.0.0';
   const game = opts.game ?? new Game();
   const teamGame = opts.teamGame ?? new Game(undefined, undefined, 'teams');
@@ -34,8 +38,10 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   if (teamGame.mode !== 'teams') throw new Error('teamGame must use Team Mode');
   if (survivalGame.mode !== 'survival') throw new Error('survivalGame must use Co-op Survival');
   const conns = new Set<Conn>();
+  const resumeSessions = new Map<string, ResumeSession>();
+  const reconnectGraceMs = Math.max(0, Math.floor(opts.reconnectGraceMs ?? 45_000));
   const devCheatsEnabled = opts.devCheats ?? (process.env.DIEP_DEV_CHEATS === '1');
-  let devCheatOwner: Conn | null = null;
+  let devCheatOwnerSession: string | null = null;
   let port = opts.port ?? 3000;
 
   const http = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -65,7 +71,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   const send = (ws: WebSocket, m: ServerMessage) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); };
 
   wss.on('connection', (ws) => {
-    const c: Conn = { ws, playerId: null, game: null, mode: null, count: 0, windowStart: Date.now(), alive: true };
+    const c: Conn = { ws, playerId: null, game: null, mode: null, count: 0, windowStart: Date.now(), alive: true, sessionToken: null };
     conns.add(c);
     // Small real-time game packets should not wait for Nagle coalescing.
     (ws as WebSocket & { _socket?: import('node:net').Socket })._socket?.setNoDelay(true);
@@ -84,23 +90,65 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
       switch (m.t) {
         case 'join':
           if (!activeGame) {
+            if (m.resumeToken) {
+              const session = resumeSessions.get(m.resumeToken);
+              if (!session || (!session.owner && session.expiresAt <= Date.now())) {
+                if (session && !session.owner) {
+                  session.game.removePlayer(session.playerId);
+                  resumeSessions.delete(m.resumeToken);
+                  if (devCheatOwnerSession === m.resumeToken) devCheatOwnerSession = null;
+                }
+                send(ws, { t: 'err', msg: 'Reconnect session expired. Joining a new tank is available.' });
+                return;
+              }
+              const resumedPlayer = session.game.players.get(session.playerId);
+              if (!resumedPlayer) {
+                resumeSessions.delete(m.resumeToken);
+                send(ws, { t: 'err', msg: 'Reconnect session is no longer available.' });
+                return;
+              }
+              if (session.owner && session.owner !== c) {
+                const previous = session.owner;
+                previous.playerId = null; previous.game = null; previous.mode = null; previous.sessionToken = null;
+                previous.ws.terminate();
+              }
+              session.owner = c;
+              session.expiresAt = 0;
+              c.playerId = session.playerId;
+              c.game = session.game;
+              c.mode = session.game.mode;
+              c.sessionToken = m.resumeToken;
+              session.game.resumePlayer(session.playerId);
+              if (!resumedPlayer.alive) session.game.respawn(session.playerId);
+              send(ws, {
+                t: 'welcome', id: session.playerId, arena: ARENA_SIZE, hz: SERVER_TICK_HZ,
+                devCheats: devCheatsEnabled && devCheatOwnerSession === m.resumeToken,
+                mode: session.game.mode, resumeToken: m.resumeToken,
+              });
+              return;
+            }
+
             const mode: GameMode = m.mode ?? 'ffa';
             const selectedGame = mode === 'teams' ? teamGame : mode === 'survival' ? survivalGame : game;
             const np = selectedGame.addPlayer(m.name);
             if (!np) { send(ws, { t: 'err', msg: 'Room is full' }); return; }
+            const sessionToken = randomUUID();
             c.playerId = np.id;
             c.game = selectedGame;
             c.mode = mode;
-            if (devCheatsEnabled && devCheatOwner == null) devCheatOwner = c;
+            c.sessionToken = sessionToken;
+            resumeSessions.set(sessionToken, { game: selectedGame, playerId: np.id, owner: c, expiresAt: 0 });
+            if (devCheatsEnabled && devCheatOwnerSession == null) devCheatOwnerSession = sessionToken;
             send(ws, {
               t: 'welcome', id: np.id, arena: ARENA_SIZE, hz: SERVER_TICK_HZ,
-              devCheats: devCheatsEnabled && devCheatOwner === c, mode,
+              devCheats: devCheatsEnabled && devCheatOwnerSession === sessionToken, mode, resumeToken: sessionToken,
             });
           } else if (p && !p.alive) {
             activeGame.respawn(p.id, m.name);
             send(ws, {
               t: 'welcome', id: p.id, arena: ARENA_SIZE, hz: SERVER_TICK_HZ,
-              devCheats: devCheatsEnabled && devCheatOwner === c, mode: c.mode ?? 'ffa',
+              devCheats: devCheatsEnabled && devCheatOwnerSession === c.sessionToken,
+              mode: c.mode ?? 'ffa', resumeToken: c.sessionToken ?? '',
             });
           }
           break;
@@ -108,13 +156,21 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
         case 'upgrade': if (p) activeGame?.upgradeStat(p.id, m.stat); break;
         case 'class': if (p) activeGame?.chooseClass(p.id, m.id); break;
         case 'devClass':
-          if (p && devCheatsEnabled && devCheatOwner === c) activeGame?.debugSetClass(p.id, m.id);
+          if (p && devCheatsEnabled && devCheatOwnerSession === c.sessionToken) activeGame?.debugSetClass(p.id, m.id);
           break;
       }
     });
     ws.on('close', () => {
       conns.delete(c);
-      if (c.playerId != null) c.game?.removePlayer(c.playerId);
+      if (c.playerId == null || !c.game) return;
+      const session = c.sessionToken ? resumeSessions.get(c.sessionToken) : undefined;
+      if (session?.owner === c) {
+        session.owner = null;
+        session.expiresAt = Date.now() + reconnectGraceMs;
+        c.game.suspendPlayer(c.playerId);
+      } else if (!session) {
+        c.game.removePlayer(c.playerId);
+      }
     });
     ws.on('error', () => ws.terminate());
   });
@@ -122,7 +178,18 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   // Both game worlds share one fixed timestep but never share players or combat state.
   const dt = 1 / SERVER_TICK_HZ;
   let last = performance.now(), acc = 0;
+  let nextSessionSweep = Date.now() + 250;
   const loop = setInterval(() => {
+    const wallNow = Date.now();
+    if (wallNow >= nextSessionSweep) {
+      nextSessionSweep = wallNow + 250;
+      for (const [token, session] of resumeSessions) {
+        if (session.owner || session.expiresAt > wallNow) continue;
+        session.game.removePlayer(session.playerId);
+        resumeSessions.delete(token);
+        if (devCheatOwnerSession === token) devCheatOwnerSession = null;
+      }
+    }
     const now = performance.now();
     acc = Math.min(acc + (now - last) / 1000, 0.25);
     last = now;

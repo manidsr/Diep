@@ -20,6 +20,13 @@ test('full class roster has 54 unique, valid definitions and reachable parents',
   }
 });
 
+test('Dual-Barrel uses primary fire for both barrels so touch players do not need a secondary button', () => {
+  const cls = CLASS_BY_ID.dualBarrel;
+  assert.ok(cls);
+  assert.equal(cls.barrels.length, 2);
+  assert.ok(cls.barrels.every((barrel) => (barrel.trigger ?? 'primary') === 'primary'));
+});
+
 test('the first and second evolution tiers unlock at their intended levels', () => {
   assert.deepEqual(classOptions('basic', 14), []);
   assert.deepEqual(classOptions('basic', 15).sort(), ['flank', 'machine', 'sniper', 'twin']);

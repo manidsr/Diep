@@ -108,6 +108,9 @@ export class Input {
       this.angle = Math.atan2(this.mouse.y - h / 2, this.mouse.x - w / 2);
     }
     this.fire = fire;
-    this.secondary = this.mouse.rightDown || keys.has('shift');
+    const touchAimLength = this.aimStick
+      ? Math.hypot(this.aimStick.x - this.aimStick.ox, this.aimStick.y - this.aimStick.oy)
+      : 0;
+    this.secondary = this.mouse.rightDown || keys.has('shift') || (this.touchSeen && touchAimLength > 14);
   }
 }

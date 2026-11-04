@@ -16,6 +16,17 @@ let ws: WebSocket | null = null;
 let selfId = -1;
 let playing = false;
 let joining = false;
+const RESUME_TOKEN_KEY = `diep-resume:${location.host}`;
+let resumeToken = '';
+let resumeOnReconnect = false;
+let resumeAttempt = false;
+try {
+  const savedToken = localStorage.getItem(RESUME_TOKEN_KEY) ?? '';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(savedToken)) {
+    resumeToken = savedToken;
+    resumeOnReconnect = true;
+  } else if (savedToken) localStorage.removeItem(RESUME_TOKEN_KEY);
+} catch { /* Session recovery is optional when browser storage is unavailable. */ }
 let selectedMode: GameMode = 'ffa';
 let devCheatsEnabled = false;
 let lastDevClass = '';
@@ -181,12 +192,33 @@ function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
 function send(m: object) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); }
 
 function connect() {
-  statusEl.textContent = 'Connecting…'; playBtn.disabled = true;
+  statusEl.textContent = resumeOnReconnect ? 'Restoring your tank…' : 'Connecting…';
+  playBtn.disabled = true;
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  ws.onopen = () => { statusEl.textContent = 'Connected'; playBtn.disabled = false; joining = false; };
+  ws.onopen = () => {
+    if (resumeOnReconnect && resumeToken) {
+      joining = true;
+      resumeAttempt = true;
+      statusEl.textContent = 'Restoring your tank…';
+      send({ t: 'join', name: nameEl.value, mode: selectedMode, resumeToken });
+    } else {
+      statusEl.textContent = 'Connected';
+      playBtn.disabled = false;
+      joining = false;
+    }
+  };
   ws.onclose = () => {
-    playing = false; joining = false; playBtn.disabled = true; frames.length = 0; menu.classList.remove('hide');
-    statusEl.textContent = 'Disconnected – reconnecting…'; playBtn.disabled = true;
+    const shouldResume = playing || joining || resumeOnReconnect;
+    playing = false; joining = false; input.reset(); playBtn.disabled = true; frames.length = 0;
+    if (shouldResume && resumeToken) {
+      resumeOnReconnect = true;
+      menu.classList.add('hide');
+      statusEl.textContent = 'Connection lost – restoring your tank…';
+    } else {
+      resumeOnReconnect = false;
+      menu.classList.remove('hide');
+      statusEl.textContent = 'Disconnected – reconnecting…';
+    }
     setTimeout(connect, 1500);
   };
   ws.onmessage = (ev) => {
@@ -196,6 +228,10 @@ function connect() {
     else if (m.t === 'lb') renderLeaderboard(m);
     else if (m.t === 'welcome') {
       selfId = m.id; playing = true; joining = false; playBtn.disabled = false;
+      resumeToken = m.resumeToken;
+      resumeOnReconnect = false;
+      resumeAttempt = false;
+      try { localStorage.setItem(RESUME_TOKEN_KEY, resumeToken); } catch { /* Session recovery is optional without storage. */ }
       setSelectedMode(m.mode);
       msgEl.textContent = ''; deathPanel.hidden = true; playBtn.textContent = 'Play'; menu.classList.add('hide');
       devCheatsEnabled = m.devCheats;
@@ -208,7 +244,23 @@ function connect() {
       msgEl.textContent = '';
       showDeathReport(m);
       playBtn.textContent = 'Play again'; menu.classList.remove('hide');
-    } else if (m.t === 'err') { joining = false; playing = false; playBtn.disabled = false; statusEl.textContent = m.msg; msgEl.textContent = m.msg; menu.classList.remove('hide'); }
+    } else if (m.t === 'err') {
+      if (resumeAttempt) {
+        // The grace period elapsed (or the server restarted). Fall back to a fresh join.
+        resumeAttempt = false;
+        resumeOnReconnect = false;
+        resumeToken = '';
+        try { localStorage.removeItem(RESUME_TOKEN_KEY); } catch { /* ignore */ }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          joining = true;
+          statusEl.textContent = 'Previous session expired. Starting a new tank…';
+          send({ t: 'join', name: nameEl.value, mode: selectedMode });
+          return;
+        }
+      }
+      joining = false; playing = false; playBtn.disabled = false;
+      statusEl.textContent = m.msg; msgEl.textContent = m.msg; menu.classList.remove('hide');
+    }
   };
 }
 
@@ -484,7 +536,10 @@ function updateHud(m: SelfSnap) {
       const tradeoff = document.createElement('span'); tradeoff.className = 'evo-tradeoff'; tradeoff.textContent = '− ' + profile.tradeoff;
       b.append(preview, name, role, strength, tradeoff);
       b.style.animationDelay = `${n * 0.08}s, ${0.5 + n * 0.08}s`;
-      b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (playing) send({ t: 'class', id }); });
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        if (playing) send({ t: 'class', id });
+      });
       classesEl.append(b);
     });
   }

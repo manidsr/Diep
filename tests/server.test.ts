@@ -5,6 +5,7 @@ import { startServer } from '../src/server/server';
 import { Game } from '../src/server/game';
 import type { ServerMessage } from '../src/shared/protocol';
 import { seeded } from './helpers';
+import { totalXpForLevel } from '../src/shared/progression';
 
 function client(port: number) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
@@ -44,7 +45,7 @@ test('developer cheats are granted only to the first player when explicitly enab
   }
 });
 test('LAN server: join, snapshots, input, validation, disconnect cleanup', async () => {
-  const srv = await startServer({ port: 0, host: '127.0.0.1', game: new Game(seeded(5), 10) });
+  const srv = await startServer({ port: 0, host: '127.0.0.1', game: new Game(seeded(5), 10), reconnectGraceMs: 100 });
   try {
     const info = await (await fetch(`http://127.0.0.1:${srv.port}/api/info`)).json() as { port: number };
     assert.equal(info.port, srv.port);
@@ -212,6 +213,105 @@ test('clients can join the separate Co-op Survival world and receive wave status
     assert.ok(board.zombiesRemaining > 0);
   } finally {
     survivor.ws.close();
+    await srv.close();
+  }
+});
+
+test('reconnecting restores the same player, class and progression during the grace period', async () => {
+  const game = new Game(seeded(81), 0);
+  const srv = await startServer({ port: 0, host: '127.0.0.1', game, reconnectGraceMs: 1400 });
+  let first: ReturnType<typeof client> | null = null;
+  let resumed: ReturnType<typeof client> | null = null;
+  let stale: ReturnType<typeof client> | null = null;
+  try {
+    first = client(srv.port);
+    await first.opened;
+    first.ws.send(JSON.stringify({ t: 'join', name: 'ReturningTank', mode: 'ffa' }));
+    const welcome = await first.waitFor((m) => m.t === 'welcome');
+    assert.ok(welcome.t === 'welcome');
+    if (welcome.t !== 'welcome') throw new Error('Missing welcome');
+    assert.match(welcome.resumeToken, /^[0-9a-f-]{36}$/i);
+
+    const original = game.players.get(welcome.id)!;
+    game.addXp(original, totalXpForLevel(15));
+    assert.equal(game.chooseClass(original.id, 'twin'), true);
+    assert.equal(game.upgradeStat(original.id, 0), true);
+    original.x = 1234; original.y = 987;
+    const saved = { xp: original.xp, level: original.level, cls: original.cls, stats: original.stats.slice(), x: original.x, y: original.y };
+
+    first.ws.close();
+    const suspendedAt = Date.now() + 1000;
+    while (original.connected && Date.now() < suspendedAt) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(original.connected, false);
+    assert.equal(game.players.size, 1);
+    const frozen = { x: original.x, y: original.y, hp: original.hp };
+    game.setInput(original.id, { mx: 1, my: 0, a: 0, f: true });
+    game.step(1 / 30);
+    assert.deepEqual({ x: original.x, y: original.y, hp: original.hp }, frozen, 'suspended tanks must be frozen and invulnerable');
+    assert.equal(original.input.f, false, 'stale input must not resume after reconnect');
+
+    resumed = client(srv.port);
+    await resumed.opened;
+    resumed.ws.send(JSON.stringify({ t: 'join', name: 'ReturningTank', mode: 'ffa', resumeToken: welcome.resumeToken }));
+    const welcomeAgain = await resumed.waitFor((m) => m.t === 'welcome');
+    assert.ok(welcomeAgain.t === 'welcome');
+    if (welcomeAgain.t !== 'welcome') throw new Error('Missing resumed welcome');
+    assert.equal(welcomeAgain.id, welcome.id);
+    assert.equal(welcomeAgain.resumeToken, welcome.resumeToken);
+    assert.equal(game.players.get(welcome.id), original);
+    assert.equal(original.connected, true);
+    assert.deepEqual(
+      { xp: original.xp, level: original.level, cls: original.cls, stats: original.stats, x: original.x, y: original.y },
+      saved,
+    );
+
+    resumed.ws.close();
+    const expiryAt = Date.now() + 2500;
+    while (game.players.has(welcome.id) && Date.now() < expiryAt) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(game.players.has(welcome.id), false, 'expired disconnected sessions are removed');
+    stale = client(srv.port);
+    await stale.opened;
+    stale.ws.send(JSON.stringify({ t: 'join', name: 'ReturningTank', resumeToken: welcome.resumeToken }));
+    const rejected = await stale.waitFor((m) => m.t === 'err');
+    assert.ok(rejected.t === 'err' && rejected.msg.includes('expired'));
+  } finally {
+    first?.ws.close();
+    resumed?.ws.close();
+    stale?.ws.close();
+    await srv.close();
+  }
+});
+
+
+test('a resume token can take over a half-open socket without creating a duplicate player', async () => {
+  const game = new Game(seeded(82), 0);
+  const srv = await startServer({ port: 0, host: '127.0.0.1', game, reconnectGraceMs: 1000 });
+  const first = client(srv.port);
+  let replacement: ReturnType<typeof client> | null = null;
+  try {
+    await first.opened;
+    first.ws.send(JSON.stringify({ t: 'join', name: 'MobileTank', mode: 'ffa' }));
+    const welcome = await first.waitFor((m) => m.t === 'welcome');
+    assert.ok(welcome.t === 'welcome');
+    if (welcome.t !== 'welcome') throw new Error('Missing initial welcome');
+    const original = game.players.get(welcome.id)!;
+    const oldSocketClosed = new Promise<void>((resolve) => first.ws.once('close', () => resolve()));
+
+    replacement = client(srv.port);
+    await replacement.opened;
+    replacement.ws.send(JSON.stringify({ t: 'join', name: 'MobileTank', resumeToken: welcome.resumeToken }));
+    const resumed = await replacement.waitFor((m) => m.t === 'welcome');
+    assert.ok(resumed.t === 'welcome');
+    if (resumed.t !== 'welcome') throw new Error('Missing takeover welcome');
+    await oldSocketClosed;
+
+    assert.equal(resumed.id, welcome.id);
+    assert.equal(game.players.size, 1);
+    assert.equal(game.players.get(welcome.id), original);
+    assert.equal(original.connected, true, 'closing the replaced socket must not suspend the new owner');
+  } finally {
+    first.ws.close();
+    replacement?.ws.close();
     await srv.close();
   }
 });
