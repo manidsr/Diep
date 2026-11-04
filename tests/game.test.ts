@@ -565,7 +565,8 @@ test('Capture the Flag: steal, carry home, score and restore the enemy flag', ()
   blue.y = redFlag.y;
   game.step(DT);
   assert.equal(redFlag.carrierId, blue.id);
-  blue.hp = 0;
+  blue.hp = -100; // Keep regeneration from lifting the test player above zero before reap.
+  blue.lastDamageT = game.time;
   game.step(DT);
   assert.equal(redFlag.carrierId, null);
   assert.equal(redFlag.atBase, false);
