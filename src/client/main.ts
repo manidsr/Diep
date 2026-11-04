@@ -268,7 +268,7 @@ function sample(now: number): View | null {
     players: b.snap.p.map((p) => { const q = a.pm.get(p.id); return q ? { ...p, x: lerp(q.x, p.x, t), y: lerp(q.y, p.y, t), a: lerpAng(q.a, p.a, t) } : p; }),
     bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4], x[5], x[6], x[7]] as typeof x : x; }),
     shapes: b.snap.sh.map((x) => { const q = a.sm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), lerpAng(q[3], x[3], t), x[4], x[5], x[6], x[7], x[8], x[9]] : x; }),
-    zombies: b.snap.z.map((zombie) => { const q = a.zm.get(zombie.id); return q ? { ...zombie, x: lerp(q.x, zombie.x, t), y: lerp(q.y, zombie.y, t) } : zombie; }),
+    zombies: b.snap.z.map((zombie) => { const q = a.zm.get(zombie.id); return q ? { ...zombie, x: lerp(q.x, zombie.x, t), y: lerp(q.y, zombie.y, t), angle: lerpAng(q.angle, zombie.angle, t) } : zombie; }),
     mode: b.snap.mode,
   };
 }

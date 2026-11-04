@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from '../src/server/game';
-import { ARENA_SIZE, SHAPES, TEAM_BASE_DEPTH } from '../src/shared/config';
+import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, SHAPES, TEAM_BASE_DEPTH } from '../src/shared/config';
 import { totalXpForLevel } from '../src/shared/progression';
 import { seeded } from './helpers';
 
@@ -631,6 +631,9 @@ test('Co-op Survival: damaging zombies awards XP and records shared zombie kills
   assert.ok(player.xp > xpBefore, 'zombie kills should award XP to contributing players');
   assert.equal(game.zombieKills, 1);
   assert.equal(player.kills, 1);
+  assert.equal(zombie.hitFlash, 1, 'hits should trigger a visible impact flash');
+  assert.ok(Math.hypot(zombie.kvx, zombie.kvy) > 0, 'projectile impacts should knock zombies back');
+  assert.ok(zombie.staggerT > 0, 'strong impacts briefly stagger zombies');
   assert.equal(game.zombies.some((entry) => entry.id === zombie.id), false);
 });
 
@@ -655,4 +658,62 @@ test('Co-op Survival ends the run when every player is eliminated', () => {
   assert.equal(player.alive, false);
   assert.equal(game.survivalGameOver, true);
   assert.equal(game.survivalLeaderboard().gameOver, true);
+});
+
+
+test('Co-op Survival uses a smaller arena while FFA keeps the original dimensions', () => {
+  const survival = new Game(seeded(71), 0, 'survival');
+  const ffa = new Game(seeded(72), 0, 'ffa');
+  assert.equal(survival.arenaSize, SURVIVAL_ARENA_SIZE);
+  assert.ok(SURVIVAL_ARENA_SIZE < ARENA_SIZE);
+  assert.equal(ffa.arenaSize, ARENA_SIZE);
+  const player = survival.addPlayer('small map survivor')!;
+  assert.ok(player.x >= 0 && player.x <= SURVIVAL_ARENA_SIZE);
+  assert.ok(player.y >= 0 && player.y <= SURVIVAL_ARENA_SIZE);
+  survival.setInput(player.id, { mx: 1, my: 1, a: 0, f: false });
+  run(survival, 20);
+  assert.ok(player.x <= SURVIVAL_ARENA_SIZE - player.r);
+  assert.ok(player.y <= SURVIVAL_ARENA_SIZE - player.r);
+});
+
+test('Co-op Survival zombies separate physically instead of stacking', () => {
+  const game = new Game(seeded(73), 0, 'survival');
+  const player = game.addPlayer('crowd target')!;
+  const spawn = (game as unknown as { spawnZombie: () => boolean }).spawnZombie.bind(game);
+  spawn(); spawn();
+  const [first, second] = game.zombies;
+  assert.ok(first && second);
+  Object.assign(player, { x: 1200, y: 1200, vx: 0, vy: 0 });
+  Object.assign(first, { x: 900, y: 900, vx: 0, vy: 0, kvx: 0, kvy: 0, targetId: player.id });
+  Object.assign(second, { x: 915, y: 900, vx: 0, vy: 0, kvx: 0, kvy: 0, targetId: player.id });
+  run(game, 0.2);
+  const separation = Math.hypot(first.x - second.x, first.y - second.y);
+  assert.ok(separation >= first.r + second.r - 1, `zombies should keep body spacing, got ${separation}`);
+});
+
+test('Co-op Survival spreads zombie targets across available survivors', () => {
+  const game = new Game(seeded(74), 0, 'survival');
+  const firstPlayer = game.addPlayer('left survivor')!;
+  const secondPlayer = game.addPlayer('right survivor')!;
+  Object.assign(firstPlayer, { x: 950, y: 1100, vx: 0, vy: 0 });
+  Object.assign(secondPlayer, { x: 1450, y: 1100, vx: 0, vy: 0 });
+  const spawn = (game as unknown as { spawnZombie: () => boolean }).spawnZombie.bind(game);
+  spawn(); spawn();
+  const [first, second] = game.zombies;
+  assert.ok(first && second);
+  Object.assign(first, { x: 1200, y: 1000, targetId: null });
+  Object.assign(second, { x: 1200, y: 1200, targetId: null });
+  game.step(DT);
+  assert.notEqual(first.targetId, second.targetId, 'nearby zombies should distribute pressure across the team');
+});
+
+test('Co-op Survival scales wave size gently as more players join', () => {
+  const solo = new Game(seeded(75), 0, 'survival');
+  solo.addPlayer('solo');
+  const duo = new Game(seeded(76), 0, 'survival');
+  duo.addPlayer('first');
+  duo.addPlayer('second');
+  const waveState = (game: Game) => (game as unknown as { waveSpawnRemaining: number }).waveSpawnRemaining;
+  assert.ok(waveState(duo) > waveState(solo), 'more players should add enemies to a wave');
+  assert.ok(waveState(duo) <= Math.ceil(waveState(solo) * 1.25), 'one extra player should not make the wave dramatically harder');
 });

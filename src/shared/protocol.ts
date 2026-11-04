@@ -67,7 +67,10 @@ export interface PlayerSnap {
   hp: number; mhp: number; r: number; lv: number; cls: number; prot: 0 | 1; vis: number;
   team: TeamId | null;
 }
-export interface ZombieSnap { id: number; x: number; y: number; r: number; hp: number; mhp: number }
+export interface ZombieSnap {
+  id: number; x: number; y: number; r: number; hp: number; mhp: number;
+  angle: number; hitFlash: number; hitAngle: number;
+}
 export interface SelfSnap {
   alive: boolean; hp: number; mhp: number; lv: number;
   xp: number; xpCur: number; xpNext: number; pts: number;

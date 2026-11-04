@@ -1,5 +1,5 @@
 import {
-  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_STAT_LEVEL, MAX_ZOMBIES, TEAM_BASE_DEPTH,
+  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_STAT_LEVEL, MAX_ZOMBIES, SURVIVAL_ARENA_SIZE, TEAM_BASE_DEPTH,
   PLAYER_PIERCE_COST, PROJECTILE_KIND_IDS, REGEN_DELAY_S, RESPAWN_PROTECTION_S, SHAPES,
   SHAPE_KINDS, SHAPE_TARGET_COUNT, SERVER_TICK_HZ, STAT_KEYS, VIEW_HALF,
   type BarrelDef, type ProjectileKind,
@@ -42,6 +42,7 @@ export interface Bullet {
 export interface Zombie {
   id: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
   r: number; hp: number; maxHp: number; speed: number; damage: number; xp: number;
+  angle: number; targetId: number | null; staggerT: number; hitFlash: number; hitAngle: number;
   attackCooldown: number; damageBy: Map<number, number>;
 }
 export interface Shape {
@@ -81,6 +82,7 @@ export class Game {
   survivalElapsed = 0;
   survivalGameOver = false;
   private waveSpawnRemaining = 0;
+  private waveSpawned = 0;
   private waveSpawnTimer = 0;
   private waveIntermission = 0;
   private survivalStartedAt = 0;
@@ -90,6 +92,8 @@ export class Game {
   };
   private nextId = 1;
   private grid = new SpatialGrid(128);
+
+  get arenaSize() { return this.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE; }
 
   constructor(
     private rng: () => number = Math.random,
@@ -117,6 +121,7 @@ export class Game {
     this.players.set(p.id, p);
     this.respawn(p.id, name);
     if (this.mode === 'survival' && this.wave === 0) this.beginSurvivalWave();
+    if (this.mode === 'survival') this.syncSurvivalWaveSize();
     return p;
   }
 
@@ -130,7 +135,10 @@ export class Game {
     this.players.delete(id);
     this.bullets = this.bullets.filter((b) => b.owner !== id || b.kind === 'bullet');
     for (const zombie of this.zombies) zombie.damageBy.delete(id);
-    if (this.mode === 'survival' && this.players.size === 0) this.resetSurvivalRun();
+    if (this.mode === 'survival') {
+      if (this.players.size === 0) this.resetSurvivalRun();
+      else this.syncSurvivalWaveSize();
+    }
   }
 
   respawn(id: number, name?: string) {
@@ -160,14 +168,15 @@ export class Game {
    * clearance from world shapes, with the best candidate used as a fallback.
    */
   private findSafeSpawn(radius: number, team: TeamId | null = null): { x: number; y: number } {
-    let best = { x: ARENA_SIZE / 2, y: ARENA_SIZE / 2 };
+    const size = this.arenaSize;
+    let best = { x: size / 2, y: size / 2 };
     let bestScore = -Infinity;
     const margin = Math.max(150, radius + 100);
-    const minX = this.mode === 'survival' ? ARENA_SIZE * 0.36 : team === 'blue' ? 300 : team === 'red' ? ARENA_SIZE - 900 : margin;
-    const maxX = this.mode === 'survival' ? ARENA_SIZE * 0.64 : team === 'blue' ? 900 : team === 'red' ? ARENA_SIZE - 300 : ARENA_SIZE - margin;
+    const minX = this.mode === 'survival' ? size * 0.36 : team === 'blue' ? 300 : team === 'red' ? ARENA_SIZE - 900 : margin;
+    const maxX = this.mode === 'survival' ? size * 0.64 : team === 'blue' ? 900 : team === 'red' ? ARENA_SIZE - 300 : size - margin;
     for (let i = 0; i < 72; i++) {
       const x = minX + this.rng() * (maxX - minX);
-      const y = margin + this.rng() * (ARENA_SIZE - margin * 2);
+      const y = margin + this.rng() * (size - margin * 2);
       let nearestPlayer = 1200;
       let playerTraffic = 0;
       for (const other of this.players.values()) {
@@ -274,7 +283,7 @@ export class Game {
     this.reap();
     if (this.mode === 'survival') this.updateSurvivalWaves(dt);
     this.bullets = this.bullets.filter((b) =>
-      b.hp > 0 && b.life > 0 && b.x > -80 && b.y > -80 && b.x < ARENA_SIZE + 80 && b.y < ARENA_SIZE + 80,
+      b.hp > 0 && b.life > 0 && b.x > -80 && b.y > -80 && b.x < this.arenaSize + 80 && b.y < this.arenaSize + 80,
     );
     if (this.mode !== 'survival' && this.shapes.length < SHAPE_TARGET_COUNT && this.rng() < dt * 4) this.spawnShape();
   }
@@ -286,16 +295,29 @@ export class Game {
     this.survivalElapsed = 0;
     this.survivalGameOver = false;
     this.waveSpawnRemaining = 0;
+    this.waveSpawned = 0;
     this.waveSpawnTimer = 0;
     this.waveIntermission = 0;
     this.survivalStartedAt = this.time;
+    this.bullets = [];
+    this.shapes = [];
+  }
+
+  private survivalWaveZombieCount(playerCount: number) {
+    const scale = 1 + Math.min(0.6, Math.max(0, playerCount - 1) * 0.18);
+    return Math.min(70, Math.round((6 + this.wave * 3) * scale));
+  }
+
+  private syncSurvivalWaveSize() {
+    if (this.mode !== 'survival' || this.wave === 0 || this.survivalGameOver) return;
+    this.waveSpawnRemaining = Math.max(0, this.survivalWaveZombieCount(this.players.size) - this.waveSpawned);
   }
 
   private beginSurvivalWave() {
     if (this.mode !== 'survival' || this.survivalGameOver) return;
     this.wave++;
-    const livingPlayers = Math.max(1, [...this.players.values()].filter((player) => player.alive).length);
-    this.waveSpawnRemaining = Math.min(4 + this.wave * 3 + livingPlayers * 2, 70);
+    this.waveSpawned = 0;
+    this.waveSpawnRemaining = this.survivalWaveZombieCount(this.players.size);
     this.waveSpawnTimer = 1.1;
     this.waveIntermission = 0;
     if (this.wave === 1) this.survivalStartedAt = this.time;
@@ -304,64 +326,125 @@ export class Game {
   private spawnZombie() {
     if (this.zombies.length >= MAX_ZOMBIES) return;
     const living = [...this.players.values()].filter((player) => player.alive);
-    if (!living.length) return;
+    if (!living.length) return false;
+    const size = this.arenaSize;
 
     let best = { x: 70, y: 70 };
     let bestDistance = -Infinity;
     for (let i = 0; i < 24; i++) {
       const edge = Math.floor(this.rng() * 4);
-      const along = 90 + this.rng() * (ARENA_SIZE - 180);
+      const along = 90 + this.rng() * (size - 180);
       const point = edge === 0 ? { x: 70, y: along }
-        : edge === 1 ? { x: ARENA_SIZE - 70, y: along }
+        : edge === 1 ? { x: size - 70, y: along }
         : edge === 2 ? { x: along, y: 70 }
-        : { x: along, y: ARENA_SIZE - 70 };
+        : { x: along, y: size - 70 };
       const nearest = Math.min(...living.map((player) => Math.hypot(point.x - player.x, point.y - player.y)));
       if (nearest > bestDistance) { bestDistance = nearest; best = point; }
     }
 
-    const hp = 28 + this.wave * 11;
+    const playerScale = Math.max(1, this.players.size);
+    const hp = Math.round((28 + this.wave * 11) * (1 + Math.min(0.24, (playerScale - 1) * 0.08)));
     this.zombies.push({
       id: this.nextId++, x: best.x, y: best.y, vx: 0, vy: 0, kvx: 0, kvy: 0,
       r: 17 + Math.min(8, this.wave * 0.5),
       hp, maxHp: hp,
       speed: Math.min(155, 64 + this.wave * 3.5),
-      damage: Math.min(34, 6 + this.wave * 1.25),
+      damage: Math.min(34, (6 + this.wave * 1.25) * (1 + Math.min(0.12, (playerScale - 1) * 0.035))),
       xp: 10 + this.wave * 3,
+      angle: 0, targetId: null, staggerT: 0, hitFlash: 0, hitAngle: 0,
       attackCooldown: 0,
       damageBy: new Map(),
     });
+    return true;
   }
 
   private updateZombie(zombie: Zombie, dt: number) {
     zombie.attackCooldown = Math.max(0, zombie.attackCooldown - dt);
-    let target: Player | null = null;
-    let nearest = Infinity;
-    for (const player of this.players.values()) {
-      if (!player.alive) continue;
-      const distance = Math.hypot(player.x - zombie.x, player.y - zombie.y);
-      if (distance < nearest) { nearest = distance; target = player; }
+    zombie.staggerT = Math.max(0, zombie.staggerT - dt);
+    zombie.hitFlash = Math.max(0, zombie.hitFlash * Math.exp(-dt * 8));
+
+    let target = zombie.targetId == null ? undefined : this.players.get(zombie.targetId);
+    if (!target?.alive) {
+      target = undefined;
+      let bestScore = Infinity;
+      for (const player of this.players.values()) {
+        if (!player.alive) continue;
+        const distance = Math.hypot(player.x - zombie.x, player.y - zombie.y);
+        const pursuers = this.zombies.reduce((count, other) =>
+          count + (other !== zombie && other.targetId === player.id ? 1 : 0), 0);
+        // Spread the horde across the party instead of dog-piling one survivor.
+        const score = distance + pursuers * 135;
+        if (score < bestScore) { bestScore = score; target = player; }
+      }
+      zombie.targetId = target?.id ?? null;
     }
 
-    if (target) {
-      const dx = target.x - zombie.x, dy = target.y - zombie.y;
-      const distance = Math.max(1, Math.hypot(dx, dy));
-      const desiredX = (dx / distance) * zombie.speed;
-      const desiredY = (dy / distance) * zombie.speed;
-      const steer = 1 - Math.exp(-dt * 4.5);
-      zombie.vx += (desiredX - zombie.vx) * steer;
-      zombie.vy += (desiredY - zombie.vy) * steer;
-    } else {
-      zombie.vx *= Math.exp(-dt * 2);
-      zombie.vy *= Math.exp(-dt * 2);
+    let separationX = 0, separationY = 0;
+    let alignmentX = 0, alignmentY = 0, neighbours = 0;
+    for (const other of this.zombies) {
+      if (other === zombie || other.hp <= 0) continue;
+      let dx = zombie.x - other.x, dy = zombie.y - other.y;
+      let distance = Math.hypot(dx, dy);
+      if (distance < 0.001) {
+        const angle = ((zombie.id * 2.399963229728653) % (Math.PI * 2));
+        dx = Math.cos(angle); dy = Math.sin(angle); distance = 1;
+      }
+      if (distance < 190) {
+        alignmentX += other.vx;
+        alignmentY += other.vy;
+        neighbours++;
+      }
+      const personalSpace = zombie.r + other.r + 18;
+      const avoidRadius = personalSpace * 1.8;
+      if (distance < avoidRadius) {
+        const push = (avoidRadius - distance) / avoidRadius;
+        separationX += (dx / distance) * push;
+        separationY += (dy / distance) * push;
+      }
     }
+
+    let desiredX = 0, desiredY = 0;
+    if (target) {
+      // Each zombie approaches a slightly different point around its target.
+      // This creates a loose surround instead of a single crowded pile.
+      const orbit = (zombie.id * 2.399963229728653) % (Math.PI * 2);
+      const offset = 23 + (zombie.id % 4) * 4;
+      const goalX = target.x + Math.cos(orbit) * offset;
+      const goalY = target.y + Math.sin(orbit) * offset;
+      const dx = goalX - zombie.x, dy = goalY - zombie.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      desiredX = (dx / distance) * zombie.speed;
+      desiredY = (dy / distance) * zombie.speed;
+    }
+
+    const separationLength = Math.hypot(separationX, separationY);
+    if (separationLength > 0.001) {
+      separationX /= separationLength;
+      separationY /= separationLength;
+      desiredX += separationX * zombie.speed * 1.1;
+      desiredY += separationY * zombie.speed * 1.1;
+    }
+    if (neighbours > 0) {
+      desiredX += (alignmentX / neighbours) * 0.14;
+      desiredY += (alignmentY / neighbours) * 0.14;
+    }
+
+    const staggerMul = zombie.staggerT > 0 ? 0.32 : 1;
+    desiredX *= staggerMul;
+    desiredY *= staggerMul;
+    const steer = 1 - Math.exp(-dt * 3.8);
+    zombie.vx += (desiredX - zombie.vx) * steer;
+    zombie.vy += (desiredY - zombie.vy) * steer;
+    if (Math.hypot(zombie.vx, zombie.vy) > 6) zombie.angle = Math.atan2(zombie.vy, zombie.vx);
 
     zombie.x += (zombie.vx + zombie.kvx) * dt;
     zombie.y += (zombie.vy + zombie.kvy) * dt;
     const knockbackDecay = Math.exp(-dt * 4.5);
     zombie.kvx *= knockbackDecay;
     zombie.kvy *= knockbackDecay;
-    zombie.x = clamp(zombie.x, zombie.r, ARENA_SIZE - zombie.r);
-    zombie.y = clamp(zombie.y, zombie.r, ARENA_SIZE - zombie.r);
+    const size = this.arenaSize;
+    zombie.x = clamp(zombie.x, zombie.r, size - zombie.r);
+    zombie.y = clamp(zombie.y, zombie.r, size - zombie.r);
   }
 
   private updateSurvivalWaves(dt: number) {
@@ -373,11 +456,11 @@ export class Game {
     }
     if (this.wave === 0) { this.beginSurvivalWave(); return; }
 
+    this.syncSurvivalWaveSize();
     if (this.waveSpawnRemaining > 0) {
       this.waveSpawnTimer -= dt;
       if (this.waveSpawnTimer <= 0 && this.zombies.length < MAX_ZOMBIES) {
-        this.spawnZombie();
-        this.waveSpawnRemaining--;
+        if (this.spawnZombie()) { this.waveSpawnRemaining--; this.waveSpawned++; }
         this.waveSpawnTimer = Math.max(0.28, 0.92 - this.wave * 0.025);
       }
       return;
@@ -434,8 +517,8 @@ export class Game {
     p.kvx *= dec; p.kvy *= dec;
     const recoilDecay = Math.pow(RECOIL_DECAY_PER_TICK, dt * SERVER_TICK_HZ);
     p.rvx *= recoilDecay; p.rvy *= recoilDecay;
-    p.x = clamp(p.x, p.r, ARENA_SIZE - p.r);
-    p.y = clamp(p.y, p.r, ARENA_SIZE - p.r);
+    p.x = clamp(p.x, p.r, this.arenaSize - p.r);
+    p.y = clamp(p.y, p.r, this.arenaSize - p.r);
     this.constrainTeamPlayer(p);
 
     if (p.protT > 0) p.protT -= dt;
@@ -915,6 +998,13 @@ export class Game {
     } else if (a.k === 0 && b.k === 3) {
       const zombie = b.o as Zombie;
       this.separate(A, zombie, dx, dy, distance, rr, A.r * A.r, zombie.r * zombie.r * 1.4);
+      const bodyDamage = A.d.bodyDps * dt * 0.55;
+      if (bodyDamage > 0) {
+        zombie.hp -= bodyDamage;
+        zombie.damageBy.set(A.id, (zombie.damageBy.get(A.id) ?? 0) + bodyDamage);
+        zombie.hitFlash = Math.max(zombie.hitFlash, 0.35);
+        zombie.hitAngle = Math.atan2(dy, dx);
+      }
       if (A.protT <= 0 && zombie.attackCooldown <= 0) {
         this.hurtPlayer(A, zombie.damage, null, 'a zombie');
         zombie.attackCooldown = 0.85;
@@ -943,11 +1033,24 @@ export class Game {
       if (bullet.kind === 'drone') bullet.hit.add(zombie.id);
       zombie.hp -= bullet.dmg;
       zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + bullet.dmg);
-      zombie.kvx += bullet.vx / 8;
-      zombie.kvy += bullet.vy / 8;
+      const shotSpeed = Math.hypot(bullet.vx, bullet.vy);
+      const hitX = shotSpeed > 0.001 ? bullet.vx / shotSpeed : Math.cos(bullet.angle);
+      const hitY = shotSpeed > 0.001 ? bullet.vy / shotSpeed : Math.sin(bullet.angle);
+      const impact = clamp(shotSpeed * 0.11 + bullet.dmg * 0.28, 24, 140);
+      zombie.kvx += hitX * impact;
+      zombie.kvy += hitY * impact;
+      zombie.hitFlash = 1;
+      zombie.hitAngle = Math.atan2(hitY, hitX);
+      zombie.staggerT = Math.max(zombie.staggerT, Math.min(0.24, 0.06 + bullet.dmg * 0.001));
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0)
         : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
+    } else if (a.k === 3 && b.k === 3) {
+      const firstZombie = a.o as Zombie;
+      const secondZombie = b.o as Zombie;
+      // Physical separation and mass make the horde push around itself naturally.
+      this.separate(firstZombie, secondZombie, dx, dy, distance, rr,
+        firstZombie.r * firstZombie.r, secondZombie.r * secondZombie.r);
     }
   }
 
@@ -1132,6 +1235,7 @@ export class Game {
       z: this.zombies.filter((zombie) => near(zombie.x, zombie.y, zombie.r)).map((zombie) => ({
         id: zombie.id, x: r1(zombie.x), y: r1(zombie.y), r: r1(zombie.r),
         hp: r1(zombie.hp), mhp: r1(zombie.maxHp),
+        angle: r2(zombie.angle), hitFlash: r2(zombie.hitFlash), hitAngle: r2(zombie.hitAngle),
       })),
       me: {
         alive: me.alive, hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,

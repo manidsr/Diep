@@ -1,4 +1,4 @@
-import { ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
+import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
 import type { GameMode, PlayerSnap, TeamId, ZombieSnap } from '../shared/protocol';
 import { STICK_RADIUS, type Input } from './input';
 
@@ -30,6 +30,7 @@ export function drawFrame(
   cam: { x: number; y: number }, view: View, selfId: number, fovMul = 1,
 ) {
   const fov = Math.max(0.65, Math.min(1.8, fovMul));
+  const arenaSize = view.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE;
   const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000) / fov;
   ctx.fillStyle = '#b4b4b8';
   ctx.fillRect(0, 0, W, H);
@@ -39,11 +40,11 @@ export function drawFrame(
   ctx.translate(-cam.x, -cam.y);
 
   ctx.fillStyle = '#cdcdd2';
-  ctx.fillRect(0, 0, ARENA_SIZE, ARENA_SIZE);
+  ctx.fillRect(0, 0, arenaSize, arenaSize);
   const x0 = Math.max(0, Math.floor((cam.x - W / 2 / scale) / 50) * 50);
-  const x1 = Math.min(ARENA_SIZE, cam.x + W / 2 / scale);
+  const x1 = Math.min(arenaSize, cam.x + W / 2 / scale);
   const y0 = Math.max(0, Math.floor((cam.y - H / 2 / scale) / 50) * 50);
-  const y1 = Math.min(ARENA_SIZE, cam.y + H / 2 / scale);
+  const y1 = Math.min(arenaSize, cam.y + H / 2 / scale);
   ctx.strokeStyle = '#c1c1c7';
   ctx.lineWidth = 1 / scale + 0.5;
   ctx.beginPath();
@@ -181,10 +182,14 @@ function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][n
 
 function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   const { x, y, r } = zombie;
+  const hit = Math.max(0, Math.min(1, zombie.hitFlash));
   ctx.save();
   ctx.translate(x, y);
-  ctx.fillStyle = '#4f854b';
-  ctx.strokeStyle = '#254b2b';
+  ctx.rotate(zombie.angle);
+  ctx.shadowColor = hit > 0.08 ? '#eaffd2' : '#355f35';
+  ctx.shadowBlur = 2 + hit * 15;
+  ctx.fillStyle = hit > 0.18 ? '#c8f0ae' : '#4f854b';
+  ctx.strokeStyle = hit > 0.18 ? '#f3ffd7' : '#254b2b';
   ctx.lineWidth = Math.max(2, r * 0.12);
   ctx.lineJoin = 'round';
   ctx.beginPath();
@@ -198,6 +203,7 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   ctx.lineTo(-r * 0.95, r * 0.95);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
   ctx.fillStyle = '#a8d66b';
   ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.18, r * 0.16, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.arc(r * 0.35, -r * 0.18, r * 0.16, 0, Math.PI * 2); ctx.fill();
@@ -208,6 +214,23 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   ctx.lineWidth = Math.max(1.5, r * 0.08);
   ctx.beginPath(); ctx.moveTo(-r * 0.22, r * 0.43); ctx.lineTo(r * 0.28, r * 0.43); ctx.stroke();
   ctx.restore();
+
+  // Directional impact sparks and a brief bright ring make each shot feel physical.
+  if (hit > 0.08) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(zombie.hitAngle);
+    ctx.globalAlpha = hit * 0.85;
+    ctx.strokeStyle = '#fff1c4';
+    ctx.lineWidth = 2 + hit * 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * (1.15 + (1 - hit) * 0.25), -0.6, 0.6);
+    ctx.moveTo(r * 0.7, 0); ctx.lineTo(r * (1.8 + hit), 0);
+    ctx.moveTo(r * 1.1, -r * 0.4); ctx.lineTo(r * (1.9 + hit), -r * 0.8);
+    ctx.moveTo(r * 1.1, r * 0.4); ctx.lineTo(r * (1.9 + hit), r * 0.8);
+    ctx.stroke();
+    ctx.restore();
+  }
   hpBar(ctx, x, y + r + 9, r * 2.1, zombie.hp / Math.max(1, zombie.mhp));
 }
 
