@@ -293,6 +293,36 @@ test('Overlord drones stay inside their tether and recall when overextended', ()
   ), 'no drone should escape the visible tether boundary');
 });
 
+test('drone squads surround a target instead of stacking at its centre', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('spread-drones')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'overlord'));
+  const hex = {
+    id: 9920, kind: 2, x: 1260, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
+    r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
+  };
+  game.shapes.push(hex);
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
+  run(game, 5);
+
+  const drones = game.bullets.filter((bullet) => bullet.owner === player.id && bullet.kind === 'drone');
+  assert.equal(drones.length, 8);
+  const occupiedSectors = new Set(drones.map((drone) => {
+    const angle = (Math.atan2(drone.y - hex.y, drone.x - hex.x) + Math.PI * 2) % (Math.PI * 2);
+    return Math.floor(angle / (Math.PI / 4));
+  }));
+  assert.ok(occupiedSectors.size >= 6, `drones should surround the target across the ring, sectors=${occupiedSectors.size}`);
+
+  let closestPair = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < drones.length; i++) {
+    for (let j = i + 1; j < drones.length; j++) {
+      closestPair = Math.min(closestPair, Math.hypot(drones[i].x - drones[j].x, drones[i].y - drones[j].y));
+    }
+  }
+  assert.ok(closestPair > 8, `drones should not occupy one pile: closest pair=${closestPair}`);
+  assert.ok(hex.hp < hex.maxHp, 'distributed drones should still damage the target');
+});
+
 test('a drone can damage the same object again after its contact cooldown', () => {
   const game = fresh();
   const player = place(game, game.addPlayer('repeat-hit')!.id, 1000, 1000);

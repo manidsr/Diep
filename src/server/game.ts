@@ -356,10 +356,14 @@ export class Game {
       attackRun = true;
       const dx = target.x - drone.x, dy = target.y - drone.y;
       targetDistance = Math.hypot(dx, dy);
-      // Aim for the object/player itself. The earlier ring-around-target goal
-      // was the cause of drones orbiting just outside collision range.
-      goalX = target.x;
-      goalY = target.y;
+      // Give every drone a stable slot around the target instead of sending
+      // the whole squad into its centre. Extra drone rings stay just behind
+      // the first attack line rather than piling into the same position.
+      const ownerFacingTarget = Math.atan2(owner.y - target.y, owner.x - target.x);
+      const attackAngle = ownerFacingTarget + (ringIndex / 8) * Math.PI * 2 + ring * 0.28;
+      const attackRadius = (target.r ?? 24) + drone.r * 0.35 + ring * drone.r * 0.8;
+      goalX = target.x + Math.cos(attackAngle) * attackRadius;
+      goalY = target.y + Math.sin(attackAngle) * attackRadius;
     } else if (manualCommand) {
       // Right-click / Shift remains direct, but Overlord commands cannot exceed
       // the tether's safe attack radius.
@@ -378,23 +382,23 @@ export class Game {
       goalY = owner.y + Math.sin(slotAngle) * followRadius;
     }
 
-    // Separation is deliberately gentle during an attack run. Drones should
-    // avoid occupying the same space, but must still be able to reach the target.
+    // Attack positions are distributed around the target, so full separation
+    // can keep drones apart without pushing the whole squad away from contact.
     let separationX = 0, separationY = 0;
     for (const other of this.bullets) {
       if (other === drone || other.owner !== drone.owner || other.kind !== 'drone' || other.hp <= 0) continue;
       const dx = drone.x - other.x, dy = drone.y - other.y;
       const distanceSq = dx * dx + dy * dy;
-      const minDistance = (drone.r + other.r) * 1.4 + 3;
+      // Keep the squad tightly spaced while idle, but allow a closer, even
+      // ring around small targets so every drone can hold a distinct angle.
+      const minDistance = (drone.r + other.r) * (attackRun ? 0.9 : 1.4) + 2;
       if (distanceSq >= minDistance * minDistance) continue;
       const distance = Math.max(0.001, Math.sqrt(distanceSq));
       const push = (minDistance - distance) / minDistance;
       separationX += (dx / distance) * push;
       separationY += (dy / distance) * push;
     }
-    const separationWeight = attackRun
-      ? clamp(targetDistance / 130, 0.12, 0.62)
-      : 1;
+    const separationWeight = 1;
     const steerX = goalX - drone.x + separationX * (drone.r * 8 + 28) * separationWeight;
     const steerY = goalY - drone.y + separationY * (drone.r * 8 + 28) * separationWeight;
     const desired = Math.atan2(steerY, steerX);
