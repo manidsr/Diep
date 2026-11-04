@@ -70,7 +70,7 @@ export interface Snapshot {
   me: SelfSnap;
   p: PlayerSnap[];
   // id, x, y, radius, ownerId, projectile kind, direction angle, drone state (0 guard, 1 dive, 2 peel)
-  b: [number, number, number, number, number, number, number, number?][];
+  b: [number, number, number, number, number, number, number, number][];
   // id, x, y, rotation, kind, health fraction, hit flash, impact x/y, impact angle
   sh: [number, number, number, number, number, number, number, number, number, number][];
 }

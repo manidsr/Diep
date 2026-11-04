@@ -4,7 +4,7 @@ import { STICK_RADIUS, type Input } from './input';
 
 export interface View {
   players: PlayerSnap[];
-  bullets: [number, number, number, number, number, number, number, number?][];
+  bullets: [number, number, number, number, number, number, number, number][];
   shapes: [number, number, number, number, number, number, number, number, number, number][];
 }
 
