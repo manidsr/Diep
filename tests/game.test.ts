@@ -927,7 +927,7 @@ test('A downed survivor can be revived by a nearby stationary ally after four se
   const game = new Game(seeded(97), 0, 'survival');
   const downed = place(game, game.addPlayer('downed')!.id, 1000, 1000);
   const helper = place(game, game.addPlayer('helper')!.id, 1050, 1000);
-  downed.hp = 0;
+  downed.hp = 0; downed.lastDamageT = game.time;
   const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number };
   state.waveSpawnRemaining = 0; state.waveSpawned = 12;
   game.step(DT);
@@ -947,7 +947,8 @@ test('Revive progress falls when the helper leaves the downed ally', () => {
   const downed = place(game, game.addPlayer('downed')!.id, 1000, 1000);
   const helper = place(game, game.addPlayer('helper')!.id, 1040, 1000);
   const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number };
-  downed.hp = 0; state.waveSpawnRemaining = 0; state.waveSpawned = 12;
+  downed.hp = 0; downed.lastDamageT = game.time;
+  state.waveSpawnRemaining = 0; state.waveSpawned = 12;
   game.step(DT); run(game, 1.5);
   assert.ok(downed.reviveProgress > 0);
   helper.x = 1500;
@@ -959,7 +960,7 @@ test('Revive progress falls when the helper leaves the downed ally', () => {
 test('A downed player bleeds out and the run ends if no rescuer remains', () => {
   const game = new Game(seeded(99), 0, 'survival');
   const downed = place(game, game.addPlayer('last survivor')!.id, 1000, 1000);
-  downed.hp = 0;
+  downed.hp = 0; downed.lastDamageT = game.time;
   game.step(DT);
   assert.equal(downed.downed, false);
   assert.equal(downed.alive, false);
