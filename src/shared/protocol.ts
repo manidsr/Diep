@@ -67,10 +67,6 @@ export interface PlayerSnap {
   hp: number; mhp: number; r: number; lv: number; cls: number; prot: 0 | 1; vis: number;
   team: TeamId | null;
 }
-export interface TeamFlagSnap {
-  team: TeamId; x: number; y: number; baseX: number; baseY: number;
-  carrierId: number | null; atBase: boolean;
-}
 export interface SelfSnap {
   alive: boolean; hp: number; mhp: number; lv: number;
   xp: number; xpCur: number; xpNext: number; pts: number;
@@ -85,7 +81,7 @@ export interface Snapshot {
   b: [number, number, number, number, number, number, number, number][];
   // id, x, y, rotation, kind, health fraction, hit flash, impact x/y, impact angle
   sh: [number, number, number, number, number, number, number, number, number, number][];
-  flags: TeamFlagSnap[];
+  mode: GameMode;
 }
 export type ServerMessage =
   | { t: 'welcome'; id: number; arena: number; hz: number; devCheats: boolean; mode: GameMode }
@@ -93,12 +89,8 @@ export type ServerMessage =
   | { t: 'lb'; mode: 'ffa'; top: { id: number; name: string; score: number; lv: number }[] }
   | {
       t: 'lb'; mode: 'teams'; blueKills: number; redKills: number;
-      blueCaptures: number; redCaptures: number;
-      top: { id: number; name: string; score: number; lv: number; team: TeamId; kills: number }[];
-    }
-  | {
-      t: 'flag'; action: 'taken' | 'dropped' | 'returned' | 'captured';
-      flagTeam: TeamId; player: string; playerTeam: TeamId; captures: number;
+      blue: { id: number; name: string; score: number; lv: number; kills: number; team: 'blue' }[];
+      red: { id: number; name: string; score: number; lv: number; kills: number; team: 'red' }[];
     }
   | {
       t: 'dead'; score: number; level: number; killer: string; killerClass: string | null;

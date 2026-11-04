@@ -1,12 +1,12 @@
-import { ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS } from '../shared/config';
-import type { PlayerSnap, TeamFlagSnap, TeamId } from '../shared/protocol';
+import { ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
+import type { GameMode, PlayerSnap, TeamId } from '../shared/protocol';
 import { STICK_RADIUS, type Input } from './input';
 
 export interface View {
   players: PlayerSnap[];
   bullets: [number, number, number, number, number, number, number, number][];
   shapes: [number, number, number, number, number, number, number, number, number, number][];
-  flags: TeamFlagSnap[];
+  mode: GameMode;
 }
 
 const ME = { fill: '#00b2e1', stroke: '#0083a8' };
@@ -50,22 +50,40 @@ export function drawFrame(
   for (let y = y0; y <= y1; y += 50) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
   ctx.stroke();
 
-  if (view.flags.length) drawTeamTerritories(ctx, view.flags);
+  if (view.mode === 'teams') drawTeamBases(ctx);
   for (const shape of view.shapes) drawShape(ctx, shape);
-  for (const flag of view.flags) drawTeamFlag(ctx, flag);
   for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
   for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true);
   ctx.restore();
 }
 
-function drawTeamTerritories(ctx: CanvasRenderingContext2D, flags: TeamFlagSnap[]) {
+function drawTeamBases(ctx: CanvasRenderingContext2D) {
   ctx.save();
-  ctx.fillStyle = 'rgba(18, 145, 230, 0.055)';
+  ctx.fillStyle = 'rgba(18, 145, 230, 0.045)';
   ctx.fillRect(0, 0, ARENA_SIZE / 2, ARENA_SIZE);
-  ctx.fillStyle = 'rgba(232, 55, 75, 0.055)';
+  ctx.fillStyle = 'rgba(232, 55, 75, 0.045)';
   ctx.fillRect(ARENA_SIZE / 2, 0, ARENA_SIZE / 2, ARENA_SIZE);
-  ctx.strokeStyle = 'rgba(255,255,255,0.24)';
+
+  // The end strips are protected home bases, not capture objectives.
+  ctx.fillStyle = 'rgba(18, 145, 230, 0.18)';
+  ctx.fillRect(0, 0, TEAM_BASE_DEPTH, ARENA_SIZE);
+  ctx.fillStyle = 'rgba(232, 55, 75, 0.18)';
+  ctx.fillRect(ARENA_SIZE - TEAM_BASE_DEPTH, 0, TEAM_BASE_DEPTH, ARENA_SIZE);
+
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(40, 150, 225, 0.9)';
+  ctx.beginPath();
+  ctx.moveTo(TEAM_BASE_DEPTH, 0);
+  ctx.lineTo(TEAM_BASE_DEPTH, ARENA_SIZE);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(230, 72, 82, 0.9)';
+  ctx.beginPath();
+  ctx.moveTo(ARENA_SIZE - TEAM_BASE_DEPTH, 0);
+  ctx.lineTo(ARENA_SIZE - TEAM_BASE_DEPTH, ARENA_SIZE);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
   ctx.lineWidth = 3;
   ctx.setLineDash([18, 16]);
   ctx.beginPath();
@@ -73,57 +91,17 @@ function drawTeamTerritories(ctx: CanvasRenderingContext2D, flags: TeamFlagSnap[
   ctx.lineTo(ARENA_SIZE / 2, ARENA_SIZE);
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.font = '800 34px system-ui, sans-serif';
+
+  ctx.font = '900 30px system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.globalAlpha = 0.16;
-  ctx.fillStyle = TEAM_BLUE.fill;
-  ctx.fillText('BLUE BASE', flags.find((flag) => flag.team === 'blue')?.baseX ?? 160, 180);
-  ctx.fillStyle = TEAM_RED.fill;
-  ctx.fillText('RED BASE', flags.find((flag) => flag.team === 'red')?.baseX ?? ARENA_SIZE - 160, 180);
-  ctx.restore();
-}
-
-function drawTeamFlag(ctx: CanvasRenderingContext2D, flag: TeamFlagSnap) {
-  const palette = TEAM_COLOURS[flag.team];
-  ctx.save();
-  ctx.strokeStyle = palette.stroke;
-  ctx.fillStyle = flag.team === 'blue' ? '#72dcff' : '#ff9aa1';
-  ctx.lineWidth = 5;
-  ctx.globalAlpha = flag.atBase ? 1 : 0.95;
-  ctx.beginPath();
-  ctx.arc(flag.baseX, flag.baseY, 145, 0, Math.PI * 2);
-  ctx.setLineDash([12, 10]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Bright flag marker is kept visible when carried or dropped in the arena.
-  ctx.translate(flag.x, flag.y);
-  ctx.shadowColor = palette.fill;
-  ctx.shadowBlur = 12;
-  ctx.beginPath();
-  ctx.moveTo(0, -22);
-  ctx.lineTo(0, 22);
-  ctx.strokeStyle = '#f5f5f5';
   ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(2, -21);
-  ctx.lineTo(27, -14);
-  ctx.lineTo(2, -4);
-  ctx.closePath();
-  ctx.fillStyle = palette.fill;
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = palette.stroke;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-  ctx.font = '900 12px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = '#000b';
-  ctx.fillStyle = '#fff';
-  ctx.strokeText(flag.team.toUpperCase() + (flag.atBase ? ' FLAG' : flag.carrierId == null ? ' DROPPED' : ' FLAG'), 10, 38);
-  ctx.fillText(flag.team.toUpperCase() + (flag.atBase ? ' FLAG' : flag.carrierId == null ? ' DROPPED' : ' FLAG'), 10, 38);
+  ctx.strokeStyle = '#0009';
+  ctx.fillStyle = '#8bdfff';
+  ctx.strokeText('BLUE BASE · SAFE ZONE', TEAM_BASE_DEPTH / 2, 180);
+  ctx.fillText('BLUE BASE · SAFE ZONE', TEAM_BASE_DEPTH / 2, 180);
+  ctx.fillStyle = '#ff9ca2';
+  ctx.strokeText('RED BASE · SAFE ZONE', ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
+  ctx.fillText('RED BASE · SAFE ZONE', ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
   ctx.restore();
 }
 

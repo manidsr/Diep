@@ -152,14 +152,6 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
               });
             }
           }
-        } else {
-          const notice = {
-            t: 'flag' as const, action: ev.action,
-            flagTeam: ev.flagTeam, player: ev.player,
-            playerTeam: ev.playerTeam, captures: ev.captures,
-          };
-          for (const c of conns) if (c.game === world) send(c.ws, notice);
-        }
       }
 
       const leaderboard = world.tick % SERVER_TICK_HZ === 0

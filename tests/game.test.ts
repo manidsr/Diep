@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from '../src/server/game';
-import { ARENA_SIZE, SHAPES } from '../src/shared/config';
+import { ARENA_SIZE, SHAPES, TEAM_BASE_DEPTH } from '../src/shared/config';
 import { totalXpForLevel } from '../src/shared/progression';
 import { seeded } from './helpers';
 
@@ -506,9 +506,9 @@ test('Team Mode balances players and spawns each team on its own map side', () =
   assert.equal(redTwo.team, 'red');
   assert.ok(blue.x < ARENA_SIZE / 2 && blueTwo.x < ARENA_SIZE / 2);
   assert.ok(red.x > ARENA_SIZE / 2 && redTwo.x > ARENA_SIZE / 2);
-  assert.equal(game.flags.length, 2);
-  assert.equal(game.snapshotFor(blue.id)?.me.team, 'blue');
-  assert.deepEqual(game.snapshotFor(blue.id)?.flags.map((flag) => flag.team), ['blue', 'red']);
+  const snapshot = game.snapshotFor(blue.id);
+  assert.equal(snapshot?.mode, 'teams');
+  assert.equal(snapshot?.me.team, 'blue');
 });
 
 test('Team Mode blocks friendly fire and keeps enemy damage enabled', () => {
@@ -539,36 +539,54 @@ test('Team Mode blocks friendly fire and keeps enemy damage enabled', () => {
   assert.equal(game.teamStats.blue.kills, 1);
 });
 
-test('Capture the Flag: steal, carry home, score and restore the enemy flag', () => {
+
+test('Team bases block enemy entry and stop enemy projectiles at the boundary', () => {
   const game = new Game(seeded(35), 0, 'teams');
-  const blue = game.addPlayer('blue carrier')!;
-  const red = game.addPlayer('red defender')!;
-  const blueFlag = game.flags.find((flag) => flag.team === 'blue')!;
-  const redFlag = game.flags.find((flag) => flag.team === 'red')!;
+  const blue = game.addPlayer('blue base defender')!;
+  const red = game.addPlayer('red raider')!;
 
-  Object.assign(blue, { x: redFlag.x, y: redFlag.y, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
-  Object.assign(red, { x: 2400, y: 1200, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
-  game.step(DT);
-  assert.equal(redFlag.carrierId, blue.id);
-  assert.equal(redFlag.atBase, false);
+  // A red player cannot cross into the blue base, but blue can enter its own base.
+  Object.assign(red, {
+    x: TEAM_BASE_DEPTH + red.r + 2, y: 900, vx: 0, vy: 0,
+    kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0,
+  });
+  Object.assign(blue, {
+    x: TEAM_BASE_DEPTH + blue.r + 12, y: 1900, vx: 0, vy: 0,
+    kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0,
+  });
+  game.setInput(red.id, { mx: -1, my: 0, a: Math.PI, f: false });
+  game.setInput(blue.id, { mx: -1, my: 0, a: Math.PI, f: false });
+  run(game, 4);
+  assert.ok(red.x >= TEAM_BASE_DEPTH + red.r - 0.01, 'red tanks must not enter the blue safe base');
+  assert.ok(blue.x < TEAM_BASE_DEPTH, 'blue tanks can enter their own base');
 
-  blue.x = blueFlag.baseX;
-  blue.y = blueFlag.baseY;
+  // Red fire crossing into blue base is removed before it can collide with a defender.
+  Object.assign(red, { x: 1200, y: 1200, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0 });
+  Object.assign(blue, { x: TEAM_BASE_DEPTH - 20, y: 1200, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0 });
+  game.setInput(red.id, { mx: 0, my: 0, a: Math.PI, f: false });
+  game.setInput(blue.id, { mx: 0, my: 0, a: 0, f: false });
+  const redShot = {
+    id: 9101, owner: red.id, x: TEAM_BASE_DEPTH + 15, y: 1200, vx: -900, vy: 0,
+    r: 8, dmg: 40, hp: 5, life: 1, hit: new Set<number>(),
+    kind: 'bullet' as const, angle: Math.PI, maxSpeed: 900, turnRate: 0,
+  };
+  const blueHp = blue.hp;
+  game.bullets.push(redShot);
   game.step(DT);
-  assert.equal(game.teamStats.blue.captures, 1);
-  assert.equal(redFlag.carrierId, null);
-  assert.equal(redFlag.atBase, true);
-  assert.ok(game.drainEvents().some((event) => event.type === 'flag' && event.action === 'captured'));
+  assert.equal(blue.hp, blueHp, 'enemy bullets cannot damage players inside the blue base');
+  assert.ok(!game.bullets.some((bullet) => bullet.id === redShot.id), 'enemy bullets are stopped at the blue base edge');
 
-  // A carrier drops the stolen flag at the point of elimination.
-  blue.x = redFlag.x;
-  blue.y = redFlag.y;
+  // Blue fire is likewise stopped before reaching the red home base.
+  Object.assign(blue, { x: 2000, y: 1600, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0 });
+  Object.assign(red, { x: ARENA_SIZE - TEAM_BASE_DEPTH + 20, y: 1600, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0 });
+  const blueShot = {
+    id: 9102, owner: blue.id, x: ARENA_SIZE - TEAM_BASE_DEPTH - 15, y: 1600, vx: 900, vy: 0,
+    r: 8, dmg: 40, hp: 5, life: 1, hit: new Set<number>(),
+    kind: 'bullet' as const, angle: 0, maxSpeed: 900, turnRate: 0,
+  };
+  const redHp = red.hp;
+  game.bullets.push(blueShot);
   game.step(DT);
-  assert.equal(redFlag.carrierId, blue.id);
-  blue.hp = -100; // Keep regeneration from lifting the test player above zero before reap.
-  blue.lastDamageT = game.time;
-  game.step(DT);
-  assert.equal(redFlag.carrierId, null);
-  assert.equal(redFlag.atBase, false);
-  assert.ok(game.drainEvents().some((event) => event.type === 'flag' && event.action === 'dropped'));
+  assert.equal(red.hp, redHp, 'enemy bullets cannot damage players inside the red base');
+  assert.ok(!game.bullets.some((bullet) => bullet.id === blueShot.id), 'enemy bullets are stopped at the red base edge');
 });

@@ -31,7 +31,7 @@ function setSelectedMode(mode: GameMode) {
   modeFfaBtn.setAttribute('aria-pressed', String(mode === 'ffa'));
   modeTeamsBtn.setAttribute('aria-pressed', String(mode === 'teams'));
   modeHelpEl.textContent = mode === 'teams'
-    ? 'Blue team starts on the left, red team on the right. Work together, steal the enemy flag and bring it home.'
+    ? 'Blue base on the left, red base on the right. Fight for the middle and defend your own safe base.'
     : 'Every tank fights for itself. Earn XP and climb the individual leaderboard.';
   try { localStorage.setItem('game-mode', mode); } catch { /* storage may be blocked */ }
 }
@@ -124,25 +124,6 @@ function renderKillFeed(item: {
   }
 }
 
-function renderFlagNotice(m: Extract<ServerMessage, { t: 'flag' }>) {
-  const flagName = m.flagTeam.toUpperCase() + ' flag';
-  const teamName = m.playerTeam.toUpperCase();
-  const captions = {
-    taken: ['FLAG STOLEN!', m.player + ' picked up the ' + flagName + ' for ' + teamName],
-    dropped: ['FLAG DROPPED!', m.player + ' dropped the ' + flagName],
-    returned: ['FLAG RETURNED!', m.player + ' brought the ' + flagName + ' home'],
-    captured: ['FLAG CAPTURED!', m.player + ' scored for ' + teamName + ' · capture ' + m.captures],
-  } as const;
-  const [headline, detail] = captions[m.action];
-  showToast(headline, detail);
-  const row = document.createElement('div');
-  row.className = 'killfeed-row flag-event';
-  row.textContent = headline + ' ' + detail;
-  killFeedEl.prepend(row);
-  while (killFeedEl.children.length > 5) killFeedEl.lastElementChild?.remove();
-  window.setTimeout(() => row.classList.add('fade'), 6500);
-}
-
 function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
   const killerClass = m.killerClass ? CLASS_BY_ID[m.killerClass]?.name : null;
   $('deathkiller').textContent = killerClass ? m.killer + ' · ' + killerClass : m.killer;
@@ -210,7 +191,6 @@ function connect() {
       if (!devCheatsEnabled) devTools.classList.remove('open');
     }
     else if (m.t === 'feed') renderKillFeed(m);
-    else if (m.t === 'flag') renderFlagNotice(m);
     else if (m.t === 'dead') {
       playing = false; input.reset(); frames.length = 0; lastLv = 0;
       msgEl.textContent = '';
@@ -279,7 +259,7 @@ function sample(now: number): View | null {
     players: b.snap.p.map((p) => { const q = a.pm.get(p.id); return q ? { ...p, x: lerp(q.x, p.x, t), y: lerp(q.y, p.y, t), a: lerpAng(q.a, p.a, t) } : p; }),
     bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4], x[5], x[6], x[7]] as typeof x : x; }),
     shapes: b.snap.sh.map((x) => { const q = a.sm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), lerpAng(q[3], x[3], t), x[4], x[5], x[6], x[7], x[8], x[9]] : x; }),
-    flags: b.snap.flags,
+    mode: b.snap.mode,
   };
 }
 
@@ -456,17 +436,64 @@ function makeLbRow(): LbRow {
 function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
   const title = $('lbtitle');
   const teamScore = $('teamscore');
-  const top = message.top;
-  const teams = message.mode === 'teams';
-  title.textContent = teams ? 'TEAM BATTLE' : 'LEADERBOARD';
-  teamScore.hidden = !teams;
-  if (message.mode === 'teams') {
-    teamScore.textContent =
-      'BLUE ' + message.blueKills + ' K · ' + message.blueCaptures + ' FLAGS' +
-      '     RED ' + message.redKills + ' K · ' + message.redCaptures + ' FLAGS';
-    teamScore.className = 'teamscore';
-  }
   const box = $('lbrows');
+
+  if (message.mode === 'teams') {
+    title.textContent = 'TEAM LEADERBOARD';
+    box.hidden = true;
+    for (const row of lbRows.values()) row.el.remove();
+    lbRows.clear();
+    teamScore.hidden = false;
+    teamScore.className = 'team-score-grid';
+    teamScore.replaceChildren();
+
+    const buildTeamPanel = (
+      team: 'blue' | 'red',
+      totalKills: number,
+      players: { id: number; name: string; kills: number; lv: number }[],
+    ) => {
+      const panel = document.createElement('section');
+      panel.className = 'team-panel ' + team;
+      const heading = document.createElement('div');
+      heading.className = 'team-panel-heading';
+      const name = document.createElement('strong');
+      name.textContent = team.toUpperCase();
+      const score = document.createElement('span');
+      score.textContent = totalKills + ' KILLS';
+      heading.append(name, score);
+      const list = document.createElement('div');
+      list.className = 'team-player-list';
+      if (!players.length) {
+        const empty = document.createElement('div');
+        empty.className = 'team-player-empty';
+        empty.textContent = 'Waiting for players';
+        list.append(empty);
+      }
+      for (const player of players) {
+        const line = document.createElement('div');
+        line.className = 'team-player-row' + (player.id === selfId ? ' me' : '');
+        const playerName = document.createElement('span');
+        playerName.className = 'team-player-name';
+        playerName.textContent = player.name;
+        const kills = document.createElement('b');
+        kills.textContent = String(player.kills);
+        line.append(playerName, kills);
+        list.append(line);
+      }
+      panel.append(heading, list);
+      teamScore.append(panel);
+    };
+
+    buildTeamPanel('blue', message.blueKills, message.blue);
+    buildTeamPanel('red', message.redKills, message.red);
+    return;
+  }
+
+  title.textContent = 'LEADERBOARD';
+  teamScore.hidden = true;
+  teamScore.replaceChildren();
+  box.hidden = false;
+  const top = message.top;
   box.style.height = `${top.length * LB_ROW_H}px`;
   const max = Math.max(1, top[0]?.score ?? 1);
   const seen = new Set<number>();
@@ -480,13 +507,12 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
       lbRows.set(e.id, r);
     }
     r.el.style.transform = `translateY(${i * LB_ROW_H}px)`;
-    const team = 'team' in e && typeof e.team === 'string' ? e.team : null;
-    r.el.className = `lrow${i < 3 ? ` r${i + 1}` : ''}${e.id === selfId ? ' me' : ''}${team ? ' ' + team : ''}`;
+    r.el.className = `lrow${i < 3 ? ` r${i + 1}` : ''}${e.id === selfId ? ' me' : ''}`;
     r.bar.style.width = `${Math.max(4, (e.score / max) * 100)}%`;
     r.rk.textContent = String(i + 1);
-    r.nm.textContent = team ? '[' + team.toUpperCase() + '] ' + e.name : e.name;
+    r.nm.textContent = e.name;
     r.lv.textContent = e.lv != null ? `Lv${e.lv}` : '';
-    r.sc.textContent = teams ? String(e.score) + ' K' : fmtScore(e.score);
+    r.sc.textContent = fmtScore(e.score);
   });
   for (const [id, r] of lbRows) if (!seen.has(id)) { r.el.remove(); lbRows.delete(id); }
 }
@@ -517,7 +543,7 @@ function frame(now: number) {
     }
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const view = sample(now) ?? { players: [], bullets: [], shapes: [], flags: [] };
+  const view = sample(now) ?? { players: [], bullets: [], shapes: [], mode: 'ffa' as GameMode };
   const self = view.players.find((p) => p.id === selfId);
   if (self) {
     const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000);

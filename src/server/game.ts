@@ -1,5 +1,5 @@
 import {
-  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_STAT_LEVEL,
+  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_STAT_LEVEL, TEAM_BASE_DEPTH,
   PLAYER_PIERCE_COST, PROJECTILE_KIND_IDS, REGEN_DELAY_S, RESPAWN_PROTECTION_S, SHAPES,
   SHAPE_KINDS, SHAPE_TARGET_COUNT, SERVER_TICK_HZ, STAT_KEYS, VIEW_HALF,
   type BarrelDef, type ProjectileKind,
@@ -7,7 +7,7 @@ import {
 import {
   classOptions, deriveStats, levelFromXp, statPointsEarned, totalXpForLevel, type DerivedStats,
 } from '../shared/progression';
-import type { GameMode, Snapshot, TeamFlagSnap, TeamId } from '../shared/protocol';
+import type { GameMode, Snapshot, TeamId } from '../shared/protocol';
 import { SpatialGrid } from './grid';
 
 export interface Player {
@@ -44,17 +44,11 @@ export interface Shape {
   r: number; hp: number; maxHp: number; rot: number; rotSpeed: number; lastHitBy: number | null;
   hitFlash?: number; hitX?: number; hitY?: number; hitAngle?: number;
 }
-export interface TeamFlagState extends TeamFlagSnap { droppedAt: number }
-export type GameEvent =
-  | {
-      type: 'dead'; id: number; killer: string; killerClass: string | null;
-      killerTeam: TeamId | null; victim: string; victimClass: string; victimTeam: TeamId | null;
-      score: number; level: number; kills: number; damageDealt: number; damageTaken: number; lifetime: number;
-    }
-  | {
-      type: 'flag'; action: 'taken' | 'dropped' | 'returned' | 'captured';
-      flagTeam: TeamId; player: string; playerTeam: TeamId; captures: number;
-    };
+export type GameEvent = {
+  type: 'dead'; id: number; killer: string; killerClass: string | null;
+  killerTeam: TeamId | null; victim: string; victimClass: string; victimTeam: TeamId | null;
+  score: number; level: number; kills: number; damageDealt: number; damageTaken: number; lifetime: number;
+};
 
 type Ent = { k: 0 | 1 | 2; o: Player | Shape | Bullet };
 type Target = { x: number; y: number; r?: number; id?: number; vx?: number; vy?: number };
@@ -76,10 +70,9 @@ export class Game {
   bullets: Bullet[] = [];
   shapes: Shape[] = [];
   events: GameEvent[] = [];
-  flags: TeamFlagState[] = [];
   teamStats = {
-    blue: { kills: 0, captures: 0 },
-    red: { kills: 0, captures: 0 },
+    blue: { kills: 0 },
+    red: { kills: 0 },
   };
   private nextId = 1;
   private grid = new SpatialGrid(128);
@@ -90,13 +83,6 @@ export class Game {
     readonly mode: GameMode = 'ffa',
   ) {
     for (let i = 0; i < initialShapes; i++) this.spawnShape();
-    if (mode === 'teams') {
-      const y = ARENA_SIZE / 2;
-      this.flags = [
-        { team: 'blue', x: 160, y, baseX: 160, baseY: y, carrierId: null, atBase: true, droppedAt: 0 },
-        { team: 'red', x: ARENA_SIZE - 160, y, baseX: ARENA_SIZE - 160, baseY: y, carrierId: null, atBase: true, droppedAt: 0 },
-      ];
-    }
   }
 
   addPlayer(name: string): Player | null {
@@ -124,7 +110,6 @@ export class Game {
   }
 
   removePlayer(id: number) {
-    this.dropFlagForPlayer(id);
     this.players.delete(id);
     this.bullets = this.bullets.filter((b) => b.owner !== id || b.kind === 'bullet');
   }
@@ -260,14 +245,39 @@ export class Game {
       else if (b.kind !== 'trap') { b.x += b.vx * dt; b.y += b.vy * dt; }
       b.life -= dt;
     }
+    this.bullets = this.bullets.filter((bullet) => !this.isBlockedByEnemyBase(bullet));
     this.explodeExpiredFireworks();
     this.collideAll(dt);
+    this.constrainAllTeamPlayers();
     this.reap();
-    this.updateFlags();
     this.bullets = this.bullets.filter((b) =>
       b.hp > 0 && b.life > 0 && b.x > -80 && b.y > -80 && b.x < ARENA_SIZE + 80 && b.y < ARENA_SIZE + 80,
     );
     if (this.shapes.length < SHAPE_TARGET_COUNT && this.rng() < dt * 4) this.spawnShape();
+  }
+
+  private constrainTeamPlayer(player: Player) {
+    if (this.mode !== 'teams' || !player.team) return;
+    if (player.team === 'blue') {
+      player.x = Math.min(player.x, ARENA_SIZE - TEAM_BASE_DEPTH - player.r);
+    } else {
+      player.x = Math.max(player.x, TEAM_BASE_DEPTH + player.r);
+    }
+  }
+
+  private constrainAllTeamPlayers() {
+    if (this.mode !== 'teams') return;
+    for (const player of this.players.values()) {
+      if (player.alive) this.constrainTeamPlayer(player);
+    }
+  }
+
+  private isBlockedByEnemyBase(bullet: Bullet): boolean {
+    if (this.mode !== 'teams') return false;
+    const owner = this.players.get(bullet.owner);
+    if (!owner?.team) return false;
+    if (owner.team === 'blue') return bullet.x + bullet.r >= ARENA_SIZE - TEAM_BASE_DEPTH;
+    return bullet.x - bullet.r <= TEAM_BASE_DEPTH;
   }
 
   private updatePlayer(p: Player, dt: number) {
@@ -280,10 +290,8 @@ export class Game {
     const inputLen = Math.hypot(ix, iy);
     if (inputLen > 1) { ix /= inputLen; iy /= inputLen; }
     const k = 1 - Math.exp(-dt * 7);
-    const carryingFlag = this.flags.some((flag) => flag.carrierId === p.id);
-    const movementSpeed = p.d.moveSpeed * (carryingFlag ? 0.82 : 1);
-    p.vx += (ix * movementSpeed - p.vx) * k;
-    p.vy += (iy * movementSpeed - p.vy) * k;
+    p.vx += (ix * p.d.moveSpeed - p.vx) * k;
+    p.vy += (iy * p.d.moveSpeed - p.vy) * k;
     p.x += (p.vx + p.kvx + p.rvx) * dt;
     p.y += (p.vy + p.kvy + p.rvy) * dt;
     const dec = Math.exp(-dt * 6);
@@ -292,6 +300,7 @@ export class Game {
     p.rvx *= recoilDecay; p.rvy *= recoilDecay;
     p.x = clamp(p.x, p.r, ARENA_SIZE - p.r);
     p.y = clamp(p.y, p.r, ARENA_SIZE - p.r);
+    this.constrainTeamPlayer(p);
 
     if (p.protT > 0) p.protT -= dt;
     if (this.time - p.lastDamageT > REGEN_DELAY_S && p.hp < p.maxHp) {
@@ -824,104 +833,9 @@ export class Game {
     p.stealthT = 0; p.visibility = 1;
   }
 
-  private emitFlag(action: 'taken' | 'dropped' | 'returned' | 'captured', flag: TeamFlagState, player: Player | null, playerTeam: TeamId) {
-    this.events.push({
-      type: 'flag', action, flagTeam: flag.team,
-      player: player?.name ?? 'The arena', playerTeam,
-      captures: this.teamStats[playerTeam].captures,
-    });
-  }
-
-  private resetFlag(flag: TeamFlagState) {
-    flag.x = flag.baseX;
-    flag.y = flag.baseY;
-    flag.carrierId = null;
-    flag.atBase = true;
-    flag.droppedAt = 0;
-  }
-
-  private dropFlagForPlayer(id: number) {
-    for (const flag of this.flags) {
-      if (flag.carrierId !== id) continue;
-      const carrier = this.players.get(id);
-      flag.carrierId = null;
-      flag.atBase = false;
-      flag.droppedAt = this.time;
-      if (carrier) {
-        flag.x = carrier.x;
-        flag.y = carrier.y;
-        const carrierTeam = carrier.team ?? (flag.team === 'blue' ? 'red' : 'blue');
-        this.emitFlag('dropped', flag, carrier, carrierTeam);
-      }
-    }
-  }
-
-  private updateFlags() {
-    if (this.mode !== 'teams') return;
-
-    // Keep carried flags attached to their carrier; death or disconnect drops them.
-    for (const flag of this.flags) {
-      if (flag.carrierId == null) continue;
-      const carrier = this.players.get(flag.carrierId);
-      if (!carrier?.alive) {
-        this.dropFlagForPlayer(flag.carrierId);
-        continue;
-      }
-      flag.x = carrier.x;
-      flag.y = carrier.y;
-    }
-
-    // A dropped flag returns automatically after 20 seconds.
-    for (const flag of this.flags) {
-      if (!flag.atBase && flag.carrierId == null && this.time - flag.droppedAt >= 20) {
-        this.resetFlag(flag);
-        this.events.push({
-          type: 'flag', action: 'returned', flagTeam: flag.team,
-          player: 'The arena', playerTeam: flag.team,
-          captures: this.teamStats[flag.team].captures,
-        });
-      }
-    }
-
-    for (const player of this.players.values()) {
-      if (!player.alive || !player.team) continue;
-      const ownFlag = this.flags.find((flag) => flag.team === player.team);
-      const enemyFlag = this.flags.find((flag) => flag.team !== player.team);
-      if (!ownFlag || !enemyFlag) continue;
-
-      // Touch your dropped flag to return it to base.
-      if (!ownFlag.atBase && ownFlag.carrierId == null &&
-          Math.hypot(player.x - ownFlag.x, player.y - ownFlag.y) <= player.r + 22) {
-        this.resetFlag(ownFlag);
-        this.emitFlag('returned', ownFlag, player, player.team);
-        continue;
-      }
-
-      // Steal the enemy flag, whether at base or dropped.
-      if (enemyFlag.carrierId == null &&
-          Math.hypot(player.x - enemyFlag.x, player.y - enemyFlag.y) <= player.r + 22) {
-        enemyFlag.carrierId = player.id;
-        enemyFlag.atBase = false;
-        enemyFlag.droppedAt = 0;
-        enemyFlag.x = player.x;
-        enemyFlag.y = player.y;
-        this.emitFlag('taken', enemyFlag, player, player.team);
-      }
-
-      // Score only when your own flag is home.
-      if (enemyFlag.carrierId === player.id && ownFlag.atBase &&
-          Math.hypot(player.x - ownFlag.baseX, player.y - ownFlag.baseY) <= 140) {
-        this.teamStats[player.team].captures++;
-        this.resetFlag(enemyFlag);
-        this.emitFlag('captured', enemyFlag, player, player.team);
-      }
-    }
-  }
-
   private reap() {
     for (const p of this.players.values()) {
       if (!p.alive || p.hp > 0) continue;
-      this.dropFlagForPlayer(p.id);
       p.alive = false; p.hp = 0; p.input.f = false; p.input.secondary = false;
       this.bullets = this.bullets.filter((b) => b.owner !== p.id || b.kind === 'bullet');
       const killer = p.lastHit?.id != null ? this.players.get(p.lastHit.id) : undefined;
@@ -997,18 +911,15 @@ export class Game {
       .map((p) => ({ id: p.id, name: p.name, score: p.xp, lv: p.level }));
   }
 
-  teamLeaderboard(limit = 10) {
-    return {
-      blueKills: this.teamStats.blue.kills,
-      redKills: this.teamStats.red.kills,
-      blueCaptures: this.teamStats.blue.captures,
-      redCaptures: this.teamStats.red.captures,
-      top: [...this.players.values()].sort((a, b) => b.matchKills - a.matchKills).slice(0, limit)
-        .map((p) => ({
-          id: p.id, name: p.name, score: p.matchKills, kills: p.matchKills,
-          lv: p.level, team: p.team ?? 'blue',
-        })),
-    };
+  teamLeaderboard(limit = 5) {
+    const members = (team: TeamId) => [...this.players.values()]
+      .filter((player) => player.team === team)
+      .sort((a, b) => b.matchKills - a.matchKills || b.level - a.level)
+      .slice(0, limit)
+      .map((player) => ({ id: player.id, name: player.name, score: player.matchKills,
+        kills: player.matchKills, lv: player.level, team }));
+    return { blueKills: this.teamStats.blue.kills, redKills: this.teamStats.red.kills,
+      blue: members('blue'), red: members('red') };
   }
 
   drainEvents(): GameEvent[] { const events = this.events; this.events = []; return events; }
@@ -1023,7 +934,7 @@ export class Game {
     const myClass = CLASS_BY_ID[me.cls];
     const focus = myClass.id === 'predator' && me.input.secondary ? 1.55 : 1;
     return {
-      t: 's', tick: this.tick,
+      t: 's', tick: this.tick, mode: this.mode,
       me: {
         alive: me.alive, hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
         xpCur: currentXp, xpNext: nextXp, pts: me.pts, stats: me.stats.slice(),
@@ -1044,11 +955,6 @@ export class Game {
       sh: this.shapes.filter((shape) => near(shape.x, shape.y, shape.r)).map((shape) =>
         [shape.id, r1(shape.x), r1(shape.y), r2(shape.rot), shape.kind, r2(shape.hp / shape.maxHp),
           r2(shape.hitFlash ?? 0), r1(shape.hitX ?? shape.x), r1(shape.hitY ?? shape.y), r2(shape.hitAngle ?? 0)]),
-      flags: this.flags.map((flag) => ({
-        team: flag.team, x: r1(flag.x), y: r1(flag.y),
-        baseX: flag.baseX, baseY: flag.baseY,
-        carrierId: flag.carrierId, atBase: flag.atBase,
-      })),
     };
   }
 }

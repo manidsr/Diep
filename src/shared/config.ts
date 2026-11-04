@@ -2,6 +2,7 @@
 
 export const SERVER_TICK_HZ = 30;
 export const ARENA_SIZE = 3200;
+export const TEAM_BASE_DEPTH = 520;
 export const VIEW_HALF = 1000;
 export const MAX_LEVEL = 45;
 export const MAX_STAT_LEVEL = 7;

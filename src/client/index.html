@@ -14,20 +14,28 @@
   .hud { position: fixed; pointer-events: none; }
 
   /* ---------- Leaderboard ---------- */
-  #lb { top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); width: 196px;
+  #lb { top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); width: 260px;
     background: linear-gradient(160deg, #14141bcc, #1f1f2acc); border: 1px solid #ffffff22; border-radius: 10px;
     padding: 8px 8px 6px; font-size: 12px; backdrop-filter: blur(4px); box-shadow: 0 4px 18px #0006; }
   #lb h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .22em; text-align: center; font-weight: 800;
     background: linear-gradient(90deg, #ffd86b, #ff9d5c, #ffd86b); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
     color: transparent; animation: sheen 4s linear infinite; }
   #lbrows { position: relative; }
-  #teamscore { margin: 0 0 6px; padding: 5px 4px; border-radius: 6px; background: #09090dcc;
-    text-align: center; font-size: 9px; line-height: 1.45; font-weight: 900; letter-spacing: .035em;
-    color: #e9e9ef; font-variant-numeric: tabular-nums; white-space: normal; }
+  #teamscore { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 7px; margin: 0 0 6px; }
   #teamscore[hidden] { display: none !important; }
-  .lrow.blue .nm { color: #80dfff; }
-  .lrow.red .nm { color: #ff9aa1; }
-  #teamscore { border: 1px solid #ffffff22; }
+  .team-panel { min-width: 0; border-radius: 7px; padding: 6px; background: #09090dcc; border: 1px solid #ffffff22; }
+  .team-panel.blue { border-color: #36b8f066; }
+  .team-panel.red { border-color: #ef5a6666; }
+  .team-panel-heading { display: flex; flex-direction: column; gap: 1px; align-items: center; margin-bottom: 5px; font-size: 10px; }
+  .team-panel.blue .team-panel-heading { color: #8bdfff; }
+  .team-panel.red .team-panel-heading { color: #ff9ca2; }
+  .team-panel-heading span { color: #fff; font-size: 9px; }
+  .team-player-list { display: grid; gap: 3px; }
+  .team-player-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 3px; border-radius: 4px; background: #ffffff0b; font-size: 10px; }
+  .team-player-row.me { outline: 1px solid #ffffff66; }
+  .team-player-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .team-player-empty { min-height: 24px; text-align: center; color: #aaa; font-size: 9px; }
+  #lbrows[hidden] { display: none !important; }
   .lrow { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 6px;
     border-radius: 6px; overflow: hidden; transition: transform .45s cubic-bezier(.3,1.2,.4,1); animation: lbin .4s ease-out; }
   .lrow .bar { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #ffffff30, #ffffff08);
@@ -155,7 +163,6 @@
     color: #f4f4f6; font-size: 11px; line-height: 1.25; text-align: right; text-shadow: 0 1px 2px #000; opacity: 1;
     transition: opacity .8s ease; overflow-wrap: anywhere; }
   .killfeed-row.fade { opacity: 0; }
-  .killfeed-row.flag-event { border-color: #f0c86a99; color: #ffe7a4; }
   /* ---------- Death report ---------- */
   #deathpanel[hidden] { display: none !important; }
   #deathpanel { margin: 10px 0 12px; padding: 12px; border: 1px solid #ff8a7a66; border-radius: 10px;
@@ -233,7 +240,7 @@
     <input id="name" maxlength="16" placeholder="Nickname" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div id="mode-select" role="group" aria-label="Choose game mode">
       <button id="mode-ffa" type="button" class="selected" aria-pressed="true">FREE FOR ALL<br><small>Every tank for itself</small></button>
-      <button id="mode-teams" type="button" aria-pressed="false">TEAM MODE<br><small>Blue vs Red · Capture the flag</small></button>
+      <button id="mode-teams" type="button" aria-pressed="false">TEAM MODE<br><small>Blue vs Red · Protected bases</small></button>
     </div>
     <p id="mode-help" class="small">Every tank fights for itself. Earn XP and climb the individual leaderboard.</p>
     <button id="play" disabled>Play</button>
