@@ -211,6 +211,26 @@ function connect() {
   };
 }
 
+
+async function enterFullscreen() {
+  if (!document.fullscreenElement) {
+    try {
+      await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    } catch {
+      msgEl.textContent = 'Fullscreen is unavailable here. Try Chrome menu → Add to Home screen for an app-style launch.';
+      return;
+    }
+  }
+  try {
+    const orientation = screen.orientation as ScreenOrientation & { lock?: (value: 'landscape') => Promise<void> };
+    await orientation.lock?.('landscape');
+  } catch { /* Some browsers restrict orientation locking; fullscreen still works. */ }
+}
+fullscreenBtn.addEventListener('click', () => { void enterFullscreen(); });
+document.addEventListener('fullscreenchange', () => {
+  fullscreenBtn.textContent = document.fullscreenElement ? 'Fullscreen is on' : 'Enter fullscreen';
+});
+
 function play() {
   if (joining || playing || !ws || ws.readyState !== WebSocket.OPEN) return;
   try { localStorage.setItem('nick', nameEl.value); } catch { /* storage may be blocked */ }
@@ -307,13 +327,14 @@ for (const id of CLASS_IDS) {
 // ---------- HUD ----------
 const statsEl = $('stats'), rowsEl = $('rows'), ptsEl = $('pts'), classesEl = $('classes');
 const statsToggle = $<HTMLButtonElement>('stats-toggle');
+const fullscreenBtn = $<HTMLButtonElement>('fullscreen-btn');
 const leaderboardEl = $('lb');
 const leaderboardToggle = $<HTMLButtonElement>('lbtitle');
 const xpEl = $('xp'), toastEl = $('toast');
 const devTools = $('devtools');
 
 function isCompactHud(): boolean {
-  return window.matchMedia('(max-width: 700px), (max-height: 520px) and (pointer: coarse)').matches;
+  return window.matchMedia('(pointer: coarse), (max-width: 760px)').matches;
 }
 if (!isCompactHud()) {
   leaderboardEl.classList.remove('mobile-collapsed');
@@ -322,6 +343,7 @@ if (!isCompactHud()) {
 statsToggle.addEventListener('click', () => {
   if (!isCompactHud()) return;
   const open = statsEl.classList.toggle('open');
+  document.body.classList.toggle('upgrades-open', open);
   statsToggle.setAttribute('aria-expanded', String(open));
 });
 leaderboardToggle.addEventListener('click', () => {
@@ -351,9 +373,16 @@ window.addEventListener('keydown', (e) => {
 const pipEls: HTMLElement[][] = [];
 const btnEls: HTMLButtonElement[] = [];
 const rowEls: HTMLElement[] = [];
+const MOBILE_STAT_LABELS: Record<(typeof STAT_KEYS)[number], string> = {
+  regen: 'Regen', maxHealth: 'Health', bodyDamage: 'Body',
+  bulletSpeed: 'Speed', bulletPenetration: 'Penetration',
+  bulletDamage: 'Damage', reload: 'Reload', moveSpeed: 'Move',
+};
 STAT_KEYS.forEach((k, i) => {
   const row = document.createElement('div'); row.className = 'row';
-  const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = `${i + 1}. ${STAT_LABELS[k]}`;
+  const lbl = document.createElement('span'); lbl.className = 'lbl';
+  lbl.textContent = `${i + 1}. ${STAT_LABELS[k]}`;
+  lbl.dataset.mobileLabel = MOBILE_STAT_LABELS[k];
   const pips = document.createElement('div'); pips.className = 'pips';
   pipEls[i] = [];
   for (let j = 0; j < MAX_STAT_LEVEL; j++) { const p = document.createElement('span'); p.className = 'pip'; pips.append(p); pipEls[i].push(p); }
@@ -413,6 +442,7 @@ function updateHud(m: SelfSnap) {
     statsEl.classList.toggle('show', !m.downed && m.alive && m.pts > 0);
     if (m.pts <= 0 || m.downed || !m.alive) {
       statsEl.classList.remove('open');
+      document.body.classList.remove('upgrades-open');
       statsToggle.setAttribute('aria-expanded', 'false');
     }
     ptsEl.textContent = m.pts > 0 ? `(x${m.pts})` : '';
