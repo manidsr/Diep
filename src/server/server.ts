@@ -152,6 +152,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
               });
             }
           }
+        }
       }
 
       const leaderboard = world.tick % SERVER_TICK_HZ === 0
