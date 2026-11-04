@@ -626,8 +626,6 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
   const xpBefore = player.xp, teammateXpBefore = teammate.xp;
   // Keep another zombie alive so wave-clear fallback cannot mask a physical pickup.
   game.zombies.push({ ...zombie, id: zombie.id + 10000, x: zombie.x + 260, y: zombie.y + 230, hp: zombie.maxHp, damageBy: new Map() });
-  // This simulates a temporary disconnect: the offline survivor still shares the same run XP.
-  player.connected = false;
   game.bullets.push({
     id: 99001, owner: player.id, x: zombie.x, y: zombie.y, vx: 0, vy: 0,
     r: 8, dmg: zombie.hp + 100, hp: 5, life: 2, hit: new Set<number>(),
@@ -637,6 +635,8 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
   assert.equal(player.xp, xpBefore, 'XP should remain on the arena until a teammate collects the orb');
   assert.equal(teammate.xp, teammateXpBefore, 'shared XP is awarded when the orb is collected, not on the kill');
   assert.equal(game.xpDrops.length, 1, 'the zombie should leave a visible XP orb');
+  // This simulates a temporary disconnect after the player has joined this run.
+  player.connected = false;
   const orb = game.xpDrops[0]!;
   assert.ok(orb.xp > 0);
   teammate.x = orb.x; teammate.y = orb.y;
