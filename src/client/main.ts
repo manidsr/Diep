@@ -347,6 +347,8 @@ function sample(now: number): View | null {
     zombies: b.snap.z.map((zombie) => { const q = a.zm.get(zombie.id); return q ? { ...zombie, x: lerp(q.x, zombie.x, t), y: lerp(q.y, zombie.y, t), angle: lerpAng(q.angle, zombie.angle, t) } : zombie; }),
     downed: b.snap.d,
     healthDrops: b.snap.h,
+    xpDrops: b.snap.xpDrops,
+    pools: b.snap.pools,
     mode: b.snap.mode,
   };
 }
@@ -383,6 +385,7 @@ const statsToggle = $<HTMLButtonElement>('stats-toggle');
 const leaderboardEl = $('lb');
 const leaderboardToggle = $<HTMLButtonElement>('lbtitle');
 const xpEl = $('xp'), toastEl = $('toast');
+const rewardPanel = $('reward-panel'), rewardCardsEl = $('reward-cards'), rewardTimerEl = $('reward-timer');
 const devTools = $('devtools');
 
 function isCompactHud(): boolean {
@@ -462,10 +465,30 @@ function showToast(big: string, sub: string) {
   toastTimer = window.setTimeout(() => toastEl.classList.remove('go'), 2100);
 }
 
-let hudKey = '', optKey = '';
+let hudKey = '', optKey = '', rewardKey = '';
 let lastLv = 0, lastPts = 0, lastStats: number[] = [];
 let wasDowned = false;
+function updateSurvivalRewards(m: SelfSnap) {
+  rewardPanel.hidden = m.rewards.length === 0;
+  rewardTimerEl.textContent = m.rewards.length ? `${Math.ceil(m.rewardTimer)}s` : '';
+  const key = m.rewards.map((card) => `${card.id}:${card.title}:${card.description}:${card.rarity}`).join('|');
+  if (key === rewardKey) return;
+  rewardKey = key;
+  rewardCardsEl.replaceChildren();
+  for (const card of m.rewards) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = `reward-card rarity-${card.rarity}`;
+    const rarity = document.createElement('span'); rarity.className = 'reward-rarity'; rarity.textContent = card.rarity.toUpperCase();
+    const title = document.createElement('strong'); title.textContent = card.title;
+    const description = document.createElement('small'); description.textContent = card.description;
+    button.append(rarity, title, description);
+    button.addEventListener('click', () => { if (playing) send({ t: 'reward', id: card.id }); });
+    rewardCardsEl.append(button);
+  }
+}
+
 function updateHud(m: SelfSnap) {
+  updateSurvivalRewards(m);
   // Only sync the selector when the server-confirmed class actually changes.
   // Do not overwrite the user's pending dropdown choice on every snapshot.
   if (devCheatsEnabled && m.cls !== lastDevClass) {
@@ -476,7 +499,7 @@ function updateHud(m: SelfSnap) {
   $('xpfill').style.width = `${m.xpNext === m.xpCur ? 100 : Math.min(100, ((m.xp - m.xpCur) / span) * 100)}%`;
 
   // Level-up celebration (only while alive and after the first snapshot of a life).
-  if (m.downed && !wasDowned) showToast('DOWNED', 'Stay beside an ally for a 4 second revive');
+  if (m.downed && !wasDowned) showToast('DOWNED', 'Stay close to an ally — you can be revived any time');
   wasDowned = m.downed;
   if (!m.alive && !m.downed) { lastLv = 0; lastPts = 0; lastStats = []; }
   else {
@@ -721,7 +744,7 @@ function frame(now: number) {
     }
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const view = sample(now) ?? { players: [], bullets: [], shapes: [], zombies: [], downed: [], healthDrops: [], mode: 'ffa' as GameMode };
+  const view = sample(now) ?? { players: [], bullets: [], shapes: [], zombies: [], downed: [], healthDrops: [], xpDrops: [], pools: [], mode: 'ffa' as GameMode };
   minimapCanvas.hidden = view.mode !== 'survival';
   minimapCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawMinimap(minimapCtx, MINIMAP_SIZE, MINIMAP_SIZE, view, selfId);
