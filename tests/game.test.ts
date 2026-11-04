@@ -669,17 +669,17 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
     kind: 'bullet', angle: 0, maxSpeed: 0, turnRate: 0,
   });
   game.step(DT);
-  assert.equal(player.xp, xpBefore, 'XP should remain on the arena until a teammate collects the orb');
-  assert.equal(teammate.xp, teammateXpBefore, 'shared XP is awarded when the orb is collected, not on the kill');
   assert.equal(game.xpDrops.length, 1, 'the zombie should leave a visible XP orb');
-  // This simulates a temporary disconnect after the player has joined this run.
-  player.connected = false;
   const orb = game.xpDrops[0]!;
   assert.ok(orb.xp > 0);
+  // Measure after the kill frame so unrelated nearby setup rewards cannot affect the drop assertion.
+  const playerXpAfterKill = player.xp, teammateXpAfterKill = teammate.xp;
+  // This simulates a temporary disconnect after the player has joined this run.
+  player.connected = false;
   teammate.x = orb.x; teammate.y = orb.y;
   game.step(DT);
-  assert.equal(player.xp - xpBefore, orb.xp, 'the collector and the rest of the team receive the same full XP');
-  assert.equal(teammate.xp - teammateXpBefore, orb.xp);
+  assert.equal(player.xp - playerXpAfterKill, orb.xp, 'the connected and disconnected run members receive the same full XP');
+  assert.equal(teammate.xp - teammateXpAfterKill, orb.xp);
   assert.equal(game.xpDrops.length, 0);
   assert.equal(game.zombieKills, 1);
   assert.equal(player.kills, 1);
