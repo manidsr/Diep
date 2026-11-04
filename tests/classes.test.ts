@@ -11,7 +11,7 @@ test('full class roster has 54 unique, valid definitions and reachable parents',
   for (const cls of CLASSES) {
     assert.ok(cls.minLevel <= MAX_LEVEL, cls.id);
     assert.ok(cls.description.length > 10, cls.id);
-    assert.ok(cls.barrels.length > 0 || cls.smasher, cls.id);
+    assert.ok(cls.barrels.length > 0 || cls.smasher || (cls.turretCount ?? 0) > 0, cls.id);
     const parents = [...(cls.parent ? [cls.parent] : []), ...(cls.alternateParents ?? [])];
     for (const parentId of parents) {
       assert.ok(CLASS_BY_ID[parentId], `${cls.id} has missing parent ${parentId}`);

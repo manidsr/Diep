@@ -273,7 +273,7 @@ test('class changes and respawns clear weapon and auto-turret cooldowns', () => 
   assert.equal(player.cd.length, 1);
   assert.equal(player.cd[0], 0);
   assert.equal(player.autoCd.length, 3);
-  assert.ok(player.autoCd.every((value) => value === 0));
+  assert.deepEqual(player.autoCd, [0, 0, 0]);
 
   player.cd[0] = 4;
   player.autoCd.fill(3);
