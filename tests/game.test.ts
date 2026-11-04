@@ -718,3 +718,106 @@ test('Co-op Survival scales wave size gently as more players join', () => {
   assert.ok(waveState(duo) > waveState(solo), 'more players should add enemies to a wave');
   assert.ok(waveState(duo) <= Math.ceil(waveState(solo) * 1.25), 'one extra player should not make the wave dramatically harder');
 });
+
+
+test('Co-op Survival boss waves rotate through three distinct bosses', () => {
+  const expected = ['breaker', 'spitter', 'summoner'];
+  for (let i = 0; i < expected.length; i++) {
+    const game = new Game(seeded(81 + i), 0, 'survival');
+    game.addPlayer('boss tester');
+    const state = game as unknown as { wave: number; waveSpawned: number; spawnZombie: () => boolean };
+    state.wave = (i + 1) * 5;
+    state.waveSpawned = 0;
+    assert.ok(state.spawnZombie());
+    const boss = game.zombies[0]!;
+    assert.equal(boss.bossKind, expected[i]);
+    assert.equal(boss.bossPhase, 'idle');
+    assert.ok(boss.maxHp >= 1000, 'bosses should have a substantial dedicated health pool');
+    assert.ok(boss.xp >= 400, 'boss kills should grant a meaningful team XP reward');
+  }
+});
+
+test('The Breaker telegraphs a charge and its slam damages nearby survivors', () => {
+  const game = new Game(seeded(85), 0, 'survival');
+  const player = place(game, game.addPlayer('breaker target')!.id, 1260, 1000);
+  const state = game as unknown as {
+    wave: number; waveSpawned: number; spawnZombie: () => boolean;
+    updateZombie: (zombie: typeof game.zombies[number], dt: number) => void;
+  };
+  state.wave = 5; state.waveSpawned = 0;
+  assert.ok(state.spawnZombie());
+  const boss = game.zombies[0]!;
+  Object.assign(boss, { x: 1000, y: 1000, bossCooldown: 0, vx: 0, vy: 0 });
+  const phases = new Set<string>();
+  const hpBefore = player.hp;
+  for (let i = 0; i < 120; i++) {
+    state.updateZombie(boss, DT);
+    phases.add(boss.bossPhase);
+  }
+  assert.ok(phases.has('windup'), 'the slam must have a visible warning window');
+  assert.ok(phases.has('charge'), 'the boss must commit to a directional charge');
+  assert.ok(phases.has('recovery'), 'the charge must end in a punishable recovery');
+  assert.ok(player.hp < hpBefore, 'the ground slam must deal server-side area damage');
+  assert.ok(Math.hypot(player.kvx, player.kvy) > 0, 'the slam must knock nearby survivors back');
+});
+
+test('Rotbloom keeps range and fires a readable three-glob hostile volley', () => {
+  const game = new Game(seeded(86), 0, 'survival');
+  const player = place(game, game.addPlayer('spitter target')!.id, 1320, 1000);
+  const state = game as unknown as {
+    wave: number; waveSpawned: number; spawnZombie: () => boolean;
+    updateZombie: (zombie: typeof game.zombies[number], dt: number) => void;
+  };
+  state.wave = 10; state.waveSpawned = 0;
+  assert.ok(state.spawnZombie());
+  const boss = game.zombies[0]!;
+  Object.assign(boss, { x: 900, y: 1000, bossCooldown: 0, vx: 0, vy: 0 });
+  for (let i = 0; i < 40; i++) state.updateZombie(boss, DT);
+  const volley = game.bullets.filter((bullet) => bullet.hostile && bullet.hostileName === 'a Rotbloom glob');
+  assert.equal(volley.length, 3, 'Rotbloom should fire a three-shot spread');
+  assert.ok(volley.every((bullet) => bullet.dmg > 0 && Number.isFinite(bullet.angle)));
+  assert.ok(Math.hypot(boss.vx, boss.vy) > 0, 'Rotbloom should reposition instead of standing still');
+});
+
+test('Graveheart summons ordinary minions without creating extra bosses', () => {
+  const game = new Game(seeded(87), 0, 'survival');
+  place(game, game.addPlayer('summoner target')!.id, 1450, 1000);
+  const state = game as unknown as {
+    wave: number; waveSpawned: number; spawnZombie: () => boolean;
+    updateZombie: (zombie: typeof game.zombies[number], dt: number) => void;
+  };
+  state.wave = 15; state.waveSpawned = 0;
+  assert.ok(state.spawnZombie());
+  const boss = game.zombies[0]!;
+  Object.assign(boss, { x: 1100, y: 1000, bossCooldown: 0, vx: 0, vy: 0 });
+  for (let i = 0; i < 40; i++) state.updateZombie(boss, DT);
+  const minions = game.zombies.filter((zombie) => zombie.id !== boss.id);
+  assert.equal(minions.length, 3, 'the third boss should summon a small group of three');
+  assert.ok(minions.every((zombie) => zombie.bossKind === null && zombie.hp > 0));
+  assert.ok(minions.every((zombie) => zombie.x !== boss.x || zombie.y !== boss.y));
+});
+
+test('hostile boss projectiles hurt survivors but player shots cannot hurt teammates in Survival', () => {
+  const game = new Game(seeded(88), 0, 'survival');
+  const shooter = place(game, game.addPlayer('survivor one')!.id, 1100, 1100);
+  const target = place(game, game.addPlayer('survivor two')!.id, 1250, 1100);
+  const targetHp = target.hp;
+  game.bullets.push({
+    id: 99088, owner: -500, x: target.x, y: target.y, vx: 0, vy: 0,
+    r: 12, dmg: 19, hp: 1, life: 2, hit: new Set<number>(),
+    kind: 'bullet', angle: Math.PI, maxSpeed: 0, turnRate: 0,
+    hostile: true, hostileName: 'a boss projectile',
+  });
+  game.step(DT);
+  assert.ok(target.hp < targetHp, 'hostile boss shots must damage players in co-op');
+
+  // A normal player bullet is still harmless to a fellow survivor.
+  const friendlyTargetHp = target.hp;
+  game.bullets.push({
+    id: 99089, owner: shooter.id, x: target.x, y: target.y, vx: 0, vy: 0,
+    r: 12, dmg: 50, hp: 1, life: 2, hit: new Set<number>(),
+    kind: 'bullet', angle: 0, maxSpeed: 0, turnRate: 0,
+  });
+  game.step(DT);
+  assert.equal(target.hp, friendlyTargetHp, 'co-op player bullets must not become friendly fire');
+});

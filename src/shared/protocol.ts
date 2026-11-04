@@ -67,9 +67,13 @@ export interface PlayerSnap {
   hp: number; mhp: number; r: number; lv: number; cls: number; prot: 0 | 1; vis: number;
   team: TeamId | null;
 }
+export type ZombieBossKind = 'breaker' | 'spitter' | 'summoner';
+export type ZombieBossPhase = 'idle' | 'windup' | 'charge' | 'recovery';
+
 export interface ZombieSnap {
   id: number; x: number; y: number; r: number; hp: number; mhp: number;
   angle: number; hitFlash: number; hitAngle: number;
+  bossKind: ZombieBossKind | null; bossPhase: ZombieBossPhase; bossTimer: number;
 }
 export interface SelfSnap {
   alive: boolean; hp: number; mhp: number; lv: number;

@@ -183,14 +183,91 @@ function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][n
 function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   const { x, y, r } = zombie;
   const hit = Math.max(0, Math.min(1, zombie.hitFlash));
+  const boss = zombie.bossKind !== null;
+  const palettes = {
+    breaker: { fill: '#a84a43', stroke: '#59272a', accent: '#ffc17a' },
+    spitter: { fill: '#6c964f', stroke: '#304c2d', accent: '#d4f47a' },
+    summoner: { fill: '#66518d', stroke: '#352653', accent: '#d2aaff' },
+  } as const;
+  const palette = zombie.bossKind ? palettes[zombie.bossKind] : {
+    fill: '#4f854b', stroke: '#254b2b', accent: '#a8d66b',
+  };
+  const facingX = Math.cos(zombie.angle);
+  const facingY = Math.sin(zombie.angle);
+
   ctx.save();
   ctx.translate(x, y);
-  ctx.rotate(zombie.angle);
-  ctx.shadowColor = hit > 0.08 ? '#eaffd2' : '#355f35';
+
+  if (boss) {
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.25, 0, Math.PI * 2);
+    ctx.strokeStyle = palette.accent;
+    ctx.globalAlpha = 0.38;
+    ctx.lineWidth = Math.max(3, r * 0.075);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    if (zombie.bossPhase === 'windup') {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 75);
+      ctx.beginPath();
+      ctx.arc(0, 0, r * (1.75 + pulse * 0.12), 0, Math.PI * 2);
+      ctx.setLineDash([r * 0.28, r * 0.17]);
+      ctx.strokeStyle = palette.accent;
+      ctx.globalAlpha = 0.45 + pulse * 0.4;
+      ctx.lineWidth = 4 + pulse * 2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    } else if (zombie.bossPhase === 'charge') {
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 1.48, 0, Math.PI * 2);
+      ctx.strokeStyle = '#ff5f45';
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Silhouette details identify each boss before its attack starts.
+  if (zombie.bossKind === 'breaker') {
+    ctx.fillStyle = '#6f292b';
+    ctx.strokeStyle = palette.stroke;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.62, -r * 0.55); ctx.lineTo(-r * 1.18, -r * 1.35);
+    ctx.lineTo(-r * 0.32, -r * 1.02); ctx.closePath();
+    ctx.moveTo(r * 0.62, -r * 0.55); ctx.lineTo(r * 1.18, -r * 1.35);
+    ctx.lineTo(r * 0.32, -r * 1.02); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (zombie.bossKind === 'spitter') {
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(side * r * 0.93, r * 0.12, r * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = '#9bc957';
+      ctx.strokeStyle = palette.stroke;
+      ctx.lineWidth = 3;
+      ctx.fill(); ctx.stroke();
+    }
+  } else if (zombie.bossKind === 'summoner') {
+    ctx.fillStyle = '#49366f';
+    ctx.strokeStyle = palette.accent;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = 0; i < 7; i++) {
+      const angle = -Math.PI / 2 + (i / 6 - 0.5) * Math.PI * 1.15;
+      const outer = r * (i % 2 === 0 ? 1.42 : 1.08);
+      const px = Math.cos(angle) * outer, py = Math.sin(angle) * outer - r * 0.2;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+
+  ctx.shadowColor = hit > 0.08 ? '#eaffd2' : palette.stroke;
   ctx.shadowBlur = 2 + hit * 15;
-  ctx.fillStyle = hit > 0.18 ? '#c8f0ae' : '#4f854b';
-  ctx.strokeStyle = hit > 0.18 ? '#f3ffd7' : '#254b2b';
-  ctx.lineWidth = Math.max(2, r * 0.12);
+  ctx.fillStyle = hit > 0.18 ? '#e5ffd1' : palette.fill;
+  ctx.strokeStyle = hit > 0.18 ? '#f3ffd7' : palette.stroke;
+  ctx.lineWidth = Math.max(2, r * (boss ? 0.1 : 0.12));
   ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(-r * 1.2, -r * 0.2);
@@ -204,15 +281,32 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   ctx.closePath();
   ctx.fill(); ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.fillStyle = '#a8d66b';
-  ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.18, r * 0.16, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(r * 0.35, -r * 0.18, r * 0.16, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#202b20';
-  ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.18, r * 0.07, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(r * 0.35, -r * 0.18, r * 0.07, 0, Math.PI * 2); ctx.fill();
+
+  // The hull stays upright at every heading. Only the pupils move, so circling
+  // a zombie can never turn its face upside down.
+  const eyeY = -r * 0.18;
+  const gazeX = facingX * r * 0.075;
+  const gazeY = facingY * r * 0.075;
+  ctx.fillStyle = zombie.bossKind === 'spitter' ? '#d8ff9a' : '#a8d66b';
+  for (const eyeX of [-r * 0.34, r * 0.35]) {
+    ctx.beginPath(); ctx.arc(eyeX, eyeY, r * (boss ? 0.19 : 0.16), 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#202b20';
+    ctx.beginPath(); ctx.arc(eyeX + gazeX, eyeY + gazeY, r * (boss ? 0.09 : 0.07), 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = zombie.bossKind === 'spitter' ? '#d8ff9a' : '#a8d66b';
+  }
   ctx.strokeStyle = '#202b20';
   ctx.lineWidth = Math.max(1.5, r * 0.08);
   ctx.beginPath(); ctx.moveTo(-r * 0.22, r * 0.43); ctx.lineTo(r * 0.28, r * 0.43); ctx.stroke();
+
+  if (zombie.bossKind === 'spitter') {
+    ctx.fillStyle = '#c7f26d';
+    ctx.beginPath(); ctx.arc(0, r * 0.02, r * 0.18, 0, Math.PI * 2); ctx.fill();
+  } else if (zombie.bossKind === 'summoner') {
+    ctx.strokeStyle = palette.accent;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.72, 0.25, Math.PI - 0.25); ctx.stroke();
+  }
+
   ctx.restore();
 
   // Directional impact sparks and a brief bright ring make each shot feel physical.
@@ -231,7 +325,23 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     ctx.stroke();
     ctx.restore();
   }
-  hpBar(ctx, x, y + r + 9, r * 2.1, zombie.hp / Math.max(1, zombie.mhp));
+
+  if (boss) {
+    const names = { breaker: 'THE BREAKER', spitter: 'ROTBLOOM', summoner: 'GRAVEHEART' } as const;
+    ctx.save();
+    ctx.font = '900 14px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#160d18';
+    ctx.fillStyle = palette.accent;
+    ctx.strokeText(names[zombie.bossKind!], x, y - r - 20);
+    ctx.fillText(names[zombie.bossKind!], x, y - r - 20);
+    ctx.restore();
+    hpBar(ctx, x, y + r + 13, r * 3.2, zombie.hp / Math.max(1, zombie.mhp));
+  } else {
+    hpBar(ctx, x, y + r + 9, r * 2.1, zombie.hp / Math.max(1, zombie.mhp));
+  }
 }
 
 function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number]) {

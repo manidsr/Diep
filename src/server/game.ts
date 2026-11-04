@@ -7,7 +7,7 @@ import {
 import {
   classOptions, deriveStats, levelFromXp, statPointsEarned, totalXpForLevel, type DerivedStats,
 } from '../shared/progression';
-import type { GameMode, Snapshot, TeamId, ZombieSnap } from '../shared/protocol';
+import type { GameMode, Snapshot, TeamId, ZombieBossKind, ZombieBossPhase, ZombieSnap } from '../shared/protocol';
 import { SpatialGrid } from './grid';
 
 export interface Player {
@@ -38,11 +38,16 @@ export interface Bullet {
   attackCooldown?: number;
   attackEscapeAngle?: number;
   attackSide?: number;
+  /** Hostile projectiles are used by survival bosses, never by player weapons. */
+  hostile?: boolean;
+  hostileName?: string;
 }
 export interface Zombie {
   id: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
   r: number; hp: number; maxHp: number; speed: number; damage: number; xp: number;
   angle: number; targetId: number | null; staggerT: number; hitFlash: number; hitAngle: number;
+  bossKind: ZombieBossKind | null; bossPhase: ZombieBossPhase; bossTimer: number; bossCooldown: number;
+  bossAimX: number; bossAimY: number;
   attackCooldown: number; damageBy: Map<number, number>;
 }
 export interface Shape {
@@ -342,16 +347,35 @@ export class Game {
       if (nearest > bestDistance) { bestDistance = nearest; best = point; }
     }
 
+    // Every fifth wave opens with one boss. The three encounters rotate so
+    // the team must learn and respond to different attack patterns.
+    const isBossWave = this.wave > 0 && this.wave % 5 === 0 && this.waveSpawned === 0;
+    const bossKinds: ZombieBossKind[] = ['breaker', 'spitter', 'summoner'];
+    const bossKind = isBossWave
+      ? bossKinds[(Math.floor(this.wave / 5) - 1) % bossKinds.length]
+      : null;
     const playerScale = Math.max(1, this.players.size);
-    const hp = Math.round((28 + this.wave * 11) * (1 + Math.min(0.24, (playerScale - 1) * 0.08)));
+    const playerHpScale = 1 + Math.min(0.32, (playerScale - 1) * 0.1);
+    const hp = bossKind
+      ? Math.round((720 + this.wave * 72) * playerHpScale)
+      : Math.round((28 + this.wave * 11) * (1 + Math.min(0.24, (playerScale - 1) * 0.08)));
+    const radius = bossKind === 'breaker' ? 58 : bossKind === 'spitter' ? 49 : bossKind === 'summoner' ? 54
+      : 17 + Math.min(8, this.wave * 0.5);
+    const speed = bossKind === 'breaker' ? 60 : bossKind === 'spitter' ? 76 : bossKind === 'summoner' ? 62
+      : Math.min(155, 64 + this.wave * 3.5);
+    const damageScale = 1 + Math.min(0.12, (playerScale - 1) * 0.035);
+    const damage = bossKind
+      ? Math.min(42, (15 + this.wave * 0.85) * damageScale)
+      : Math.min(34, (6 + this.wave * 1.25) * damageScale);
+
     this.zombies.push({
       id: this.nextId++, x: best.x, y: best.y, vx: 0, vy: 0, kvx: 0, kvy: 0,
-      r: 17 + Math.min(8, this.wave * 0.5),
-      hp, maxHp: hp,
-      speed: Math.min(155, 64 + this.wave * 3.5),
-      damage: Math.min(34, (6 + this.wave * 1.25) * (1 + Math.min(0.12, (playerScale - 1) * 0.035))),
-      xp: 10 + this.wave * 3,
+      r: radius, hp, maxHp: hp, speed, damage,
+      xp: bossKind ? 280 + this.wave * 42 : 10 + this.wave * 3,
       angle: 0, targetId: null, staggerT: 0, hitFlash: 0, hitAngle: 0,
+      bossKind, bossPhase: 'idle', bossTimer: 0,
+      bossCooldown: bossKind === 'breaker' ? 1.2 : bossKind === 'spitter' ? 1.35 : bossKind === 'summoner' ? 2 : 0,
+      bossAimX: 1, bossAimY: 0,
       attackCooldown: 0,
       damageBy: new Map(),
     });
@@ -404,7 +428,11 @@ export class Game {
     }
 
     let desiredX = 0, desiredY = 0;
-    if (target) {
+    if (zombie.bossKind) {
+      const bossMotion = this.updateBoss(zombie, target, dt);
+      desiredX = bossMotion.x;
+      desiredY = bossMotion.y;
+    } else if (target) {
       // Each zombie approaches a slightly different point around its target.
       // This creates a loose surround instead of a single crowded pile.
       const orbit = (zombie.id * 2.399963229728653) % (Math.PI * 2);
@@ -429,13 +457,15 @@ export class Game {
       desiredY += (alignmentY / neighbours) * 0.14;
     }
 
-    const staggerMul = zombie.staggerT > 0 ? 0.32 : 1;
+    const staggerMul = zombie.staggerT > 0 ? (zombie.bossKind ? 0.58 : 0.32) : 1;
     desiredX *= staggerMul;
     desiredY *= staggerMul;
-    const steer = 1 - Math.exp(-dt * 3.8);
+    const steer = 1 - Math.exp(-dt * (zombie.bossKind === 'breaker' && zombie.bossPhase === 'charge' ? 7.5 : 3.8));
     zombie.vx += (desiredX - zombie.vx) * steer;
     zombie.vy += (desiredY - zombie.vy) * steer;
-    if (Math.hypot(zombie.vx, zombie.vy) > 6) zombie.angle = Math.atan2(zombie.vy, zombie.vx);
+    if (!zombie.bossKind && Math.hypot(zombie.vx, zombie.vy) > 6) {
+      zombie.angle = Math.atan2(zombie.vy, zombie.vx);
+    }
 
     zombie.x += (zombie.vx + zombie.kvx) * dt;
     zombie.y += (zombie.vy + zombie.kvy) * dt;
@@ -445,6 +475,154 @@ export class Game {
     const size = this.arenaSize;
     zombie.x = clamp(zombie.x, zombie.r, size - zombie.r);
     zombie.y = clamp(zombie.y, zombie.r, size - zombie.r);
+  }
+
+  /** Server-authoritative boss brains. Each encounter has a readable wind-up. */
+  private updateBoss(zombie: Zombie, target: Player | undefined, dt: number): { x: number; y: number } {
+    zombie.bossCooldown = Math.max(0, zombie.bossCooldown - dt);
+    if (zombie.bossPhase !== 'idle') zombie.bossTimer = Math.max(0, zombie.bossTimer - dt);
+
+    const dx = target ? target.x - zombie.x : 0;
+    const dy = target ? target.y - zombie.y : 0;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const nx = dx / distance, ny = dy / distance;
+
+    if (zombie.bossKind === 'breaker') {
+      if (zombie.bossPhase === 'windup') {
+        if (zombie.bossTimer <= 0) {
+          zombie.bossPhase = 'charge';
+          zombie.bossTimer = 0.78;
+        }
+        return { x: 0, y: 0 };
+      }
+      if (zombie.bossPhase === 'charge') {
+        if (zombie.bossTimer <= 0) {
+          this.bossSlam(zombie);
+          zombie.bossPhase = 'recovery';
+          zombie.bossTimer = 1.05;
+          zombie.bossCooldown = 4.1;
+          return { x: 0, y: 0 };
+        }
+        return { x: zombie.bossAimX * zombie.speed * 4.5, y: zombie.bossAimY * zombie.speed * 4.5 };
+      }
+      if (zombie.bossPhase === 'recovery') {
+        if (zombie.bossTimer > 0) return { x: nx * zombie.speed * 0.28, y: ny * zombie.speed * 0.28 };
+        zombie.bossPhase = 'idle';
+      }
+      if (target && distance < 610 && zombie.bossCooldown <= 0) {
+        const lead = 0.34;
+        const aimX = target.x + target.vx * lead - zombie.x;
+        const aimY = target.y + target.vy * lead - zombie.y;
+        const aimLength = Math.max(1, Math.hypot(aimX, aimY));
+        zombie.bossAimX = aimX / aimLength;
+        zombie.bossAimY = aimY / aimLength;
+        zombie.angle = Math.atan2(zombie.bossAimY, zombie.bossAimX);
+        zombie.bossPhase = 'windup';
+        zombie.bossTimer = 0.88;
+        return { x: 0, y: 0 };
+      }
+      return target ? { x: nx * zombie.speed, y: ny * zombie.speed } : { x: 0, y: 0 };
+    }
+
+    if (zombie.bossKind === 'spitter') {
+      if (zombie.bossPhase === 'windup') {
+        if (zombie.bossTimer <= 0) {
+          this.fireBossVolley(zombie, Math.atan2(zombie.bossAimY, zombie.bossAimX));
+          zombie.bossPhase = 'idle';
+          zombie.bossCooldown = 2.7;
+        }
+      } else if (target && zombie.bossCooldown <= 0) {
+        const lead = 0.22;
+        const aimX = target.x + target.vx * lead - zombie.x;
+        const aimY = target.y + target.vy * lead - zombie.y;
+        const aimLength = Math.max(1, Math.hypot(aimX, aimY));
+        zombie.bossAimX = aimX / aimLength;
+        zombie.bossAimY = aimY / aimLength;
+        zombie.angle = Math.atan2(zombie.bossAimY, zombie.bossAimX);
+        zombie.bossPhase = 'windup';
+        zombie.bossTimer = 0.42;
+      }
+      if (!target) return { x: 0, y: 0 };
+      zombie.angle = Math.atan2(dy, dx);
+      if (distance > 500) return { x: nx * zombie.speed, y: ny * zombie.speed };
+      if (distance < 315) return { x: -nx * zombie.speed * 0.9, y: -ny * zombie.speed * 0.9 };
+      const side = zombie.id % 2 === 0 ? 1 : -1;
+      return { x: -ny * zombie.speed * 0.72 * side, y: nx * zombie.speed * 0.72 * side };
+    }
+
+    // Graveheart kites at mid-range and periodically calls two or three
+    // lesser undead to keep the arena active without endlessly multiplying.
+    if (zombie.bossPhase === 'windup') {
+      if (zombie.bossTimer <= 0) {
+        this.spawnBossMinions(zombie, this.wave >= 15 ? 3 : 2);
+        zombie.bossPhase = 'idle';
+        zombie.bossCooldown = 6.5;
+      }
+    } else if (zombie.bossCooldown <= 0) {
+      zombie.bossPhase = 'windup';
+      zombie.bossTimer = 0.72;
+    }
+    if (!target) return { x: 0, y: 0 };
+    zombie.angle = Math.atan2(dy, dx);
+    if (distance > 520) return { x: nx * zombie.speed * 0.82, y: ny * zombie.speed * 0.82 };
+    if (distance < 325) return { x: -nx * zombie.speed * 0.82, y: -ny * zombie.speed * 0.82 };
+    const side = zombie.id % 2 === 0 ? 1 : -1;
+    return { x: -ny * zombie.speed * 0.58 * side, y: nx * zombie.speed * 0.58 * side };
+  }
+
+  private bossSlam(boss: Zombie) {
+    const radius = 220 + boss.r * 0.7;
+    boss.hitFlash = 1;
+    for (const player of this.players.values()) {
+      if (!player.alive || player.protT > 0) continue;
+      const dx = player.x - boss.x, dy = player.y - boss.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > radius + player.r) continue;
+      const length = Math.max(1, distance);
+      const falloff = 1 - 0.22 * clamp(distance / (radius + player.r), 0, 1);
+      this.hurtPlayer(player, boss.damage * 1.65 * falloff, null, 'the Breaker');
+      const impulse = 210 * falloff;
+      player.kvx += (dx / length) * impulse;
+      player.kvy += (dy / length) * impulse;
+    }
+  }
+
+  private fireBossVolley(boss: Zombie, direction: number) {
+    const speed = 290;
+    for (const spread of [-0.2, 0, 0.2]) {
+      if (this.bullets.length >= MAX_BULLETS) break;
+      const angle = direction + spread;
+      this.bullets.push({
+        id: this.nextId++, owner: -boss.id,
+        x: boss.x + Math.cos(angle) * (boss.r + 8),
+        y: boss.y + Math.sin(angle) * (boss.r + 8),
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        r: 11, dmg: Math.max(8, boss.damage * 0.72), hp: 1, life: 2.4,
+        hit: new Set(), kind: 'bullet', angle, maxSpeed: speed, turnRate: 0,
+        hostile: true, hostileName: 'a Rotbloom glob',
+      });
+    }
+  }
+
+  private spawnBossMinions(boss: Zombie, count: number) {
+    const size = this.arenaSize;
+    for (let i = 0; i < count && this.zombies.length < MAX_ZOMBIES; i++) {
+      const angle = (i / count) * Math.PI * 2 + boss.id * 0.37;
+      const distance = boss.r + 24;
+      const hp = Math.round((20 + this.wave * 7) * 0.85);
+      this.zombies.push({
+        id: this.nextId++,
+        x: clamp(boss.x + Math.cos(angle) * distance, 16, size - 16),
+        y: clamp(boss.y + Math.sin(angle) * distance, 16, size - 16),
+        vx: Math.cos(angle) * 24, vy: Math.sin(angle) * 24, kvx: 0, kvy: 0,
+        r: 15, hp, maxHp: hp, speed: Math.min(165, 80 + this.wave * 2.4),
+        damage: Math.min(28, 5 + this.wave * 0.8), xp: 8 + this.wave * 2,
+        angle, targetId: null, staggerT: 0, hitFlash: 0, hitAngle: 0,
+        bossKind: null, bossPhase: 'idle', bossTimer: 0, bossCooldown: 0,
+        bossAimX: 1, bossAimY: 0,
+        attackCooldown: 0, damageBy: new Map(),
+      });
+    }
   }
 
   private updateSurvivalWaves(dt: number) {
@@ -990,7 +1168,14 @@ export class Game {
       if (bullet.owner === A.id || A.protT > 0 || !this.projectileCanHit(bullet, A.id)) return;
       if (bullet.kind === 'drone') bullet.hit.add(A.id);
       const owner = this.players.get(bullet.owner);
-      if (this.mode === 'survival' || (owner?.team != null && owner.team === A.team)) return;
+      if (this.mode === 'survival') {
+        if (!bullet.hostile) return;
+        this.hurtPlayer(A, bullet.dmg, null, bullet.hostileName ?? 'a boss projectile');
+        bullet.hp -= PLAYER_PIERCE_COST;
+        A.kvx += bullet.vx / 8; A.kvy += bullet.vy / 8;
+        return;
+      }
+      if (owner?.team != null && owner.team === A.team) return;
       this.hurtPlayer(A, bullet.dmg, bullet.owner, owner?.name ?? 'Someone');
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
@@ -1027,6 +1212,7 @@ export class Game {
     } else if (a.k === 2 && b.k === 3) {
       const bullet = a.o as Bullet;
       const zombie = b.o as Zombie;
+      if (bullet.hostile) return;
       const firstDroneContact = bullet.kind === 'drone' && !bullet.hit.has(zombie.id);
       if (bullet.kind === 'drone' && bullet.attackState && bullet.attackState !== 'dive') return;
       if (!this.projectileCanHit(bullet, zombie.id)) return;
@@ -1236,6 +1422,7 @@ export class Game {
         id: zombie.id, x: r1(zombie.x), y: r1(zombie.y), r: r1(zombie.r),
         hp: r1(zombie.hp), mhp: r1(zombie.maxHp),
         angle: r2(zombie.angle), hitFlash: r2(zombie.hitFlash), hitAngle: r2(zombie.hitAngle),
+        bossKind: zombie.bossKind, bossPhase: zombie.bossPhase, bossTimer: r2(zombie.bossTimer),
       })),
       me: {
         alive: me.alive, hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
