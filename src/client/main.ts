@@ -20,6 +20,124 @@ let recoilCameraVX = 0, recoilCameraVY = 0;
 let previousFrameTime = 0;
 const seenOwnBulletIds = new Set<number>();
 const statusEl = $('status'), msgEl = $('msg'), playBtn = $<HTMLButtonElement>('play'), menu = $('menu'), nameEl = $<HTMLInputElement>('name');
+const deathPanel = $('deathpanel');
+const killFeedEl = $('killfeed');
+const recentFeed: string[] = [];
+
+interface ClassProfile { role: string; strength: string; tradeoff: string }
+
+function classProfile(classId: string): ClassProfile {
+  const cls = CLASS_BY_ID[classId];
+  if (!cls) return { role: 'Unknown', strength: 'Specialised weapon pattern', tradeoff: 'Learn its firing pattern' };
+  const kinds = cls.barrels.map((barrel) => barrel.projectile ?? 'bullet');
+  const allTraps = kinds.length > 0 && kinds.every((kind) => kind === 'trap');
+  const wideSpread = cls.barrels.some((barrel) => (barrel.spread ?? 0) >= 0.12) ||
+    (cls.barrels.length > 3 && Math.max(...cls.barrels.map((barrel) => Math.abs(barrel.angle))) > 0.55);
+
+  let role = 'Cannon';
+  if (cls.smasher) role = 'Rammer';
+  else if (cls.droneBehavior) role = 'Drone controller';
+  else if (allTraps) role = 'Area control';
+  else if (kinds.some((kind) => kind === 'missile' || kind === 'firework')) role = 'Guided ordnance';
+  else if (cls.barrels.length === 0 && (cls.turretCount ?? 0) > 0) role = 'Auto turret';
+  else if (cls.reloadMul <= 0.55) role = 'Rapid fire';
+  else if ((cls.bulletSpeedMul >= 1.5) || (cls.fovMul ?? 1) >= 1.2) role = 'Sniper';
+
+  let strength = 'Balanced firepower and flexible handling';
+  if (cls.smasher) strength = 'High body damage' + ((cls.maxHpMul ?? 1) > 1.3 ? ' and a tougher hull' : '');
+  else if (cls.droneBehavior) strength = 'Autonomous pressure from up to ' + (cls.droneLimit ?? 0) + ' drones';
+  else if (allTraps) strength = 'Lingering traps control space and punish approaches';
+  else if (kinds.some((kind) => kind === 'missile' || kind === 'firework')) strength = 'Homing or explosive shots can pressure moving targets';
+  else if ((cls.turretCount ?? 0) > 0) strength = (cls.turretCount ?? 0) + ' automatic turret' + ((cls.turretCount ?? 0) > 1 ? 's' : '') + ' add independent coverage';
+  else if (cls.reloadMul <= 0.6) strength = 'High sustained fire rate';
+  else if (cls.damageMul >= 1.5) strength = 'Heavy individual shots and strong burst';
+  else if (cls.bulletSpeedMul >= 1.5 || (cls.fovMul ?? 1) >= 1.2) strength = 'Long sight lines and fast, accurate shots';
+  else if (cls.barrels.length >= 4) strength = 'Multiple firing lanes cover a wide area';
+  else if ((cls.moveSpeedMul ?? 1) >= 1.08) strength = 'Extra movement speed helps reposition';
+
+  let tradeoff = 'Needs good aim and positioning';
+  if (cls.smasher) tradeoff = 'Must get close enough to collide with opponents';
+  else if (allTraps) tradeoff = 'Traps are stationary and less reliable against mobile targets';
+  else if (cls.droneBehavior) tradeoff = 'Drones need time to travel and can be peeled away from targets';
+  else if (cls.reloadMul >= 1.4) tradeoff = 'Long reload leaves gaps between attacks';
+  else if (wideSpread) tradeoff = 'Spread makes full damage harder to land at long range';
+  else if ((cls.bulletLifeMul ?? 1) <= 0.75) tradeoff = 'Short projectile lifetime limits reach';
+  else if (cls.bulletSpeedMul <= 0.9) tradeoff = 'Slower shots are easier to dodge at range';
+  else if (cls.barrels.length <= 1 && !(cls.turretCount ?? 0)) tradeoff = 'Limited firing lanes reward precise aim';
+
+  return { role, strength, tradeoff };
+}
+
+function formatFeedLine(item: { killer: string; victim: string; killerClass: string | null; victimClass: string }): string {
+  const killerClass = item.killerClass ? CLASS_BY_ID[item.killerClass]?.name : null;
+  const victimClass = CLASS_BY_ID[item.victimClass]?.name ?? item.victimClass;
+  return (killerClass ? item.killer + ' · ' + killerClass : item.killer) + '  →  ' +
+    item.victim + ' · ' + victimClass;
+}
+
+function renderKillFeed(item: { killer: string; victim: string; killerClass: string | null; victimClass: string }) {
+  const line = formatFeedLine(item);
+  recentFeed.unshift(line);
+  if (recentFeed.length > 5) recentFeed.length = 5;
+  const row = document.createElement('div');
+  row.className = 'killfeed-row';
+  row.textContent = line;
+  killFeedEl.prepend(row);
+  while (killFeedEl.children.length > 5) killFeedEl.lastElementChild?.remove();
+  window.setTimeout(() => row.classList.add('fade'), 6500);
+  const deathFeed = $('deathfeed');
+  if (!deathPanel.hidden) {
+    deathFeed.replaceChildren();
+    for (const entry of recentFeed) {
+      const li = document.createElement('div');
+      li.className = 'death-feed-row';
+      li.textContent = entry;
+      deathFeed.append(li);
+    }
+  }
+}
+
+function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
+  const killerClass = m.killerClass ? CLASS_BY_ID[m.killerClass]?.name : null;
+  $('deathkiller').textContent = killerClass ? m.killer + ' · ' + killerClass : m.killer;
+  $('deathclass').textContent = 'You were playing ' + (CLASS_BY_ID[m.victimClass]?.name ?? m.victimClass);
+  const values: [string, string][] = [
+    ['Kills', String(m.kills)],
+    ['Damage dealt', m.damageDealt.toLocaleString()],
+    ['Damage received', m.damageTaken.toLocaleString()],
+    ['Survived', m.lifetime.toFixed(1) + 's'],
+    ['Final score', m.score.toLocaleString()],
+    ['Level', String(m.level)],
+  ];
+  const grid = $('deathstats');
+  grid.replaceChildren();
+  for (const [label, value] of values) {
+    const cell = document.createElement('div');
+    cell.className = 'death-stat';
+    const strong = document.createElement('strong');
+    strong.textContent = value;
+    const caption = document.createElement('span');
+    caption.textContent = label;
+    cell.append(strong, caption);
+    grid.append(cell);
+  }
+  const deathFeed = $('deathfeed');
+  deathFeed.replaceChildren();
+  if (!recentFeed.length) {
+    const empty = document.createElement('div');
+    empty.className = 'death-feed-row';
+    empty.textContent = 'No recent arena eliminations';
+    deathFeed.append(empty);
+  } else {
+    for (const entry of recentFeed) {
+      const li = document.createElement('div');
+      li.className = 'death-feed-row';
+      li.textContent = entry;
+      deathFeed.append(li);
+    }
+  }
+  deathPanel.hidden = false;
+}
 
 function send(m: object) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); }
 
@@ -38,14 +156,17 @@ function connect() {
     if (m.t === 's') onSnapshot(m);
     else if (m.t === 'lb') renderLeaderboard(m.top);
     else if (m.t === 'welcome') {
-      selfId = m.id; playing = true; joining = false; playBtn.disabled = false; msgEl.textContent = ''; menu.classList.add('hide');
+      selfId = m.id; playing = true; joining = false; playBtn.disabled = false;
+      msgEl.textContent = ''; deathPanel.hidden = true; playBtn.textContent = 'Play'; menu.classList.add('hide');
       devCheatsEnabled = m.devCheats;
       devTools.hidden = !devCheatsEnabled;
       if (!devCheatsEnabled) devTools.classList.remove('open');
     }
+    else if (m.t === 'feed') renderKillFeed(m);
     else if (m.t === 'dead') {
       playing = false; input.reset(); frames.length = 0; lastLv = 0;
-      msgEl.textContent = `Destroyed by ${m.killer} — level ${m.level}, score ${m.score}`;
+      msgEl.textContent = '';
+      showDeathReport(m);
       playBtn.textContent = 'Play again'; menu.classList.remove('hide');
     } else if (m.t === 'err') { joining = false; playing = false; playBtn.disabled = false; statusEl.textContent = m.msg; msgEl.textContent = m.msg; menu.classList.remove('hide'); }
   };
@@ -111,6 +232,32 @@ function sample(now: number): View | null {
     bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4], x[5], x[6], x[7]] as typeof x : x; }),
     shapes: b.snap.sh.map((x) => { const q = a.sm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), lerpAng(q[3], x[3], t), x[4], x[5], x[6], x[7], x[8], x[9]] : x; }),
   };
+}
+
+// Populate the optional full-roster guide once; evolution cards reuse the same profiles.
+const classGuide = $('classguide');
+for (const id of CLASS_IDS) {
+  const cls = CLASS_BY_ID[id];
+  const profile = classProfile(id);
+  const article = document.createElement('article');
+  article.className = 'guide-class';
+  const heading = document.createElement('div');
+  heading.className = 'guide-heading';
+  const name = document.createElement('strong');
+  name.textContent = cls.name;
+  const role = document.createElement('span');
+  role.textContent = profile.role;
+  heading.append(name, role);
+  const description = document.createElement('p');
+  description.textContent = cls.description;
+  const strength = document.createElement('p');
+  strength.className = 'guide-strength';
+  strength.textContent = '+ Best at: ' + profile.strength;
+  const tradeoff = document.createElement('p');
+  tradeoff.className = 'guide-tradeoff';
+  tradeoff.textContent = '− Trade-off: ' + profile.tradeoff;
+  article.append(heading, description, strength, tradeoff);
+  classGuide.append(article);
 }
 
 // ---------- HUD ----------
@@ -222,13 +369,17 @@ function updateHud(m: SelfSnap) {
     }
     m.opts.forEach((id, n) => {
       const cls = CLASS_BY_ID[id];
+      const profile = classProfile(id);
       const b = document.createElement('button'); b.className = 'evo-card';
-      b.title = cls?.description ?? id;
+      b.title = (cls?.description ?? id) + ' Best at: ' + profile.strength + '. Trade-off: ' + profile.tradeoff + '.';
       const preview = document.createElement('img');
       preview.className = 'evo-preview'; preview.alt = cls?.name ?? id;
       preview.src = tankPreviewDataUrl(id);
       const name = document.createElement('span'); name.className = 'evo-name'; name.textContent = cls?.name ?? id;
-      b.append(preview, name);
+      const role = document.createElement('span'); role.className = 'evo-role'; role.textContent = profile.role;
+      const strength = document.createElement('span'); strength.className = 'evo-strength'; strength.textContent = '+ ' + profile.strength;
+      const tradeoff = document.createElement('span'); tradeoff.className = 'evo-tradeoff'; tradeoff.textContent = '− ' + profile.tradeoff;
+      b.append(preview, name, role, strength, tradeoff);
       b.style.animationDelay = `${n * 0.08}s, ${0.5 + n * 0.08}s`;
       b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (playing) send({ t: 'class', id }); });
       classesEl.append(b);

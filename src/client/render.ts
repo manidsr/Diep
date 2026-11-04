@@ -180,14 +180,9 @@ function hpBar(ctx: CanvasRenderingContext2D, x: number, y: number, width: numbe
   ctx.fillStyle = '#85e37d'; ctx.fillRect(x - width / 2, y - 2, width * Math.max(0, Math.min(1, fraction)), 4);
 }
 
-function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boolean) {
-  const palette = mine ? ME : FOE;
-  const cls = CLASSES[player.cls] ?? CLASSES[0];
-  const scale = player.r / PLAYER_BASE_RADIUS;
-  ctx.save();
-  ctx.globalAlpha *= Math.max(0.04, Math.min(1, player.vis ?? 1));
-
-  // Main barrels.
+function drawBarrels(
+  ctx: CanvasRenderingContext2D, player: PlayerSnap, cls: (typeof CLASSES)[number], scale: number,
+) {
   ctx.save();
   ctx.translate(player.x, player.y);
   ctx.rotate(player.a);
@@ -198,19 +193,34 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
     const width = barrel.width * scale * BARREL_WIDTH_MUL;
     const length = barrel.length * scale;
     ctx.fillStyle = barrel.projectile === 'trap' ? '#b8a17e' : barrel.projectile === 'missile' ? '#bd9b70' : BARREL_FILL;
-    ctx.strokeStyle = BARREL_EDGE; ctx.lineWidth = BARREL_STROKE;
+    ctx.strokeStyle = BARREL_EDGE;
+    ctx.lineWidth = BARREL_STROKE;
     const barrelY = barrel.offset * scale - width / 2;
     const corner = Math.min(width * 0.18, 5 * scale);
     ctx.beginPath();
     ctx.roundRect(0, barrelY, length, width, corner);
-    ctx.fill(); ctx.stroke();
-    // A restrained inner highlight gives the flat Diep-style cannon a little depth.
-    ctx.beginPath(); ctx.moveTo(5 * scale, barrelY + 2 * scale);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(5 * scale, barrelY + 2 * scale);
     ctx.lineTo(Math.max(5 * scale, length - 3 * scale), barrelY + 2 * scale);
-    ctx.strokeStyle = '#ffffff35'; ctx.lineWidth = Math.max(1, 1.2 * scale); ctx.stroke();
-    ctx.strokeStyle = BARREL_EDGE; ctx.lineWidth = BARREL_STROKE;
+    ctx.strokeStyle = '#ffffff35';
+    ctx.lineWidth = Math.max(1, 1.2 * scale);
+    ctx.stroke();
     ctx.restore();
   }
+  ctx.restore();
+}
+
+function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boolean) {
+  const palette = mine ? ME : FOE;
+  const cls = CLASSES[player.cls] ?? CLASSES[0];
+  const scale = player.r / PLAYER_BASE_RADIUS;
+  ctx.save();
+  ctx.globalAlpha *= Math.max(0.04, Math.min(1, player.vis ?? 1));
+
+  // Main barrels sit beneath the hull first, so their roots blend naturally into it.
+  drawBarrels(ctx, player, cls, scale);
 
   // Auto turrets are mounted on the body and can aim independently on the server.
   const turretCount = cls.turretCount ?? 0;
@@ -232,6 +242,18 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
 
   // Body and shield.
   circle(ctx, player.x, player.y, player.r, palette.fill, palette.stroke, BODY_STROKE);
+
+  // The hull masks the roots, but should never hide the exposed barrel tips.
+  // An even-odd clip selects everything outside the body circle and redraws
+  // the same barrel geometry there, preserving the clean under-hull connection.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(player.x - player.r * 8, player.y - player.r * 8, player.r * 16, player.r * 16);
+  ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+  ctx.clip('evenodd');
+  drawBarrels(ctx, player, cls, scale);
+  ctx.restore();
+
   // Soft upper-left sheen, kept subtle to preserve the original flat arena aesthetic.
   ctx.beginPath();
   ctx.arc(player.x - player.r * 0.08, player.y - player.r * 0.08, player.r * 0.82, Math.PI * 1.08, Math.PI * 1.78);

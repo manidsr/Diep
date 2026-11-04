@@ -15,7 +15,9 @@ export interface Player {
   x: number; y: number; vx: number; vy: number; kvx: number; kvy: number; rvx: number; rvy: number;
   r: number; angle: number; hp: number; maxHp: number;
   level: number; xp: number; pts: number; stats: number[]; cls: string;
-  alive: boolean; protT: number; lastDamageT: number; lastHit: { id: number | null; name: string } | null;
+  alive: boolean; protT: number; lastDamageT: number;
+  lastHit: { id: number | null; name: string; classId: string | null } | null;
+  kills: number; damageDealt: number; damageTaken: number; lifeStartedAt: number;
   input: { mx: number; my: number; a: number; f: boolean; secondary: boolean; spin: boolean };
   wasFiring: boolean; wasSecondary: boolean; cd: number[]; autoCd: number[];
   droneSpawnCd: number; stealthT: number; visibility: number; d: DerivedStats;
@@ -41,7 +43,10 @@ export interface Shape {
   r: number; hp: number; maxHp: number; rot: number; rotSpeed: number; lastHitBy: number | null;
   hitFlash?: number; hitX?: number; hitY?: number; hitAngle?: number;
 }
-export type GameEvent = { type: 'dead'; id: number; killer: string; score: number; level: number };
+export type GameEvent = {
+  type: 'dead'; id: number; killer: string; killerClass: string | null; victim: string; victimClass: string;
+  score: number; level: number; kills: number; damageDealt: number; damageTaken: number; lifetime: number;
+};
 
 type Ent = { k: 0 | 1 | 2; o: Player | Shape | Bullet };
 type Target = { x: number; y: number; r?: number; id?: number; vx?: number; vy?: number };
@@ -77,6 +82,7 @@ export class Game {
       id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
       r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, pts: 0, stats, cls: 'basic',
       alive: true, protT: 0, lastDamageT: -99, lastHit: null,
+      kills: 0, damageDealt: 0, damageTaken: 0, lifeStartedAt: 0,
       input: { mx: 0, my: 0, a: 0, f: false, secondary: false, spin: false },
       wasFiring: false, wasSecondary: false, cd: [0], autoCd: [], droneSpawnCd: 0,
       stealthT: 0, visibility: 1, d: deriveStats(1, stats, 'basic'),
@@ -101,6 +107,7 @@ export class Game {
     p.y = spawn.y;
     p.vx = p.vy = p.kvx = p.kvy = p.rvx = p.rvy = 0;
     p.alive = true; p.protT = RESPAWN_PROTECTION_S; p.lastHit = null; p.lastDamageT = -99;
+    p.kills = 0; p.damageDealt = 0; p.damageTaken = 0; p.lifeStartedAt = this.time;
     p.input = { mx: 0, my: 0, a: p.angle, f: false, secondary: false, spin: false };
     p.wasFiring = false; p.wasSecondary = false; p.stealthT = 0; p.visibility = 1;
     p.droneSpawnCd = 0; p.cd = [0]; p.autoCd = [];
@@ -770,8 +777,11 @@ export class Game {
   private hurtPlayer(p: Player, amount: number, byId: number | null, byName: string) {
     if (amount <= 0) return;
     p.hp -= amount;
+    p.damageTaken += amount;
+    const attacker = byId == null ? undefined : this.players.get(byId);
+    if (attacker && attacker.id !== p.id) attacker.damageDealt += amount;
     p.lastDamageT = this.time;
-    p.lastHit = { id: byId, name: byName };
+    p.lastHit = { id: byId, name: byName, classId: attacker?.cls ?? null };
     p.stealthT = 0; p.visibility = 1;
   }
 
@@ -781,8 +791,21 @@ export class Game {
       p.alive = false; p.hp = 0; p.input.f = false; p.input.secondary = false;
       this.bullets = this.bullets.filter((b) => b.owner !== p.id || b.kind === 'bullet');
       const killer = p.lastHit?.id != null ? this.players.get(p.lastHit.id) : undefined;
-      if (killer && killer.alive && killer.id !== p.id) this.addXp(killer, Math.max(25, Math.floor(p.xp * 0.6)));
-      this.events.push({ type: 'dead', id: p.id, killer: p.lastHit?.name ?? 'the arena', score: p.xp, level: p.level });
+      if (killer && killer.alive && killer.id !== p.id) {
+        killer.kills++;
+        this.addXp(killer, Math.max(25, Math.floor(p.xp * 0.6)));
+      }
+      this.events.push({
+        type: 'dead', id: p.id,
+        killer: p.lastHit?.name ?? 'the arena',
+        killerClass: p.lastHit?.classId ?? null,
+        victim: p.name,
+        victimClass: p.cls,
+        score: p.xp, level: p.level, kills: p.kills,
+        damageDealt: Math.round(p.damageDealt),
+        damageTaken: Math.round(p.damageTaken),
+        lifetime: Math.round(Math.max(0, this.time - p.lifeStartedAt) * 10) / 10,
+      });
     }
     if (this.shapes.some((shape) => shape.hp <= 0)) {
       for (const shape of this.shapes) {

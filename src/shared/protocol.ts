@@ -78,5 +78,9 @@ export type ServerMessage =
   | { t: 'welcome'; id: number; arena: number; hz: number; devCheats: boolean }
   | Snapshot
   | { t: 'lb'; top: { id: number; name: string; score: number; lv: number }[] }
-  | { t: 'dead'; score: number; level: number; killer: string }
+  | {
+      t: 'dead'; score: number; level: number; killer: string; killerClass: string | null;
+      victimClass: string; kills: number; damageDealt: number; damageTaken: number; lifetime: number;
+    }
+  | { t: 'feed'; killer: string; victim: string; killerClass: string | null; victimClass: string }
   | { t: 'err'; msg: string };

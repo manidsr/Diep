@@ -108,7 +108,23 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
     while (acc >= dt) { game.step(dt); acc -= dt; stepped = true; }
     if (!stepped) return;
     for (const ev of game.drainEvents()) {
-      for (const c of conns) if (c.playerId === ev.id) send(c.ws, { t: 'dead', score: ev.score, level: ev.level, killer: ev.killer });
+      const feed = {
+        t: 'feed' as const,
+        killer: ev.killer,
+        victim: ev.victim,
+        killerClass: ev.killerClass,
+        victimClass: ev.victimClass,
+      };
+      for (const c of conns) send(c.ws, feed);
+      for (const c of conns) {
+        if (c.playerId === ev.id) {
+          send(c.ws, {
+            t: 'dead', score: ev.score, level: ev.level, killer: ev.killer,
+            killerClass: ev.killerClass, victimClass: ev.victimClass,
+            kills: ev.kills, damageDealt: ev.damageDealt, damageTaken: ev.damageTaken, lifetime: ev.lifetime,
+          });
+        }
+      }
     }
     const lb = game.tick % SERVER_TICK_HZ === 0 ? game.leaderboard() : null;
     for (const c of conns) {

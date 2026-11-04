@@ -133,8 +133,18 @@ test('player-vs-player bullets kill, credit killer, emit dead event; respawn res
   assert.equal(ev.length, 1);
   assert.equal(ev[0].id, b.id);
   assert.equal(ev[0].killer, 'shooter');
+  assert.equal(ev[0].victim, 'victim');
+  assert.equal(ev[0].killerClass, 'basic');
+  assert.equal(ev[0].victimClass, 'basic');
+  assert.equal(ev[0].kills, 0, 'the victim report records the victim life kill count');
+  assert.ok(ev[0].damageTaken > 0);
+  assert.ok(a.damageDealt > 0);
+  assert.ok(ev[0].lifetime > 0);
   g.respawn(b.id, 'victim2');
   assert.ok(b.alive && b.level === 1 && b.xp === 0 && b.hp === b.maxHp && b.protT > 0);
+  assert.equal(b.kills, 0);
+  assert.equal(b.damageDealt, 0);
+  assert.equal(b.damageTaken, 0);
 });
 
 test('spawn protection blocks bullet and body damage', () => {
