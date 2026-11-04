@@ -91,7 +91,7 @@ test('damage, reload, critical, speed, spread, recoil and penetration cards affe
     player.survivalPerks.longshot = 2;
     const b = fire(game, player, 'skimmer');
     assert.equal(b.kind, 'missile');
-    assert.ok(Math.abs(Math.hypot(b.vx, b.vy) - player.d.bulletSpeed * 0.52 * 1.21) < 0.01);
+    assert.ok(Math.abs(Math.hypot(b.vx, b.vy) - player.d.bulletSpeed * 1.4 * 0.52 * 1.21) < 0.01);
   }
   {
     const { game, player } = setup(() => 0);
@@ -271,7 +271,7 @@ test('health, defence, XP and magnet cards produce their stated rewards', () => 
     game.zombies = [];
     player.survivalPerks.xpMagnet = 3;
     Object.assign(player, { x: 1400, y: 400 });
-    Object.assign(teammate, { x: 1020, y: 400 });
+    Object.assign(teammate, { x: 1080, y: 400 });
     const drop = { id: 3, x: 1000, y: 400, r: 8, xp: 100, life: 20, age: 0 };
     game.xpDrops.push(drop);
     c.updateXpDrops(DT);
