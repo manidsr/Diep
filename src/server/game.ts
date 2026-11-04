@@ -205,7 +205,6 @@ export class Game {
 
     const barrels = cls.barrels;
     for (let i = 0; i < p.cd.length; i++) p.cd[i] = Math.max(0, p.cd[i] - dt);
-    for (let i = 0; i < p.autoCd.length; i++) p.autoCd[i] = Math.max(0, p.autoCd[i] - dt);
 
     if (f && !p.wasFiring) {
       for (let i = 0; i < barrels.length; i++) {
