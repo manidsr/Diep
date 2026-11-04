@@ -13,6 +13,9 @@ test('combat benchmark measures every tank through the real server simulation', 
     assert.ok(metric.burstDamage > 0, metric.id + ' should register a burst window');
     assert.ok(metric.effectiveRange > 0, metric.id + ' should have a measured engagement distance');
     assert.ok(metric.survivalSeconds > 0, metric.id + ' should have a survivability result');
+    const minimumDps = { cannon: 50, ordnance: 55, drone: 55, trap: 55, turret: 15, rammer: 100 }[metric.role];
+    assert.ok(metric.sustainedDps >= minimumDps,
+      metric.name + ' is underpowered for its ' + metric.role + ' role: ' + metric.sustainedDps.toFixed(1) + ' DPS < ' + minimumDps);
     assert.equal(typeof metric.rangeAtCeiling, 'boolean');
     assert.ok(Number.isFinite(metric.sustainedDps), metric.id);
     assert.ok(Number.isFinite(metric.burstDamage), metric.id);

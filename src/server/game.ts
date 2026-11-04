@@ -21,7 +21,7 @@ const SURVIVAL_PERKS: { id: string; title: string; description: string; max: num
   { id: 'cryoRounds', title: 'Cryo Rounds', description: 'Shots slow zombies for 3 seconds', max: 3 },
   { id: 'medicalSupplies', title: 'Medical Supplies', description: 'Healing pickups restore 18% more health per stack', max: 4 },
   { id: 'emergencyShield', title: 'Emergency Shield', description: 'A brief shield triggers at critical health', max: 2 },
-  { id: 'piercingRounds', title: 'Piercing Rounds', description: 'Projectiles pass through one more enemy per stack', max: 3 },
+  { id: 'piercingRounds', title: 'Piercing Rounds', description: 'Bullet and missile shots pass through one more enemy per stack', max: 3 },
   { id: 'explosiveImpact', title: 'Explosive Impact', description: 'Projectile hits splash nearby zombies', max: 3 },
   { id: 'longshot', title: 'Longshot Coils', description: '+10% projectile speed per stack', max: 4 },
   { id: 'ironSkin', title: 'Iron Skin', description: 'Take 6% less damage per stack', max: 4 },
@@ -33,7 +33,7 @@ const SURVIVAL_PERKS: { id: string; title: string; description: string; max: num
   { id: 'scavenger', title: 'Scavenger', description: '+12% shared XP from orbs per stack', max: 4 },
   { id: 'luckyFind', title: 'Lucky Find', description: '+8% chance for zombies to drop healing per stack', max: 5 },
   { id: 'xpMagnet', title: 'XP Magnet', description: 'Attract XP orbs sooner and from farther away', max: 3 },
-  { id: 'steadyAim', title: 'Steady Aim', description: 'Reduce weapon spread by 12% per stack', max: 4 },
+  { id: 'steadyAim', title: 'Steady Aim', description: 'Reduce random weapon spread by 12% per stack', max: 4 },
   { id: 'recoilDampers', title: 'Recoil Dampers', description: 'Reduce firing recoil by 12% per stack', max: 4 },
   { id: 'hotRounds', title: 'Hot Rounds', description: 'Shots burn enemies for damage over time', max: 3 },
   { id: 'rescueProtocol', title: 'Rescue Protocol', description: 'Revive allies faster and from farther away', max: 3 },
@@ -41,7 +41,7 @@ const SURVIVAL_PERKS: { id: string; title: string; description: string; max: num
   { id: 'armorPiercer', title: 'Armour Piercer', description: 'Ignore more of Armoured zombies’ damage reduction', max: 4 },
   { id: 'overdrive', title: 'Overdrive', description: 'Move faster while firing', max: 3 },
   { id: 'chainShot', title: 'Chain Shot', description: 'Hits arc damage to another nearby zombie', max: 3 },
-  { id: 'adrenaline', title: 'Adrenaline', description: 'Deal more damage while your health is low', max: 3 },
+  { id: 'adrenaline', title: 'Adrenaline', description: 'Deal more damage and move faster while your health is low', max: 3 },
   { id: 'shrapnel', title: 'Shrapnel', description: 'Every fourth shot bursts into a larger blast', max: 3 },
   { id: 'vitalCore', title: 'Vital Core', description: '+8% maximum health per stack', max: 4 },
   { id: 'concussiveRounds', title: 'Concussive Rounds', description: '+20% damage-based knockback per stack', max: 3 },
@@ -1033,19 +1033,30 @@ export class Game {
       const collector = [...this.players.values()].find((player) => player.connected && player.alive && !player.downed &&
         Math.hypot(player.x - drop.x, player.y - drop.y) <= player.r + drop.r + 10);
       if (collector) { this.collectXpDrop(drop); continue; }
-      let nearest: Player | undefined, nearestDistance = Infinity, nearestMagnet = 0;
+      let nearest: Player | undefined, nearestDistance = Infinity;
+      let magnetTarget: Player | undefined, magnetDistance = Infinity, magnetStacks = 0;
       for (const player of this.players.values()) {
         if (!player.connected || !player.alive || player.downed) continue;
         const distance = Math.hypot(player.x - drop.x, player.y - drop.y);
-        if (distance < nearestDistance) { nearest = player; nearestDistance = distance; nearestMagnet = this.perkCount(player, 'xpMagnet'); }
+        if (distance < nearestDistance) { nearest = player; nearestDistance = distance; }
+        const stacks = this.perkCount(player, 'xpMagnet');
+        const inMagnetRange = distance <= 180 + stacks * 120;
+        const magnetReady = drop.age >= Math.max(2, 10 - stacks * 2);
+        if (stacks > 0 && (inMagnetRange || magnetReady) && distance < magnetDistance) {
+          magnetTarget = player; magnetDistance = distance; magnetStacks = stacks;
+        }
       }
-      const magnetRange = 180 + nearestMagnet * 120;
-      const magnetDelay = Math.max(2, 10 - nearestMagnet * 2);
-      if (nearest && (drop.age >= magnetDelay || (nearestMagnet > 0 && nearestDistance <= magnetRange))) {
-        const dx = nearest.x - drop.x, dy = nearest.y - drop.y, distance = Math.max(1, nearestDistance);
-        const travel = Math.min(distance, (210 + nearestMagnet * 65) * dt);
+      // Prefer an eligible Magnet owner; ordinary nearby teammates cannot suppress the perk.
+      const target = magnetTarget ?? nearest;
+      const targetDistance = magnetTarget ? magnetDistance : nearestDistance;
+      const targetStacks = magnetTarget ? magnetStacks : 0;
+      const magnetRange = 180 + targetStacks * 120;
+      const magnetDelay = Math.max(2, 10 - targetStacks * 2);
+      if (target && (drop.age >= magnetDelay || (targetStacks > 0 && targetDistance <= magnetRange))) {
+        const dx = target.x - drop.x, dy = target.y - drop.y, distance = Math.max(1, targetDistance);
+        const travel = Math.min(distance, (210 + targetStacks * 65) * dt);
         drop.x += dx / distance * travel; drop.y += dy / distance * travel;
-        if (distance <= nearest.r + drop.r + 8) this.collectXpDrop(drop);
+        if (distance <= target.r + drop.r + 8) this.collectXpDrop(drop);
       }
       if (drop.life <= 0) this.collectXpDrop(drop);
     }
@@ -1205,18 +1216,22 @@ export class Game {
     const perkDamage = this.mode === 'survival' ? 1 + this.perkCount(p, 'heavyRounds') * 0.15 : 1;
     const critical = this.mode === 'survival' && this.rng() < this.perkCount(p, 'criticalCore') * 0.06 ? 2 : 1;
     let explosionRadius: number | undefined, chilled = false;
-    if (this.mode === 'survival' && kind === 'bullet') {
-      p.shotsFired++;
-      if (this.perkCount(p, 'blastRounds') > 0 && p.shotsFired % 5 === 0) explosionRadius = 64;
-      if (this.perkCount(p, 'explosiveImpact') > 0) explosionRadius = Math.max(explosionRadius ?? 0, 34 + this.perkCount(p, 'explosiveImpact') * 8);
-      if (this.perkCount(p, 'shrapnel') > 0 && p.shotsFired % 4 === 0) explosionRadius = Math.max(explosionRadius ?? 0, 58 + this.perkCount(p, 'shrapnel') * 12);
+    if (this.mode === 'survival') {
+      if (kind !== 'drone') {
+        p.shotsFired++;
+        if (this.perkCount(p, 'blastRounds') > 0 && p.shotsFired % 5 === 0) explosionRadius = 64;
+        if (this.perkCount(p, 'shrapnel') > 0 && p.shotsFired % 4 === 0)
+          explosionRadius = Math.max(explosionRadius ?? 0, 58 + this.perkCount(p, 'shrapnel') * 12);
+      }
+      if (kind !== 'drone' && this.perkCount(p, 'explosiveImpact') > 0)
+        explosionRadius = Math.max(explosionRadius ?? 0, 34 + this.perkCount(p, 'explosiveImpact') * 8);
       chilled = this.perkCount(p, 'cryoRounds') > 0;
     }
     const bullet: Bullet = {
       id: this.nextId++, owner: p.id, x: muzzleX, y: muzzleY,
       vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed,
       r: bulletRadius, dmg: p.d.bulletDamage * (barrel.damageMul ?? 1) * perkDamage * critical,
-      hp: kind === 'drone' ? 8 : kind === 'trap' ? 100 : p.d.bulletHp + (this.mode === 'survival' ? this.perkCount(p, 'piercingRounds') : 0),
+      hp: kind === 'drone' ? 8 : kind === 'trap' ? 100 : p.d.bulletHp + (this.mode === 'survival' && kind !== 'firework' ? this.perkCount(p, 'piercingRounds') * PLAYER_PIERCE_COST : 0),
       life, hit: new Set(), kind, angle: spreadAngle,
       maxSpeed: kind === 'missile' ? p.d.bulletSpeed * 1.45 : speed,
       turnRate: kind === 'missile' ? 2.7 : 4.2,
@@ -1265,10 +1280,16 @@ export class Game {
     const drone: Bullet = {
       id: this.nextId++, owner: p.id, x: origin.x, y: origin.y,
       vx: Math.cos(slotAngle) * 70, vy: Math.sin(slotAngle) * 70,
-      r: radius * 0.65, dmg: p.d.bulletDamage * (cls.droneDamageMul ?? 0.85) * (1 + this.perkCount(p, 'droneTactician') * 0.15),
+      r: radius * 0.65,
+      dmg: p.d.bulletDamage * (cls.droneDamageMul ?? 0.85) *
+        (1 + this.perkCount(p, 'heavyRounds') * 0.15) * (1 + this.perkCount(p, 'droneTactician') * 0.15),
       hp: 8, life: DRONE_LIFE_S, hit: new Set(), kind: 'drone',
-      angle: slotAngle, maxSpeed: 300 * (cls.droneSpeedMul ?? 1) * (1 + this.perkCount(p, 'droneTactician') * 0.08), turnRate: 4.6,
-      formationSlot: slot, attackState: 'guard', attackCooldown: 0,
+      angle: slotAngle,
+      maxSpeed: 300 * (cls.droneSpeedMul ?? 1) *
+        (1 + this.perkCount(p, 'droneTactician') * 0.08) * (1 + this.perkCount(p, 'longshot') * 0.1),
+      turnRate: 4.6, formationSlot: slot, attackState: 'guard', attackCooldown: 0,
+      ...(this.perkCount(p, 'cryoRounds') > 0 ? { chilled: true } : {}),
+      ...(this.perkCount(p, 'explosiveImpact') > 0 ? { explosionRadius: 34 + this.perkCount(p, 'explosiveImpact') * 8 } : {}),
     };
     // Keep the first spawn close to the tank; barrel length is used as a size hint for drone spacing.
     drone.x += Math.cos(slotAngle) * Math.min(8, length * 0.1);
@@ -1419,8 +1440,13 @@ export class Game {
       drone.vy = Math.sin(drone.angle) * speed;
     }
 
-    drone.dmg = owner.d.bulletDamage * (cls.droneDamageMul ?? 0.85) * (1 + this.perkCount(owner, 'droneTactician') * 0.15);
-    drone.maxSpeed = 300 * (cls.droneSpeedMul ?? 1) * (1 + this.perkCount(owner, 'droneTactician') * 0.08);
+    drone.dmg = owner.d.bulletDamage * (cls.droneDamageMul ?? 0.85) *
+      (1 + this.perkCount(owner, 'heavyRounds') * 0.15) * (1 + this.perkCount(owner, 'droneTactician') * 0.15);
+    drone.maxSpeed = 300 * (cls.droneSpeedMul ?? 1) *
+      (1 + this.perkCount(owner, 'droneTactician') * 0.08) * (1 + this.perkCount(owner, 'longshot') * 0.1);
+    drone.chilled = this.mode === 'survival' && this.perkCount(owner, 'cryoRounds') > 0;
+    drone.explosionRadius = this.mode === 'survival' && this.perkCount(owner, 'explosiveImpact') > 0
+      ? 34 + this.perkCount(owner, 'explosiveImpact') * 8 : undefined;
     drone.x += drone.vx * dt;
     drone.y += drone.vy * dt;
   }
@@ -1431,6 +1457,7 @@ export class Game {
     drone.attackTargetId = undefined;
     drone.attackTimer = 0;
     drone.attackCooldown = Math.max(drone.attackCooldown ?? 0, cooldown);
+    drone.exploded = false; drone.chained = false;
     drone.attackEscapeAngle = speed > 1 ? Math.atan2(drone.vy, drone.vx) : drone.angle;
   }
 
@@ -1505,7 +1532,7 @@ export class Game {
     const barrel: BarrelDef = {
       angle: 0, offset: 0, length: 24, width, delay: 0,
       recoil: kind === 'trap' ? 0.35 : 0.12, projectile: kind,
-      damageMul: kind === 'trap' ? 0.75 : 0.42, speedMul: 1,
+      damageMul: kind === 'trap' ? 0.75 : (cls.turretDamageMul ?? 0.42), speedMul: 1,
     };
     for (let i = 0; i < count; i++) {
       p.autoCd[i] = Math.max(0, (p.autoCd[i] ?? 0) - dt);
@@ -1548,7 +1575,8 @@ export class Game {
         id: this.nextId++, owner: rocket.owner, x: rocket.x, y: rocket.y,
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
         r: Math.max(3, rocket.r * 0.45), dmg: rocket.dmg * 0.42, hp: 1,
-        life: 0.8, hit: new Set(), kind: 'bullet', angle, maxSpeed: speed, turnRate: 0,
+        life: 0.8, hit: new Set(rocket.hit), kind: 'bullet', angle, maxSpeed: speed, turnRate: 0,
+        ...(rocket.chilled ? { chilled: true } : {}),
       });
     }
   }
@@ -1637,6 +1665,7 @@ export class Game {
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
       A.kvx += bullet.vx / 8; A.kvy += bullet.vy / 8;
+      if (bullet.kind === 'firework') this.explodeFirework(bullet);
     } else if (a.k === 0 && b.k === 3) {
       const zombie = b.o as Zombie;
       if (zombie.bossKind) {
@@ -1675,6 +1704,7 @@ export class Game {
       const nx = speed > 0.001 ? bullet.vx / speed : Math.cos(bullet.angle);
       const ny = speed > 0.001 ? bullet.vy / speed : Math.sin(bullet.angle);
       this.impactShape(shape, bullet.x, bullet.y, nx, ny, impulse);
+      if (bullet.kind === 'firework') this.explodeFirework(bullet);
     } else if (a.k === 2 && b.k === 3) {
       const bullet = a.o as Bullet;
       const zombie = b.o as Zombie;
@@ -1684,29 +1714,11 @@ export class Game {
       if (!this.projectileCanHit(bullet, zombie.id)) return;
       if (bullet.kind === 'drone') bullet.hit.add(zombie.id);
       const owner = this.players.get(bullet.owner);
-      const guardianMul = this.isZombieProtected(zombie) ? 0.58 : 1;
-      const armourStacks = this.mode === 'survival' ? this.perkCount(owner, 'armorPiercer') : 0;
-      const armourMul = zombie.kind === 'armoured' ? Math.min(0.96, 0.58 + armourStacks * 0.09) : 1;
-      const bossMul = zombie.bossKind ? 0.84 : 1;
-      let perkMul = 1;
-      if (owner && this.mode === 'survival') {
-        if (zombie.bossKind) perkMul *= 1 + this.perkCount(owner, 'bossHunter') * 0.16;
-        if (zombie.hp <= zombie.maxHp * 0.35) perkMul *= 1 + this.perkCount(owner, 'executioner') * 0.18;
-        if (owner.hp <= owner.maxHp * 0.35) perkMul *= 1 + this.perkCount(owner, 'adrenaline') * 0.12;
-      }
-      const dealt = bullet.dmg * guardianMul * armourMul * bossMul * perkMul;
+      const dealt = bullet.dmg * this.survivalDamageMultiplier(owner, zombie);
       zombie.hp -= dealt;
       zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
       if (owner && this.mode === 'survival') {
-        if (this.perkCount(owner, 'lifesteal') > 0) owner.hp = Math.min(owner.maxHp, owner.hp + dealt * 0.05 * this.perkCount(owner, 'lifesteal'));
-        if (bullet.chilled) zombie.slowT = Math.max(zombie.slowT, 3);
-        const hotStacks = this.perkCount(owner, 'hotRounds');
-        if (hotStacks > 0) {
-          zombie.burnT = Math.max(zombie.burnT ?? 0, 3);
-          zombie.burnDps = Math.max(zombie.burnDps ?? 0, dealt * 0.09 * hotStacks);
-          zombie.burnTick = Math.min(zombie.burnTick ?? 0.5, 0.5);
-          zombie.burnOwnerId = owner.id;
-        }
+        this.applySurvivalHitEffects(owner, zombie, dealt, bullet);
         if (this.perkCount(owner, 'chainShot') > 0 && !bullet.chained) this.chainSurvivalImpact(bullet, zombie, dealt);
         if (bullet.explosionRadius && !bullet.exploded) this.explodeSurvivalImpact(bullet, zombie);
       }
@@ -1721,6 +1733,7 @@ export class Game {
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0)
         : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
+      if (bullet.kind === 'firework') this.explodeFirework(bullet);
     } else if (a.k === 3 && b.k === 3) {
       const firstZombie = a.o as Zombie;
       const secondZombie = b.o as Zombie;
@@ -1739,6 +1752,34 @@ export class Game {
         this.separate(firstZombie, secondZombie, dx, dy, distance, rr,
           firstZombie.r * firstZombie.r, secondZombie.r * secondZombie.r);
       }
+    }
+  }
+
+  private survivalDamageMultiplier(owner: Player | undefined, zombie: Zombie): number {
+    const guardianMul = this.isZombieProtected(zombie) ? 0.58 : 1;
+    const armourStacks = this.mode === 'survival' ? this.perkCount(owner, 'armorPiercer') : 0;
+    const armourMul = zombie.kind === 'armoured' ? Math.min(0.96, 0.58 + armourStacks * 0.09) : 1;
+    const bossMul = zombie.bossKind ? 0.84 : 1;
+    let perkMul = 1;
+    if (owner && this.mode === 'survival') {
+      if (zombie.bossKind) perkMul *= 1 + this.perkCount(owner, 'bossHunter') * 0.16;
+      if (zombie.hp <= zombie.maxHp * 0.35) perkMul *= 1 + this.perkCount(owner, 'executioner') * 0.18;
+      if (owner.hp <= owner.maxHp * 0.35) perkMul *= 1 + this.perkCount(owner, 'adrenaline') * 0.12;
+    }
+    return guardianMul * armourMul * bossMul * perkMul;
+  }
+
+  private applySurvivalHitEffects(owner: Player, zombie: Zombie, dealt: number, bullet: Bullet) {
+    if (this.mode !== 'survival') return;
+    const lifesteal = this.perkCount(owner, 'lifesteal');
+    if (lifesteal > 0) owner.hp = Math.min(owner.maxHp, owner.hp + dealt * 0.05 * lifesteal);
+    if (bullet.chilled) zombie.slowT = Math.max(zombie.slowT, 3);
+    const hotStacks = this.perkCount(owner, 'hotRounds');
+    if (hotStacks > 0) {
+      zombie.burnT = Math.max(zombie.burnT ?? 0, 3);
+      zombie.burnDps = Math.max(zombie.burnDps ?? 0, dealt * 0.09 * hotStacks);
+      zombie.burnTick = Math.min(zombie.burnTick ?? 0.5, 0.5);
+      zombie.burnOwnerId = owner.id;
     }
   }
 
@@ -1771,10 +1812,10 @@ export class Game {
       target = zombie; nearest = distance;
     }
     if (!target) return;
-    const armour = target.kind === 'armoured' ? Math.min(0.96, 0.58 + this.perkCount(owner, 'armorPiercer') * 0.09) : 1;
-    const chainDamage = damage * (0.14 + stacks * 0.06) * armour * (target.bossKind ? 0.84 : 1);
+    const chainDamage = damage * (0.14 + stacks * 0.06) * this.survivalDamageMultiplier(owner, target);
     target.hp -= chainDamage;
     target.damageBy.set(owner.id, (target.damageBy.get(owner.id) ?? 0) + chainDamage);
+    this.applySurvivalHitEffects(owner, target, chainDamage, bullet);
     target.hitFlash = Math.max(target.hitFlash, 0.65);
   }
 
@@ -1784,9 +1825,9 @@ export class Game {
     const splash = bullet.dmg * Math.min(0.62, (this.perkCount(owner, 'blastRounds') > 0 ? 0.42 : 0.28) + this.perkCount(owner, 'shrapnel') * 0.07);
     for (const zombie of this.zombies) {
       if (zombie === directHit || zombie.hp <= 0 || Math.hypot(zombie.x - bullet.x, zombie.y - bullet.y) > radius + zombie.r) continue;
-      const dealt = splash * (zombie.kind === 'armoured' ? 0.58 : 1) * (zombie.bossKind ? 0.84 : 1);
+      const dealt = splash * this.survivalDamageMultiplier(owner, zombie);
       zombie.hp -= dealt; zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
-      if (bullet.chilled) zombie.slowT = Math.max(zombie.slowT, 3);
+      this.applySurvivalHitEffects(owner, zombie, dealt, bullet);
     }
   }
 
@@ -1896,10 +1937,14 @@ export class Game {
     const formationSlot = this.nextDroneFormationSlot(owner.id, cls.droneLimit ?? 8);
     this.bullets.push({
       id: this.nextId++, owner: owner.id, x: shape.x, y: shape.y, vx: 0, vy: 0,
-      r: 12, dmg: owner.d.bulletDamage * (cls.droneDamageMul ?? 0.6) * (1 + this.perkCount(owner, 'droneTactician') * 0.15), hp: 8,
+      r: 12, dmg: owner.d.bulletDamage * (cls.droneDamageMul ?? 0.6) *
+        (1 + this.perkCount(owner, 'heavyRounds') * 0.15) * (1 + this.perkCount(owner, 'droneTactician') * 0.15), hp: 8,
       life: DRONE_LIFE_S, hit: new Set(), kind: 'drone', angle: owner.angle,
-      maxSpeed: 300 * (cls.droneSpeedMul ?? 1) * (1 + this.perkCount(owner, 'droneTactician') * 0.08), turnRate: 4.6, formationSlot,
-      attackState: 'guard', attackCooldown: 0,
+      maxSpeed: 300 * (cls.droneSpeedMul ?? 1) *
+        (1 + this.perkCount(owner, 'droneTactician') * 0.08) * (1 + this.perkCount(owner, 'longshot') * 0.1),
+      turnRate: 4.6, formationSlot, attackState: 'guard', attackCooldown: 0,
+      ...(this.perkCount(owner, 'cryoRounds') > 0 ? { chilled: true } : {}),
+      ...(this.perkCount(owner, 'explosiveImpact') > 0 ? { explosionRadius: 34 + this.perkCount(owner, 'explosiveImpact') * 8 } : {}),
     });
   }
 
