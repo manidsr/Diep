@@ -200,3 +200,23 @@ export function drawSticks(ctx: CanvasRenderingContext2D, W: number, H: number, 
   draw(input.moveStick, Math.min(110, W * 0.2), H - Math.min(110, H * 0.3), '#4aa3ff');
   draw(input.aimStick, W - Math.min(110, W * 0.2), H - Math.min(110, H * 0.3), '#ff6a6a');
 }
+
+
+/** Generate an image preview using the same tank renderer as the live game. */
+export function tankPreviewDataUrl(classId: string): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = 176;
+  canvas.height = 112;
+  const previewCtx = canvas.getContext('2d');
+  if (!previewCtx) return '';
+
+  previewCtx.translate(canvas.width / 2, canvas.height / 2);
+  const classIndex = Math.max(0, CLASSES.findIndex((tankClass) => tankClass.id === classId));
+  const preview: PlayerSnap = {
+    id: 0, name: '', x: 0, y: 0, a: -0.12,
+    hp: 100, mhp: 100, r: PLAYER_BASE_RADIUS,
+    lv: 1, cls: classIndex, prot: 0, vis: 1,
+  };
+  drawTank(previewCtx, preview, true);
+  return canvas.toDataURL('image/png');
+}

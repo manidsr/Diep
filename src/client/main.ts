@@ -1,7 +1,7 @@
 import { CLASS_BY_ID, CLASS_IDS, STAT_COLORS, STAT_KEYS, STAT_LABELS, MAX_STAT_LEVEL } from '../shared/config';
 import type { PlayerSnap, SelfSnap, ServerMessage, Snapshot } from '../shared/protocol';
 import { Input } from './input';
-import { drawFrame, drawSticks, tankPreviewDataUrl, type View } from './render';
+import { drawFrame, drawSticks, type View } from './render';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('c');
@@ -15,8 +15,6 @@ let playing = false;
 let devCheatsEnabled = false;
 let lastDevClass = '';
 let recoilCameraX = 0, recoilCameraY = 0;
-let recoilCameraVX = 0, recoilCameraVY = 0;
-let previousFrameTime = 0;
 const seenOwnBulletIds = new Set<number>();
 const statusEl = $('status'), msgEl = $('msg'), playBtn = $<HTMLButtonElement>('play'), menu = $('menu'), nameEl = $<HTMLInputElement>('name');
 
@@ -78,8 +76,8 @@ function onSnapshot(s: Snapshot) {
     if (bullet[4] !== selfId || bullet[5] !== 0 || seenOwnBulletIds.has(bullet[0])) continue;
     seenOwnBulletIds.add(bullet[0]);
     const kick = Math.min(5.5, 1.5 + bullet[3] * 0.3);
-    recoilCameraVX += Math.cos(input.angle) * kick * 18;
-    recoilCameraVY += Math.sin(input.angle) * kick * 18;
+    recoilCameraX = Math.max(-22, Math.min(22, recoilCameraX + Math.cos(input.angle) * kick));
+    recoilCameraY = Math.max(-22, Math.min(22, recoilCameraY + Math.sin(input.angle) * kick));
   }
   if (seenOwnBulletIds.size > 512) {
     seenOwnBulletIds.clear();
@@ -219,14 +217,7 @@ function updateHud(m: SelfSnap) {
       if (lastLv > 0) showToast('EVOLUTION READY', 'Choose a new tank class');
     }
     m.opts.forEach((id, n) => {
-      const cls = CLASS_BY_ID[id];
-      const b = document.createElement('button'); b.className = 'evo-card';
-      b.title = cls?.description ?? id;
-      const preview = document.createElement('img');
-      preview.className = 'evo-preview'; preview.alt = cls?.name ?? id;
-      preview.src = tankPreviewDataUrl(id);
-      const name = document.createElement('span'); name.className = 'evo-name'; name.textContent = cls?.name ?? id;
-      b.append(preview, name);
+      const b = document.createElement('button'); b.textContent = CLASS_BY_ID[id]?.name ?? id; b.title = CLASS_BY_ID[id]?.description ?? id;
       b.style.animationDelay = `${n * 0.08}s, ${0.5 + n * 0.08}s`;
       b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (playing) send({ t: 'class', id }); });
       classesEl.append(b);
@@ -308,15 +299,9 @@ function frame(now: number) {
     cam.x = self.x + recoilCameraX / scale;
     cam.y = self.y + recoilCameraY / scale;
   }
-  const dt = previousFrameTime ? Math.min(0.05, (now - previousFrameTime) / 1000) : 1 / 60;
-  previousFrameTime = now;
-  // Critically damped spring: recoil eases into and out of the camera instead of snapping.
-  const spring = 18, damping = 2 * spring;
-  recoilCameraVX += (-spring * spring * recoilCameraX - damping * recoilCameraVX) * dt;
-  recoilCameraVY += (-spring * spring * recoilCameraY - damping * recoilCameraVY) * dt;
-  recoilCameraX += recoilCameraVX * dt; recoilCameraY += recoilCameraVY * dt;
-  if (Math.abs(recoilCameraX) < 0.01 && Math.abs(recoilCameraVX) < 0.1) { recoilCameraX = 0; recoilCameraVX = 0; }
-  if (Math.abs(recoilCameraY) < 0.01 && Math.abs(recoilCameraVY) < 0.1) { recoilCameraY = 0; recoilCameraVY = 0; }
+  recoilCameraX *= 0.72; recoilCameraY *= 0.72;
+  if (Math.abs(recoilCameraX) < 0.05) recoilCameraX = 0;
+  if (Math.abs(recoilCameraY) < 0.05) recoilCameraY = 0;
   drawFrame(ctx, W, H, cam, view, selfId, frames[frames.length - 1]?.snap.me.fov ?? 1);
   if (playing) drawSticks(ctx, W, H, input);
 }
