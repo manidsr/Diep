@@ -115,6 +115,9 @@ test('eliminations broadcast a kill-feed line and send a detailed death report',
     const victimWelcome = await victim.waitFor((m) => m.t === 'welcome');
     assert.ok(attackerWelcome.t === 'welcome' && victimWelcome.t === 'welcome');
 
+    // Give the server clock a measurable amount of time before triggering the
+    // elimination so the one-decimal lifetime field is non-zero deterministically.
+    await new Promise((resolve) => setTimeout(resolve, 250));
     const a = game.players.get(attackerWelcome.id)!;
     const v = game.players.get(victimWelcome.id)!;
     Object.assign(a, { x: 1000, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
