@@ -661,6 +661,7 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
   game.shapes.length = 0;
   game.xpDrops.length = 0;
   const xpBefore = player.xp, teammateXpBefore = teammate.xp;
+  const killsBefore = game.zombieKills, playerKillsBefore = player.kills;
   const internals = game as unknown as { reap: () => void; updateXpDrops: (dt: number) => void };
   game.zombies = [zombie];
   zombie.hp = 0;
@@ -679,8 +680,8 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
   assert.equal(player.xp - xpBefore, orb.xp, 'the connected and disconnected run members receive the same full XP');
   assert.equal(teammate.xp - teammateXpBefore, orb.xp);
   assert.equal(game.xpDrops.length, 0);
-  assert.equal(game.zombieKills, 1);
-  assert.equal(player.kills, 1);
+  assert.equal(game.zombieKills - killsBefore, 1);
+  assert.equal(player.kills - playerKillsBefore, 1);
 });
 
 test('Survival perk effects cover movement, defence, health and damage upgrades', () => {
