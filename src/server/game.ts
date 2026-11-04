@@ -1035,6 +1035,7 @@ export class Game {
         bossKind: null, bossPhase: 'idle', bossTimer: 0, bossCooldown: 0, bossAimX: 1, bossAimY: 0, bossPattern: 0,
         specialPhase: 'idle', specialTimer: 0, specialCooldown: 0, specialAimX: 1, specialAimY: 0,
         attackCooldown: 0, damageBy: new Map(), slowT: 0 });
+    }
   }
 
   private constrainTeamPlayer(player: Player) {
