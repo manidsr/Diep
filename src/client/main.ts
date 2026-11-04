@@ -1,11 +1,14 @@
 import { CLASS_BY_ID, CLASS_IDS, STAT_COLORS, STAT_KEYS, STAT_LABELS, MAX_STAT_LEVEL } from '../shared/config';
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
-import { drawFrame, drawSticks, tankPreviewDataUrl, type View } from './render';
+import { drawFrame, drawMinimap, drawSticks, tankPreviewDataUrl, type View } from './render';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('c');
 const ctx = canvas.getContext('2d')!;
+const minimapCanvas = $<HTMLCanvasElement>('minimap');
+const minimapCtx = minimapCanvas.getContext('2d')!;
+const MINIMAP_SIZE = 176;
 const input = new Input(canvas);
 
 // ---------- connection ----------
@@ -269,6 +272,8 @@ function sample(now: number): View | null {
     bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4], x[5], x[6], x[7]] as typeof x : x; }),
     shapes: b.snap.sh.map((x) => { const q = a.sm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), lerpAng(q[3], x[3], t), x[4], x[5], x[6], x[7], x[8], x[9]] : x; }),
     zombies: b.snap.z.map((zombie) => { const q = a.zm.get(zombie.id); return q ? { ...zombie, x: lerp(q.x, zombie.x, t), y: lerp(q.y, zombie.y, t), angle: lerpAng(q.angle, zombie.angle, t) } : zombie; }),
+    downed: b.snap.d,
+    healthDrops: b.snap.h,
     mode: b.snap.mode,
   };
 }
@@ -357,6 +362,7 @@ function showToast(big: string, sub: string) {
 
 let hudKey = '', optKey = '';
 let lastLv = 0, lastPts = 0, lastStats: number[] = [];
+let wasDowned = false;
 function updateHud(m: SelfSnap) {
   // Only sync the selector when the server-confirmed class actually changes.
   // Do not overwrite the user's pending dropdown choice on every snapshot.
@@ -368,7 +374,9 @@ function updateHud(m: SelfSnap) {
   $('xpfill').style.width = `${m.xpNext === m.xpCur ? 100 : Math.min(100, ((m.xp - m.xpCur) / span) * 100)}%`;
 
   // Level-up celebration (only while alive and after the first snapshot of a life).
-  if (!m.alive) { lastLv = 0; lastPts = 0; lastStats = []; }
+  if (m.downed && !wasDowned) showToast('DOWNED', 'Stay beside an ally for a 4 second revive');
+  wasDowned = m.downed;
+  if (!m.alive && !m.downed) { lastLv = 0; lastPts = 0; lastStats = []; }
   else {
     if (lastLv > 0 && m.lv > lastLv) {
       retrigger(xpEl, 'lvl');
@@ -377,11 +385,11 @@ function updateHud(m: SelfSnap) {
     lastLv = m.lv;
   }
 
-  const key = `${m.lv}|${m.xp}|${m.pts}|${m.stats.join(',')}|${m.cls}`;
+  const key = `${m.lv}|${m.xp}|${m.pts}|${m.stats.join(',')}|${m.cls}|${m.downed}`;
   if (key !== hudKey) {
     hudKey = key;
-    $('xptxt').textContent = `Lv ${m.lv} ${CLASS_BY_ID[m.cls]?.name ?? ''} — ${m.xp} xp`;
-    statsEl.classList.toggle('show', m.pts > 0);
+    $('xptxt').textContent = m.downed ? 'DOWNED · stay close to an ally to be revived' : `Lv ${m.lv} ${CLASS_BY_ID[m.cls]?.name ?? ''} — ${m.xp} xp`;
+    statsEl.classList.toggle('show', !m.downed && m.alive && m.pts > 0);
     ptsEl.textContent = m.pts > 0 ? `(x${m.pts})` : '';
     if (m.pts !== lastPts && m.pts > 0) retrigger(ptsEl, 'bump');
     lastPts = m.pts;
@@ -392,7 +400,7 @@ function updateHud(m: SelfSnap) {
         if (j === v - 1 && v > prev) retrigger(p, 'pop');
       });
       if (v > prev) retrigger(rowEls[i], 'flash');
-      btnEls[i].disabled = m.pts <= 0 || v >= MAX_STAT_LEVEL || (!!CLASS_BY_ID[m.cls]?.smasher && i >= 3 && i <= 6);
+      btnEls[i].disabled = m.downed || !m.alive || m.pts <= 0 || v >= MAX_STAT_LEVEL || (!!CLASS_BY_ID[m.cls]?.smasher && i >= 3 && i <= 6);
     });
     lastStats = m.stats.slice();
   }
@@ -482,11 +490,12 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
     }
     for (const player of message.top) {
       const row = document.createElement('div');
-      row.className = 'survival-player-row' + (player.id === selfId ? ' me' : '') + (!player.alive ? ' out' : '');
+      row.className = 'survival-player-row' + (player.id === selfId ? ' me' : '') +
+        (player.downed ? ' downed' : !player.alive ? ' out' : '');
       const name = document.createElement('span');
       name.textContent = player.name + (player.alive ? '' : ' · OUT');
       const stat = document.createElement('b');
-      stat.textContent = player.kills + ' kills';
+      stat.textContent = player.downed ? 'DOWNED · REVIVE' : player.alive ? player.kills + ' kills' : 'OUT';
       row.append(name, stat);
       roster.append(row);
     }
@@ -578,6 +587,8 @@ let W = 0, H = 0, dpr = 1;
 function resize() {
   W = window.innerWidth; H = window.innerHeight; dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  minimapCanvas.width = Math.round(MINIMAP_SIZE * dpr);
+  minimapCanvas.height = Math.round(MINIMAP_SIZE * dpr);
 }
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 200));
@@ -599,12 +610,17 @@ function frame(now: number) {
     }
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const view = sample(now) ?? { players: [], bullets: [], shapes: [], zombies: [], mode: 'ffa' as GameMode };
+  const view = sample(now) ?? { players: [], bullets: [], shapes: [], zombies: [], downed: [], healthDrops: [], mode: 'ffa' as GameMode };
+  minimapCanvas.hidden = view.mode !== 'survival';
+  minimapCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawMinimap(minimapCtx, MINIMAP_SIZE, MINIMAP_SIZE, view, selfId);
   const self = view.players.find((p) => p.id === selfId);
-  if (self) {
+  const downedSelf = view.downed.find((p) => p.id === selfId);
+  const cameraTarget = self ?? downedSelf;
+  if (cameraTarget) {
     const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000);
-    cam.x = self.x + recoilCameraX / scale;
-    cam.y = self.y + recoilCameraY / scale;
+    cam.x = cameraTarget.x + recoilCameraX / scale;
+    cam.y = cameraTarget.y + recoilCameraY / scale;
   }
   const dt = previousFrameTime ? Math.min(0.05, (now - previousFrameTime) / 1000) : 1 / 60;
   previousFrameTime = now;

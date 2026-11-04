@@ -821,3 +821,181 @@ test('hostile boss projectiles hurt survivors but player shots cannot hurt teamm
   game.step(DT);
   assert.equal(target.hp, friendlyTargetHp, 'co-op player bullets must not become friendly fire');
 });
+
+
+test('Survival spawns six distinct zombie roles with different combat identities', () => {
+  const game = new Game(seeded(91), 0, 'survival');
+  game.addPlayer('type tester');
+  const state = game as unknown as { spawnZombie: (kind: string) => boolean };
+  const kinds = ['shambler', 'runner', 'tank', 'ranger', 'guardian', 'bomber', 'leaper'];
+  for (const kind of kinds) assert.ok(state.spawnZombie(kind));
+  const spawned = kinds.map((kind) => game.zombies.find((zombie) => zombie.kind === kind));
+  assert.ok(spawned.every(Boolean), 'every requested enemy archetype should spawn');
+  assert.ok(game.zombies.find((zombie) => zombie.kind === 'runner')!.speed >
+    game.zombies.find((zombie) => zombie.kind === 'shambler')!.speed * 1.5);
+  assert.ok(game.zombies.find((zombie) => zombie.kind === 'tank')!.maxHp >
+    game.zombies.find((zombie) => zombie.kind === 'shambler')!.maxHp * 2);
+});
+
+test('Guardian aura reduces nearby zombie and boss damage', () => {
+  const game = new Game(seeded(92), 0, 'survival');
+  const player = game.addPlayer('guardian tester')!;
+  const state = game as unknown as { spawnZombie: (kind: string) => boolean; isZombieProtected: (z: typeof game.zombies[number]) => boolean };
+  state.spawnZombie('guardian');
+  state.spawnZombie('shambler');
+  const guardian = game.zombies.find((z) => z.kind === 'guardian')!;
+  const protectedZombie = game.zombies.find((z) => z.kind === 'shambler')!;
+  Object.assign(guardian, { x: 1000, y: 1000 });
+  Object.assign(protectedZombie, { x: 1080, y: 1000 });
+  assert.equal(state.isZombieProtected(protectedZombie), true);
+  Object.assign(guardian, { x: 1500, y: 1500 });
+  assert.equal(state.isZombieProtected(protectedZombie), false);
+});
+
+test('Ranger zombies wind up and fire hostile projectiles at survivors', () => {
+  const game = new Game(seeded(93), 0, 'survival');
+  const player = place(game, game.addPlayer('ranger target')!.id, 1300, 1000);
+  const state = game as unknown as {
+    wave: number; spawnZombie: (kind: string) => boolean;
+    updateZombie: (z: typeof game.zombies[number], dt: number) => void;
+  };
+  state.wave = 4; assert.ok(state.spawnZombie('ranger'));
+  const ranger = game.zombies[0]!;
+  Object.assign(ranger, { x: 900, y: 1000, specialCooldown: 0, vx: 0, vy: 0 });
+  for (let i = 0; i < 40; i++) state.updateZombie(ranger, DT);
+  assert.ok(game.bullets.some((bullet) => bullet.hostile && bullet.hostileName === 'a ranged zombie bolt'));
+  assert.ok(player.hp > 0);
+});
+
+test('Bomber and leaper show a warning phase before their special attacks', () => {
+  const game = new Game(seeded(94), 0, 'survival');
+  const player = place(game, game.addPlayer('special enemy tester')!.id, 1100, 1000);
+  const state = game as unknown as {
+    spawnZombie: (kind: string) => boolean;
+    updateZombie: (z: typeof game.zombies[number], dt: number) => void;
+  };
+  state.spawnZombie('bomber'); state.spawnZombie('leaper');
+  const bomber = game.zombies[0]!, leaper = game.zombies[1]!;
+  Object.assign(bomber, { x: player.x - 100, y: player.y, specialCooldown: 0 });
+  Object.assign(leaper, { x: player.x - 420, y: player.y + 30, specialCooldown: 0 });
+  state.updateZombie(bomber, DT);
+  state.updateZombie(leaper, DT);
+  assert.equal(bomber.specialPhase, 'windup');
+  assert.equal(leaper.specialPhase, 'windup');
+});
+
+test('Bosses take damage without projectile knockback or stagger', () => {
+  const game = new Game(seeded(95), 0, 'survival');
+  const player = place(game, game.addPlayer('boss damage tester')!.id, 1000, 1000);
+  const state = game as unknown as { wave: number; waveSpawned: number; spawnZombie: () => boolean; collideAll: (dt: number) => void };
+  state.wave = 5; state.waveSpawned = 0; assert.ok(state.spawnZombie());
+  const boss = game.zombies[0]!;
+  Object.assign(boss, { x: 1000, y: 1000, kvx: 0, kvy: 0, staggerT: 0 });
+  game.bullets.push({
+    id: 99195, owner: player.id, x: boss.x, y: boss.y, vx: 1000, vy: 0,
+    r: 8, dmg: 60, hp: 2, life: 1, hit: new Set<number>(),
+    kind: 'bullet', angle: 0, maxSpeed: 1000, turnRate: 0,
+  });
+  const hp = boss.hp;
+  state.collideAll(DT);
+  assert.ok(boss.hp < hp, 'the boss should still take damage');
+  assert.equal(boss.kvx, 0);
+  assert.equal(boss.kvy, 0);
+  assert.equal(boss.staggerT, 0);
+});
+
+test('Rotbloom rotates through focused, fan and radial attack patterns', () => {
+  const game = new Game(seeded(96), 0, 'survival');
+  place(game, game.addPlayer('pattern tester')!.id, 1500, 1000);
+  const state = game as unknown as {
+    wave: number; waveSpawned: number; spawnZombie: () => boolean;
+    updateZombie: (z: typeof game.zombies[number], dt: number) => void;
+  };
+  state.wave = 10; state.waveSpawned = 0; assert.ok(state.spawnZombie());
+  const boss = game.zombies[0]!;
+  Object.assign(boss, { x: 900, y: 1000, bossCooldown: 0, vx: 0, vy: 0 });
+  for (let pattern = 0; pattern < 3; pattern++) {
+    boss.bossPhase = 'windup'; boss.bossTimer = DT;
+    boss.bossCooldown = 0;
+    state.updateZombie(boss, DT);
+  }
+  const bolts = game.bullets.filter((bullet) => bullet.hostile && bullet.hostileName === 'a Rotbloom glob');
+  assert.equal(bolts.length, 16, 'Rotbloom should fire 3 focused, 5 fan and 8 radial shots');
+});
+
+test('A downed survivor can be revived by a nearby stationary ally after four seconds', () => {
+  const game = new Game(seeded(97), 0, 'survival');
+  const downed = place(game, game.addPlayer('downed')!.id, 1000, 1000);
+  const helper = place(game, game.addPlayer('helper')!.id, 1050, 1000);
+  downed.hp = 0;
+  const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number };
+  state.waveSpawnRemaining = 0; state.waveSpawned = 12;
+  game.step(DT);
+  assert.equal(downed.downed, true);
+  assert.equal(downed.alive, true, 'the body remains available to revive during bleed-out');
+  assert.equal(game.survivalGameOver, false);
+  run(game, 4.2);
+  assert.equal(downed.downed, false);
+  assert.equal(downed.alive, true);
+  assert.ok(downed.hp >= downed.maxHp * 0.39);
+  assert.ok(downed.protT > 0, 'a revived player gets a brief protection window');
+  assert.equal(helper.downed, false);
+});
+
+test('Revive progress falls when the helper leaves the downed ally', () => {
+  const game = new Game(seeded(98), 0, 'survival');
+  const downed = place(game, game.addPlayer('downed')!.id, 1000, 1000);
+  const helper = place(game, game.addPlayer('helper')!.id, 1040, 1000);
+  const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number };
+  downed.hp = 0; state.waveSpawnRemaining = 0; state.waveSpawned = 12;
+  game.step(DT); run(game, 1.5);
+  assert.ok(downed.reviveProgress > 0);
+  helper.x = 1500;
+  run(game, 0.8);
+  assert.ok(downed.reviveProgress < 1.5, 'progress should decay when the helper abandons the revive');
+  assert.equal(downed.downed, true);
+});
+
+test('A downed player bleeds out and the run ends if no rescuer remains', () => {
+  const game = new Game(seeded(99), 0, 'survival');
+  const downed = place(game, game.addPlayer('last survivor')!.id, 1000, 1000);
+  downed.hp = 0;
+  game.step(DT);
+  assert.equal(downed.downed, false);
+  assert.equal(downed.alive, false);
+  assert.equal(game.survivalGameOver, true);
+});
+
+test('Boss kills guarantee a health pickup that heals a wounded survivor', () => {
+  const game = new Game(seeded(100), 0, 'survival');
+  const player = place(game, game.addPlayer('loot tester')!.id, 1000, 1000);
+  const state = game as unknown as { wave: number; waveSpawned: number; spawnZombie: () => boolean };
+  state.wave = 5; state.waveSpawned = 0; assert.ok(state.spawnZombie());
+  state.waveSpawned = 21; // Wave 5 solo quota has been fully spawned; only this boss is being reaped.
+  const boss = game.zombies[0]!;
+  Object.assign(boss, { x: 1800, y: 1800, hp: 0, damageBy: new Map([[player.id, 100]]) });
+  player.hp = player.maxHp * 0.3;
+  game.step(DT);
+  assert.equal(game.zombieKills, 1);
+  assert.equal(game.healthDrops.length, 1);
+  const drop = game.healthDrops[0]!;
+  assert.ok(drop.heal > 0);
+  player.x = drop.x; player.y = drop.y;
+  const wounded = player.hp;
+  game.step(DT);
+  assert.ok(player.hp > wounded, 'walking over a health pack should restore HP');
+  assert.equal(game.healthDrops.length, 0, 'collected loot should disappear');
+});
+
+test('Survival minimap snapshots include distant allies, enemies and health drops', () => {
+  const game = new Game(seeded(101), 0, 'survival');
+  const first = place(game, game.addPlayer('map one')!.id, 250, 250);
+  const second = place(game, game.addPlayer('map two')!.id, 2100, 2100);
+  const state = game as unknown as { spawnZombie: (kind?: string) => boolean };
+  state.spawnZombie('shambler');
+  game.healthDrops.push({ id: 777, x: 2000, y: 2000, r: 10, heal: 50, life: 20 });
+  const snapshot = game.snapshotFor(first.id)!;
+  assert.ok(snapshot.p.some((player) => player.id === second.id), 'far teammates are included');
+  assert.ok(snapshot.z.length > 0, 'off-screen enemies are included');
+  assert.ok(snapshot.h.some((drop) => drop.id === 777), 'health pickups are included');
+});

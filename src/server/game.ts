@@ -7,7 +7,7 @@ import {
 import {
   classOptions, deriveStats, levelFromXp, statPointsEarned, totalXpForLevel, type DerivedStats,
 } from '../shared/progression';
-import type { GameMode, Snapshot, TeamId, ZombieBossKind, ZombieBossPhase, ZombieSnap } from '../shared/protocol';
+import type { GameMode, Snapshot, TeamId, ZombieBossKind, ZombieBossPhase, ZombieKind, ZombieSnap, ZombieSpecialPhase } from '../shared/protocol';
 import { SpatialGrid } from './grid';
 
 export interface Player {
@@ -16,7 +16,7 @@ export interface Player {
   r: number; angle: number; hp: number; maxHp: number;
   level: number; xp: number; pts: number; stats: number[]; cls: string;
   team: TeamId | null; matchKills: number;
-  alive: boolean; protT: number; lastDamageT: number;
+  alive: boolean; downed: boolean; bleedoutT: number; reviveProgress: number; protT: number; lastDamageT: number;
   lastHit: { id: number | null; name: string; classId: string | null } | null;
   kills: number; damageDealt: number; damageTaken: number; lifeStartedAt: number;
   input: { mx: number; my: number; a: number; f: boolean; secondary: boolean; spin: boolean };
@@ -45,9 +45,11 @@ export interface Bullet {
 export interface Zombie {
   id: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
   r: number; hp: number; maxHp: number; speed: number; damage: number; xp: number;
+  kind: ZombieKind;
   angle: number; targetId: number | null; staggerT: number; hitFlash: number; hitAngle: number;
   bossKind: ZombieBossKind | null; bossPhase: ZombieBossPhase; bossTimer: number; bossCooldown: number;
-  bossAimX: number; bossAimY: number;
+  bossAimX: number; bossAimY: number; bossPattern: number;
+  specialPhase: ZombieSpecialPhase; specialTimer: number; specialCooldown: number; specialAimX: number; specialAimY: number;
   attackCooldown: number; damageBy: Map<number, number>;
 }
 export interface Shape {
@@ -55,6 +57,8 @@ export interface Shape {
   r: number; hp: number; maxHp: number; rot: number; rotSpeed: number; lastHitBy: number | null;
   hitFlash?: number; hitX?: number; hitY?: number; hitAngle?: number;
 }
+export interface HealthDrop { id: number; x: number; y: number; r: number; heal: number; life: number; }
+
 export type GameEvent = {
   type: 'dead'; id: number; killer: string; killerClass: string | null;
   killerTeam: TeamId | null; victim: string; victimClass: string; victimTeam: TeamId | null;
@@ -81,6 +85,7 @@ export class Game {
   bullets: Bullet[] = [];
   shapes: Shape[] = [];
   zombies: Zombie[] = [];
+  healthDrops: HealthDrop[] = [];
   events: GameEvent[] = [];
   wave = 0;
   zombieKills = 0;
@@ -117,7 +122,8 @@ export class Game {
       id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
       r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, pts: 0, stats, cls: 'basic',
       team: this.mode === 'teams' ? this.assignTeam() : null, matchKills: 0,
-      alive: true, protT: 0, lastDamageT: -99, lastHit: null,
+      alive: true, downed: false, bleedoutT: 0, reviveProgress: 0,
+      protT: 0, lastDamageT: -99, lastHit: null,
       kills: 0, damageDealt: 0, damageTaken: 0, lifeStartedAt: 0,
       input: { mx: 0, my: 0, a: 0, f: false, secondary: false, spin: false },
       wasFiring: false, wasSecondary: false, cd: [0], autoCd: [], droneSpawnCd: 0,
@@ -156,7 +162,8 @@ export class Game {
     p.x = spawn.x;
     p.y = spawn.y;
     p.vx = p.vy = p.kvx = p.kvy = p.rvx = p.rvy = 0;
-    p.alive = true; p.protT = RESPAWN_PROTECTION_S; p.lastHit = null; p.lastDamageT = -99;
+    p.alive = true; p.downed = false; p.bleedoutT = 0; p.reviveProgress = 0;
+    p.protT = RESPAWN_PROTECTION_S; p.lastHit = null; p.lastDamageT = -99;
     p.kills = 0; p.damageDealt = 0; p.damageTaken = 0; p.lifeStartedAt = this.time;
     p.input = { mx: 0, my: 0, a: p.angle, f: false, secondary: false, spin: false };
     p.wasFiring = false; p.wasSecondary = false; p.stealthT = 0; p.visibility = 1;
@@ -185,7 +192,7 @@ export class Game {
       let nearestPlayer = 1200;
       let playerTraffic = 0;
       for (const other of this.players.values()) {
-        if (!other.alive) continue;
+        if (!other.alive || other.downed) continue;
         const distance = Math.hypot(x - other.x, y - other.y);
         nearestPlayer = Math.min(nearestPlayer, distance);
         if (distance < 520) playerTraffic += (520 - distance) / 520;
@@ -215,7 +222,7 @@ export class Game {
   // ---------- validated player intents ----------
   setInput(id: number, input: { mx: number; my: number; a: number; f: boolean; secondary?: boolean; spin?: boolean }) {
     const p = this.players.get(id);
-    if (!p || !p.alive) return;
+    if (!p || !p.alive || p.downed) return;
     const unit = (v: number) => Number.isFinite(v) ? clamp(v, -1, 1) : 0;
     p.input = {
       mx: unit(input.mx), my: unit(input.my),
@@ -226,7 +233,7 @@ export class Game {
 
   upgradeStat(id: number, idx: number): boolean {
     const p = this.players.get(id);
-    if (!p || !p.alive || !Number.isInteger(idx) || idx < 0 || idx >= STAT_KEYS.length) return false;
+    if (!p || !p.alive || p.downed || !Number.isInteger(idx) || idx < 0 || idx >= STAT_KEYS.length) return false;
     const cls = CLASS_BY_ID[p.cls];
     // Smasher branches refund and lock all projectile-only stats.
     if (cls.smasher && idx >= 3 && idx <= 6) return false;
@@ -238,7 +245,7 @@ export class Game {
 
   chooseClass(id: number, classId: string): boolean {
     const p = this.players.get(id);
-    if (!p || !p.alive || !classOptions(p.cls, p.level).includes(classId)) return false;
+    if (!p || !p.alive || p.downed || !classOptions(p.cls, p.level).includes(classId)) return false;
     this.switchClass(p, classId);
     return true;
   }
@@ -246,7 +253,7 @@ export class Game {
   /** Bypasses evolution rules. The WebSocket server must authorize this before calling. */
   debugSetClass(id: number, classId: string): boolean {
     const p = this.players.get(id);
-    if (!p || !p.alive || !CLASS_IDS.includes(classId as (typeof CLASS_IDS)[number])) return false;
+    if (!p || !p.alive || p.downed || !CLASS_IDS.includes(classId as (typeof CLASS_IDS)[number])) return false;
     this.switchClass(p, classId);
     return true;
   }
@@ -271,7 +278,7 @@ export class Game {
   step(dt: number) {
     this.time += dt;
     this.tick++;
-    for (const p of this.players.values()) if (p.alive) this.updatePlayer(p, dt);
+    for (const p of this.players.values()) if (p.alive && !p.downed) this.updatePlayer(p, dt);
     for (const s of this.shapes) this.updateShape(s, dt);
     if (this.mode === 'survival') for (const zombie of this.zombies) this.updateZombie(zombie, dt);
 
@@ -286,6 +293,7 @@ export class Game {
     this.collideAll(dt);
     this.constrainAllTeamPlayers();
     this.reap();
+    if (this.mode === 'survival') this.updateHealthDrops(dt);
     if (this.mode === 'survival') this.updateSurvivalWaves(dt);
     this.bullets = this.bullets.filter((b) =>
       b.hp > 0 && b.life > 0 && b.x > -80 && b.y > -80 && b.x < this.arenaSize + 80 && b.y < this.arenaSize + 80,
@@ -295,6 +303,7 @@ export class Game {
 
   private resetSurvivalRun() {
     this.zombies = [];
+    this.healthDrops = [];
     this.wave = 0;
     this.zombieKills = 0;
     this.survivalElapsed = 0;
@@ -328,14 +337,29 @@ export class Game {
     if (this.wave === 1) this.survivalStartedAt = this.time;
   }
 
-  private spawnZombie() {
-    if (this.zombies.length >= MAX_ZOMBIES) return;
-    const living = [...this.players.values()].filter((player) => player.alive);
+  private chooseZombieKind(): ZombieKind {
+    const available: [ZombieKind, number][] = [
+      ['runner', this.wave >= 2 ? 0.17 : 0],
+      ['tank', this.wave >= 3 ? 0.11 : 0],
+      ['ranger', this.wave >= 4 ? 0.17 : 0],
+      ['guardian', this.wave >= 5 ? 0.12 : 0],
+      ['bomber', this.wave >= 6 ? 0.13 : 0],
+      ['leaper', this.wave >= 7 ? 0.14 : 0],
+    ];
+    let roll = this.rng();
+    for (const [kind, weight] of available) {
+      roll -= weight;
+      if (roll < 0) return kind;
+    }
+    return 'shambler';
+  }
+
+  private spawnZombie(forceKind?: ZombieKind) {
+    if (this.zombies.length >= MAX_ZOMBIES) return false;
+    const living = [...this.players.values()].filter((player) => player.alive && !player.downed);
     if (!living.length) return false;
     const size = this.arenaSize;
-
-    let best = { x: 70, y: 70 };
-    let bestDistance = -Infinity;
+    let best = { x: 70, y: 70 }, bestDistance = -Infinity;
     for (let i = 0; i < 24; i++) {
       const edge = Math.floor(this.rng() * 4);
       const along = 90 + this.rng() * (size - 180);
@@ -347,37 +371,44 @@ export class Game {
       if (nearest > bestDistance) { bestDistance = nearest; best = point; }
     }
 
-    // Every fifth wave opens with one boss. The three encounters rotate so
-    // the team must learn and respond to different attack patterns.
     const isBossWave = this.wave > 0 && this.wave % 5 === 0 && this.waveSpawned === 0;
     const bossKinds: ZombieBossKind[] = ['breaker', 'spitter', 'summoner'];
-    const bossKind = isBossWave
-      ? bossKinds[(Math.floor(this.wave / 5) - 1) % bossKinds.length]
-      : null;
-    const playerScale = Math.max(1, this.players.size);
-    const playerHpScale = 1 + Math.min(0.32, (playerScale - 1) * 0.1);
+    const bossKind = isBossWave ? bossKinds[(Math.floor(this.wave / 5) - 1) % bossKinds.length] : null;
+    const kind = bossKind ? 'tank' : forceKind ?? this.chooseZombieKind();
+    const players = Math.max(1, this.players.size);
+    const hpScale = 1 + Math.min(0.36, (players - 1) * 0.12);
+    const baseHp = 28 + this.wave * 11, baseDamage = 6 + this.wave * 1.25;
+    const stats: Record<ZombieKind, { radius: number; hp: number; speed: number; damage: number; xp: number }> = {
+      shambler: { radius: 17 + Math.min(8, this.wave * 0.5), hp: 1, speed: 1, damage: 1, xp: 1 },
+      runner: { radius: 15, hp: 0.72, speed: 1.92, damage: 0.78, xp: 1.45 },
+      tank: { radius: 30, hp: 3.15, speed: 0.52, damage: 1.65, xp: 2.65 },
+      ranger: { radius: 18, hp: 1.08, speed: 0.78, damage: 0.72, xp: 1.75 },
+      guardian: { radius: 25, hp: 2.3, speed: 0.7, damage: 1.18, xp: 2.4 },
+      bomber: { radius: 19, hp: 0.86, speed: 1.34, damage: 0.95, xp: 1.65 },
+      leaper: { radius: 18, hp: 1.12, speed: 0.88, damage: 1.28, xp: 1.9 },
+    };
+    const def = stats[kind];
     const hp = bossKind
-      ? Math.round((720 + this.wave * 72) * playerHpScale)
-      : Math.round((28 + this.wave * 11) * (1 + Math.min(0.24, (playerScale - 1) * 0.08)));
-    const radius = bossKind === 'breaker' ? 58 : bossKind === 'spitter' ? 49 : bossKind === 'summoner' ? 54
-      : 17 + Math.min(8, this.wave * 0.5);
-    const speed = bossKind === 'breaker' ? 60 : bossKind === 'spitter' ? 76 : bossKind === 'summoner' ? 62
-      : Math.min(155, 64 + this.wave * 3.5);
-    const damageScale = 1 + Math.min(0.12, (playerScale - 1) * 0.035);
-    const damage = bossKind
-      ? Math.min(42, (15 + this.wave * 0.85) * damageScale)
-      : Math.min(34, (6 + this.wave * 1.25) * damageScale);
-
+      ? Math.round((1650 + this.wave * 105) * hpScale)
+      : Math.round(baseHp * def.hp * (1 + Math.min(0.24, (players - 1) * 0.08)));
+    const radius = bossKind === 'breaker' ? 60 : bossKind === 'spitter' ? 52 : bossKind === 'summoner' ? 56 : def.radius;
+    const speed = bossKind === 'breaker' ? 64 : bossKind === 'spitter' ? 82 : bossKind === 'summoner' ? 66
+      : Math.min(220, (64 + this.wave * 3.5) * def.speed);
+    const damageScale = 1 + Math.min(0.12, (players - 1) * 0.035);
+    const damage = bossKind ? Math.min(48, (24 + this.wave * 1.15) * damageScale)
+      : Math.min(42, baseDamage * def.damage * damageScale);
     this.zombies.push({
-      id: this.nextId++, x: best.x, y: best.y, vx: 0, vy: 0, kvx: 0, kvy: 0,
+      id: this.nextId++, kind, x: best.x, y: best.y, vx: 0, vy: 0, kvx: 0, kvy: 0,
       r: radius, hp, maxHp: hp, speed, damage,
-      xp: bossKind ? 280 + this.wave * 42 : 10 + this.wave * 3,
+      xp: bossKind ? 420 + this.wave * 52 : Math.round((10 + this.wave * 3) * def.xp),
       angle: 0, targetId: null, staggerT: 0, hitFlash: 0, hitAngle: 0,
       bossKind, bossPhase: 'idle', bossTimer: 0,
-      bossCooldown: bossKind === 'breaker' ? 1.2 : bossKind === 'spitter' ? 1.35 : bossKind === 'summoner' ? 2 : 0,
-      bossAimX: 1, bossAimY: 0,
-      attackCooldown: 0,
-      damageBy: new Map(),
+      bossCooldown: bossKind === 'breaker' ? 0.9 : bossKind === 'spitter' ? 0.65 : bossKind === 'summoner' ? 1.5 : 0,
+      bossAimX: 1, bossAimY: 0, bossPattern: 0,
+      specialPhase: 'idle', specialTimer: 0,
+      specialCooldown: kind === 'ranger' ? 0.8 : kind === 'bomber' ? 1.2 : kind === 'leaper' ? 1.1 : 0,
+      specialAimX: 1, specialAimY: 0,
+      attackCooldown: 0, damageBy: new Map(),
     });
     return true;
   }
@@ -386,95 +417,181 @@ export class Game {
     zombie.attackCooldown = Math.max(0, zombie.attackCooldown - dt);
     zombie.staggerT = Math.max(0, zombie.staggerT - dt);
     zombie.hitFlash = Math.max(0, zombie.hitFlash * Math.exp(-dt * 8));
-
     let target = zombie.targetId == null ? undefined : this.players.get(zombie.targetId);
-    if (!target?.alive) {
+    if (!target?.alive || target.downed) {
       target = undefined;
       let bestScore = Infinity;
       for (const player of this.players.values()) {
-        if (!player.alive) continue;
+        if (!player.alive || player.downed) continue;
         const distance = Math.hypot(player.x - zombie.x, player.y - zombie.y);
         const pursuers = this.zombies.reduce((count, other) =>
           count + (other !== zombie && other.targetId === player.id ? 1 : 0), 0);
-        // Spread the horde across the party instead of dog-piling one survivor.
         const score = distance + pursuers * 135;
         if (score < bestScore) { bestScore = score; target = player; }
       }
       zombie.targetId = target?.id ?? null;
     }
 
-    let separationX = 0, separationY = 0;
-    let alignmentX = 0, alignmentY = 0, neighbours = 0;
+    let separationX = 0, separationY = 0, alignmentX = 0, alignmentY = 0, neighbours = 0;
     for (const other of this.zombies) {
       if (other === zombie || other.hp <= 0) continue;
-      let dx = zombie.x - other.x, dy = zombie.y - other.y;
-      let distance = Math.hypot(dx, dy);
+      let dx = zombie.x - other.x, dy = zombie.y - other.y, distance = Math.hypot(dx, dy);
       if (distance < 0.001) {
-        const angle = ((zombie.id * 2.399963229728653) % (Math.PI * 2));
+        const angle = (zombie.id * 2.399963229728653) % (Math.PI * 2);
         dx = Math.cos(angle); dy = Math.sin(angle); distance = 1;
       }
-      if (distance < 190) {
-        alignmentX += other.vx;
-        alignmentY += other.vy;
-        neighbours++;
-      }
-      const personalSpace = zombie.r + other.r + 18;
-      const avoidRadius = personalSpace * 1.8;
+      if (distance < 190) { alignmentX += other.vx; alignmentY += other.vy; neighbours++; }
+      const avoidRadius = (zombie.r + other.r + 18) * 1.8;
       if (distance < avoidRadius) {
         const push = (avoidRadius - distance) / avoidRadius;
-        separationX += (dx / distance) * push;
-        separationY += (dy / distance) * push;
+        separationX += dx / distance * push; separationY += dy / distance * push;
       }
     }
 
     let desiredX = 0, desiredY = 0;
     if (zombie.bossKind) {
-      const bossMotion = this.updateBoss(zombie, target, dt);
-      desiredX = bossMotion.x;
-      desiredY = bossMotion.y;
-    } else if (target) {
-      // Each zombie approaches a slightly different point around its target.
-      // This creates a loose surround instead of a single crowded pile.
-      const orbit = (zombie.id * 2.399963229728653) % (Math.PI * 2);
-      const offset = 23 + (zombie.id % 4) * 4;
-      const goalX = target.x + Math.cos(orbit) * offset;
-      const goalY = target.y + Math.sin(orbit) * offset;
-      const dx = goalX - zombie.x, dy = goalY - zombie.y;
-      const distance = Math.max(1, Math.hypot(dx, dy));
-      desiredX = (dx / distance) * zombie.speed;
-      desiredY = (dy / distance) * zombie.speed;
+      const motion = this.updateBoss(zombie, target, dt);
+      desiredX = motion.x; desiredY = motion.y;
+    } else {
+      const special = this.updateSpecialZombie(zombie, target, dt);
+      if (special) { desiredX = special.x; desiredY = special.y; }
+      else if (target) {
+        const dx = target.x - zombie.x, dy = target.y - zombie.y;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        desiredX = dx / distance * zombie.speed; desiredY = dy / distance * zombie.speed;
+      }
     }
-
     const separationLength = Math.hypot(separationX, separationY);
     if (separationLength > 0.001) {
-      separationX /= separationLength;
-      separationY /= separationLength;
-      desiredX += separationX * zombie.speed * 1.1;
-      desiredY += separationY * zombie.speed * 1.1;
+      separationX /= separationLength; separationY /= separationLength;
+      const weight = zombie.bossKind ? 0.55 : 1.1;
+      desiredX += separationX * zombie.speed * weight;
+      desiredY += separationY * zombie.speed * weight;
     }
     if (neighbours > 0) {
-      desiredX += (alignmentX / neighbours) * 0.14;
-      desiredY += (alignmentY / neighbours) * 0.14;
+      desiredX += alignmentX / neighbours * 0.14;
+      desiredY += alignmentY / neighbours * 0.14;
     }
-
-    const staggerMul = zombie.staggerT > 0 ? (zombie.bossKind ? 0.58 : 0.32) : 1;
-    desiredX *= staggerMul;
-    desiredY *= staggerMul;
-    const steer = 1 - Math.exp(-dt * (zombie.bossKind === 'breaker' && zombie.bossPhase === 'charge' ? 7.5 : 3.8));
-    zombie.vx += (desiredX - zombie.vx) * steer;
-    zombie.vy += (desiredY - zombie.vy) * steer;
-    if (!zombie.bossKind && Math.hypot(zombie.vx, zombie.vy) > 6) {
+    const stagger = zombie.staggerT > 0 ? (zombie.bossKind ? 1 : 0.32) : 1;
+    desiredX *= stagger; desiredY *= stagger;
+    const steer = 1 - Math.exp(-dt * (zombie.bossKind === 'breaker' && zombie.bossPhase === 'charge' ? 8.5 : 3.8));
+    zombie.vx += (desiredX - zombie.vx) * steer; zombie.vy += (desiredY - zombie.vy) * steer;
+    if (Math.hypot(zombie.vx, zombie.vy) > 6 && zombie.bossPhase !== 'windup' && zombie.specialPhase !== 'windup') {
       zombie.angle = Math.atan2(zombie.vy, zombie.vx);
     }
-
-    zombie.x += (zombie.vx + zombie.kvx) * dt;
-    zombie.y += (zombie.vy + zombie.kvy) * dt;
-    const knockbackDecay = Math.exp(-dt * 4.5);
-    zombie.kvx *= knockbackDecay;
-    zombie.kvy *= knockbackDecay;
+    zombie.x += (zombie.vx + zombie.kvx) * dt; zombie.y += (zombie.vy + zombie.kvy) * dt;
+    const decay = Math.exp(-dt * 4.5);
+    zombie.kvx *= decay; zombie.kvy *= decay;
+    if (zombie.bossKind) zombie.kvx = zombie.kvy = 0;
     const size = this.arenaSize;
     zombie.x = clamp(zombie.x, zombie.r, size - zombie.r);
     zombie.y = clamp(zombie.y, zombie.r, size - zombie.r);
+  }
+
+  private updateSpecialZombie(zombie: Zombie, target: Player | undefined, dt: number): { x: number; y: number } | null {
+    zombie.specialCooldown = Math.max(0, zombie.specialCooldown - dt);
+    if (!target) return { x: 0, y: 0 };
+    const dx = target.x - zombie.x, dy = target.y - zombie.y;
+    const distance = Math.max(1, Math.hypot(dx, dy)), nx = dx / distance, ny = dy / distance;
+
+    if (zombie.kind === 'ranger') {
+      if (zombie.specialPhase === 'windup') {
+        zombie.specialTimer = Math.max(0, zombie.specialTimer - dt);
+        if (zombie.specialTimer === 0) {
+          this.fireHostileProjectile(zombie.x, zombie.y, Math.atan2(zombie.specialAimY, zombie.specialAimX),
+            265, Math.max(7, zombie.damage * 0.78), 7, 2.6, 'a ranged zombie bolt');
+          zombie.specialPhase = 'idle'; zombie.specialCooldown = 2.35;
+        }
+      } else if (zombie.specialCooldown <= 0 && distance < 820) {
+        const aimX = target.x + target.vx * 0.24 - zombie.x;
+        const aimY = target.y + target.vy * 0.24 - zombie.y;
+        const length = Math.max(1, Math.hypot(aimX, aimY));
+        zombie.specialAimX = aimX / length; zombie.specialAimY = aimY / length;
+        zombie.angle = Math.atan2(zombie.specialAimY, zombie.specialAimX);
+        zombie.specialPhase = 'windup'; zombie.specialTimer = 0.5;
+      }
+      if (zombie.specialPhase === 'windup') return { x: 0, y: 0 };
+      if (distance > 560) return { x: nx * zombie.speed, y: ny * zombie.speed };
+      if (distance < 350) return { x: -nx * zombie.speed, y: -ny * zombie.speed };
+      const side = zombie.id % 2 ? 1 : -1;
+      return { x: -ny * zombie.speed * 0.55 * side, y: nx * zombie.speed * 0.55 * side };
+    }
+
+    if (zombie.kind === 'bomber') {
+      if (zombie.specialPhase === 'windup') {
+        zombie.specialTimer = Math.max(0, zombie.specialTimer - dt);
+        if (zombie.specialTimer === 0) {
+          this.explodeBomber(zombie); zombie.specialPhase = 'idle'; zombie.specialCooldown = 3.7;
+        }
+        return { x: 0, y: 0 };
+      }
+      if (distance < 205 && zombie.specialCooldown <= 0) {
+        zombie.specialAimX = nx; zombie.specialAimY = ny;
+        zombie.angle = Math.atan2(ny, nx);
+        zombie.specialPhase = 'windup'; zombie.specialTimer = 0.62;
+        return { x: 0, y: 0 };
+      }
+    }
+
+    if (zombie.kind === 'leaper') {
+      if (zombie.specialPhase === 'windup') {
+        zombie.specialTimer = Math.max(0, zombie.specialTimer - dt);
+        if (zombie.specialTimer === 0) { zombie.specialPhase = 'charge'; zombie.specialTimer = 0.52; }
+        return { x: 0, y: 0 };
+      }
+      if (zombie.specialPhase === 'charge') {
+        zombie.specialTimer = Math.max(0, zombie.specialTimer - dt);
+        if (zombie.specialTimer === 0) {
+          zombie.specialPhase = 'idle'; zombie.specialCooldown = 3.8; return { x: 0, y: 0 };
+        }
+        return { x: zombie.specialAimX * zombie.speed * 3.2, y: zombie.specialAimY * zombie.speed * 3.2 };
+      }
+      if (distance < 590 && zombie.specialCooldown <= 0) {
+        const aimX = target.x + target.vx * 0.32 - zombie.x;
+        const aimY = target.y + target.vy * 0.32 - zombie.y;
+        const length = Math.max(1, Math.hypot(aimX, aimY));
+        zombie.specialAimX = aimX / length; zombie.specialAimY = aimY / length;
+        zombie.angle = Math.atan2(zombie.specialAimY, zombie.specialAimX);
+        zombie.specialPhase = 'windup'; zombie.specialTimer = 0.58;
+        return { x: 0, y: 0 };
+      }
+    }
+    return null;
+  }
+
+  private fireHostileProjectile(
+    x: number, y: number, angle: number, speed: number, damage: number, radius: number, life: number, name: string,
+  ) {
+    if (this.bullets.length >= MAX_BULLETS) return;
+    this.bullets.push({
+      id: this.nextId++, owner: -1, x: x + Math.cos(angle) * 18, y: y + Math.sin(angle) * 18,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+      r: radius, dmg: damage, hp: 1, life, hit: new Set(), kind: 'bullet', angle,
+      maxSpeed: speed, turnRate: 0, hostile: true, hostileName: name,
+    });
+  }
+
+  private explodeBomber(bomber: Zombie) {
+    bomber.hitFlash = 1;
+    const radius = 158;
+    for (const player of this.players.values()) {
+      if (!player.alive || player.downed || player.protT > 0) continue;
+      const dx = player.x - bomber.x, dy = player.y - bomber.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > radius + player.r) continue;
+      const falloff = 1 - 0.25 * clamp(distance / (radius + player.r), 0, 1);
+      this.hurtPlayer(player, bomber.damage * 1.7 * falloff, null, 'a bomber zombie');
+      const length = Math.max(1, distance);
+      player.kvx += dx / length * 145 * falloff;
+      player.kvy += dy / length * 145 * falloff;
+    }
+  }
+
+  private isZombieProtected(zombie: Zombie): boolean {
+    return this.zombies.some((guardian) =>
+      guardian !== zombie && guardian.kind === 'guardian' && guardian.hp > 0 &&
+      Math.hypot(guardian.x - zombie.x, guardian.y - zombie.y) <= 185
+    );
   }
 
   /** Server-authoritative boss brains. Each encounter has a readable wind-up. */
@@ -509,7 +626,7 @@ export class Game {
         if (zombie.bossTimer > 0) return { x: nx * zombie.speed * 0.28, y: ny * zombie.speed * 0.28 };
         zombie.bossPhase = 'idle';
       }
-      if (target && distance < 610 && zombie.bossCooldown <= 0) {
+      if (target && distance < 690 && zombie.bossCooldown <= 0) {
         const lead = 0.34;
         const aimX = target.x + target.vx * lead - zombie.x;
         const aimY = target.y + target.vy * lead - zombie.y;
@@ -518,7 +635,7 @@ export class Game {
         zombie.bossAimY = aimY / aimLength;
         zombie.angle = Math.atan2(zombie.bossAimY, zombie.bossAimX);
         zombie.bossPhase = 'windup';
-        zombie.bossTimer = 0.88;
+        zombie.bossTimer = 1.02;
         return { x: 0, y: 0 };
       }
       return target ? { x: nx * zombie.speed, y: ny * zombie.speed } : { x: 0, y: 0 };
@@ -528,8 +645,9 @@ export class Game {
       if (zombie.bossPhase === 'windup') {
         if (zombie.bossTimer <= 0) {
           this.fireBossVolley(zombie, Math.atan2(zombie.bossAimY, zombie.bossAimX));
+          zombie.bossPattern = (zombie.bossPattern + 1) % 3;
           zombie.bossPhase = 'idle';
-          zombie.bossCooldown = 2.7;
+          zombie.bossCooldown = 2.05;
         }
       } else if (target && zombie.bossCooldown <= 0) {
         const lead = 0.22;
@@ -540,7 +658,7 @@ export class Game {
         zombie.bossAimY = aimY / aimLength;
         zombie.angle = Math.atan2(zombie.bossAimY, zombie.bossAimX);
         zombie.bossPhase = 'windup';
-        zombie.bossTimer = 0.42;
+        zombie.bossTimer = 0.5;
       }
       if (!target) return { x: 0, y: 0 };
       zombie.angle = Math.atan2(dy, dx);
@@ -560,7 +678,7 @@ export class Game {
       }
     } else if (zombie.bossCooldown <= 0) {
       zombie.bossPhase = 'windup';
-      zombie.bossTimer = 0.72;
+      zombie.bossTimer = 0.82;
     }
     if (!target) return { x: 0, y: 0 };
     zombie.angle = Math.atan2(dy, dx);
@@ -571,16 +689,16 @@ export class Game {
   }
 
   private bossSlam(boss: Zombie) {
-    const radius = 220 + boss.r * 0.7;
+    const radius = 255 + boss.r * 0.78;
     boss.hitFlash = 1;
     for (const player of this.players.values()) {
-      if (!player.alive || player.protT > 0) continue;
+      if (!player.alive || player.downed || player.protT > 0) continue;
       const dx = player.x - boss.x, dy = player.y - boss.y;
       const distance = Math.hypot(dx, dy);
       if (distance > radius + player.r) continue;
       const length = Math.max(1, distance);
       const falloff = 1 - 0.22 * clamp(distance / (radius + player.r), 0, 1);
-      this.hurtPlayer(player, boss.damage * 1.65 * falloff, null, 'the Breaker');
+      this.hurtPlayer(player, boss.damage * 2.05 * falloff, null, 'the Breaker');
       const impulse = 210 * falloff;
       player.kvx += (dx / length) * impulse;
       player.kvy += (dy / length) * impulse;
@@ -588,19 +706,20 @@ export class Game {
   }
 
   private fireBossVolley(boss: Zombie, direction: number) {
-    const speed = 290;
-    for (const spread of [-0.2, 0, 0.2]) {
+    // Rotbloom cycles through a lead spread, a broad fan, then a radial burst.
+    const pattern = boss.bossPattern % 3;
+    const spreads = pattern === 0 ? [-0.34, 0, 0.34]
+      : pattern === 1 ? [-0.62, -0.31, 0, 0.31, 0.62]
+      : Array.from({ length: 8 }, (_, i) => (i / 8) * Math.PI * 2);
+    const base = pattern === 2 ? 0 : direction;
+    const speed = pattern === 0 ? 325 : pattern === 1 ? 285 : 245;
+    const damageMul = pattern === 0 ? 0.78 : pattern === 1 ? 0.62 : 0.5;
+    for (const spread of spreads) {
       if (this.bullets.length >= MAX_BULLETS) break;
-      const angle = direction + spread;
-      this.bullets.push({
-        id: this.nextId++, owner: -boss.id,
-        x: boss.x + Math.cos(angle) * (boss.r + 8),
-        y: boss.y + Math.sin(angle) * (boss.r + 8),
-        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-        r: 11, dmg: Math.max(8, boss.damage * 0.72), hp: 1, life: 2.4,
-        hit: new Set(), kind: 'bullet', angle, maxSpeed: speed, turnRate: 0,
-        hostile: true, hostileName: 'a Rotbloom glob',
-      });
+      this.fireHostileProjectile(
+        boss.x, boss.y, base + spread, speed, Math.max(9, boss.damage * damageMul),
+        pattern === 2 ? 9 : 10, 3, 'a Rotbloom glob',
+      );
     }
   }
 
@@ -608,18 +727,23 @@ export class Game {
     const size = this.arenaSize;
     for (let i = 0; i < count && this.zombies.length < MAX_ZOMBIES; i++) {
       const angle = (i / count) * Math.PI * 2 + boss.id * 0.37;
-      const distance = boss.r + 24;
-      const hp = Math.round((20 + this.wave * 7) * 0.85);
+      const kind: ZombieKind = i === 0 ? 'guardian' : i === 1 ? 'runner' : 'shambler';
+      const distance = boss.r + 30, hpBase = 20 + this.wave * 7;
+      const radius = kind === 'guardian' ? 22 : kind === 'runner' ? 14 : 16;
+      const hp = Math.round(hpBase * (kind === 'guardian' ? 1.75 : kind === 'runner' ? 0.72 : 1));
       this.zombies.push({
-        id: this.nextId++,
+        id: this.nextId++, kind,
         x: clamp(boss.x + Math.cos(angle) * distance, 16, size - 16),
         y: clamp(boss.y + Math.sin(angle) * distance, 16, size - 16),
         vx: Math.cos(angle) * 24, vy: Math.sin(angle) * 24, kvx: 0, kvy: 0,
-        r: 15, hp, maxHp: hp, speed: Math.min(165, 80 + this.wave * 2.4),
-        damage: Math.min(28, 5 + this.wave * 0.8), xp: 8 + this.wave * 2,
+        r: radius, hp, maxHp: hp,
+        speed: Math.min(190, (kind === 'runner' ? 150 : kind === 'guardian' ? 58 : 82) + this.wave * 2.4),
+        damage: Math.min(34, (kind === 'runner' ? 5 : kind === 'guardian' ? 8 : 6) + this.wave * 0.8),
+        xp: 8 + this.wave * 2,
         angle, targetId: null, staggerT: 0, hitFlash: 0, hitAngle: 0,
         bossKind: null, bossPhase: 'idle', bossTimer: 0, bossCooldown: 0,
-        bossAimX: 1, bossAimY: 0,
+        bossAimX: 1, bossAimY: 0, bossPattern: 0,
+        specialPhase: 'idle', specialTimer: 0, specialCooldown: 0, specialAimX: 1, specialAimY: 0,
         attackCooldown: 0, damageBy: new Map(),
       });
     }
@@ -628,8 +752,13 @@ export class Game {
   private updateSurvivalWaves(dt: number) {
     if (this.survivalGameOver || this.players.size === 0) return;
     this.survivalElapsed = Math.max(0, this.time - this.survivalStartedAt);
-    if (![...this.players.values()].some((player) => player.alive)) {
+    this.updateRevives(dt);
+    if (![...this.players.values()].some((player) => player.alive && !player.downed)) {
       this.survivalGameOver = true;
+      for (const player of this.players.values()) if (player.alive && player.downed) {
+        player.downed = false;
+        this.finalizePlayerDeath(player);
+      }
       return;
     }
     if (this.wave === 0) { this.beginSurvivalWave(); return; }
@@ -651,6 +780,75 @@ export class Game {
         if (this.waveIntermission === 0) this.beginSurvivalWave();
       }
     }
+  }
+
+  private updateRevives(dt: number) {
+    for (const downed of this.players.values()) {
+      if (!downed.alive || !downed.downed) continue;
+      downed.bleedoutT = Math.max(0, downed.bleedoutT - dt);
+      const helperNearby = [...this.players.values()].some((ally) => {
+        if (ally.id === downed.id || !ally.alive || ally.downed) return false;
+        return Math.hypot(ally.x - downed.x, ally.y - downed.y) <= 88 &&
+          Math.hypot(ally.vx, ally.vy) <= 90;
+      });
+      if (helperNearby) downed.reviveProgress = Math.min(4, downed.reviveProgress + dt);
+      else downed.reviveProgress = Math.max(0, downed.reviveProgress - dt * 0.45);
+      if (downed.reviveProgress >= 4) {
+        downed.downed = false; downed.bleedoutT = 0; downed.reviveProgress = 0;
+        downed.hp = Math.max(1, downed.maxHp * 0.4); downed.protT = 1.4;
+        downed.lastDamageT = this.time;
+        downed.vx = downed.vy = downed.kvx = downed.kvy = downed.rvx = downed.rvy = 0;
+      } else if (downed.bleedoutT <= 0) {
+        downed.downed = false; this.finalizePlayerDeath(downed);
+      }
+    }
+  }
+
+  private finalizePlayerDeath(player: Player) {
+    if (!player.alive) return;
+    player.alive = false; player.downed = false; player.hp = 0;
+    player.input.f = false; player.input.secondary = false; player.input.mx = 0; player.input.my = 0;
+    this.bullets = this.bullets.filter((bullet) => bullet.owner !== player.id || bullet.kind === 'bullet');
+    const killer = player.lastHit?.id != null ? this.players.get(player.lastHit.id) : undefined;
+    if (killer && killer.alive && !killer.downed && killer.id !== player.id &&
+        (killer.team == null || player.team == null || killer.team !== player.team)) {
+      killer.kills++; killer.matchKills++;
+      if (killer.team) this.teamStats[killer.team].kills++;
+      this.addXp(killer, Math.max(25, Math.floor(player.xp * 0.6)));
+    }
+    this.events.push({
+      type: 'dead', id: player.id,
+      killer: player.lastHit?.name ?? 'the horde', killerClass: player.lastHit?.classId ?? null,
+      killerTeam: killer?.team ?? null, victim: player.name, victimClass: player.cls, victimTeam: player.team,
+      score: player.xp, level: player.level, kills: player.kills,
+      damageDealt: Math.round(player.damageDealt), damageTaken: Math.round(player.damageTaken),
+      lifetime: Math.round(Math.max(0, this.time - player.lifeStartedAt) * 10) / 10,
+    });
+  }
+
+  private spawnHealthDrop(zombie: Zombie) {
+    if (this.healthDrops.length >= 12) return;
+    if (!zombie.bossKind && this.rng() >= 0.14) return;
+    this.healthDrops.push({
+      id: this.nextId++, x: zombie.x, y: zombie.y, r: zombie.bossKind ? 13 : 10,
+      heal: zombie.bossKind ? 85 + this.wave * 2 : 28 + Math.min(34, this.wave * 1.3), life: 24,
+    });
+  }
+
+  private updateHealthDrops(dt: number) {
+    for (const drop of this.healthDrops) drop.life -= dt;
+    this.healthDrops = this.healthDrops.filter((drop) => drop.life > 0);
+    for (const drop of this.healthDrops) {
+      const collector = [...this.players.values()].find((player) =>
+        player.alive && !player.downed && player.hp < player.maxHp &&
+        Math.hypot(player.x - drop.x, player.y - drop.y) <= player.r + drop.r + 8
+      );
+      if (!collector) continue;
+      collector.hp = Math.min(collector.maxHp, collector.hp + drop.heal);
+      collector.lastDamageT = Math.min(collector.lastDamageT, this.time - REGEN_DELAY_S);
+      drop.life = 0;
+    }
+    this.healthDrops = this.healthDrops.filter((drop) => drop.life > 0);
   }
 
   private constrainTeamPlayer(player: Player) {
@@ -1126,7 +1324,7 @@ export class Game {
   // ---------- collisions ----------
   private collideAll(dt: number) {
     const entities: Ent[] = [];
-    for (const p of this.players.values()) if (p.alive) entities.push({ k: 0, o: p });
+    for (const p of this.players.values()) if (p.alive && !p.downed) entities.push({ k: 0, o: p });
     for (const s of this.shapes) entities.push({ k: 1, o: s });
     for (const b of this.bullets) if (b.hp > 0 && b.life > 0) entities.push({ k: 2, o: b });
     for (const zombie of this.zombies) if (zombie.hp > 0) entities.push({ k: 3, o: zombie });
@@ -1182,8 +1380,17 @@ export class Game {
       A.kvx += bullet.vx / 8; A.kvy += bullet.vy / 8;
     } else if (a.k === 0 && b.k === 3) {
       const zombie = b.o as Zombie;
-      this.separate(A, zombie, dx, dy, distance, rr, A.r * A.r, zombie.r * zombie.r * 1.4);
-      const bodyDamage = A.d.bodyDps * dt * 0.55;
+      if (zombie.bossKind) {
+        const nx = distance > 0.001 ? dx / distance : 1;
+        const ny = distance > 0.001 ? dy / distance : 0;
+        const overlap = rr - distance;
+        A.x -= nx * overlap; A.y -= ny * overlap;
+        const kick = Math.min(overlap, 30) * 6;
+        A.kvx -= nx * kick; A.kvy -= ny * kick;
+      } else {
+        this.separate(A, zombie, dx, dy, distance, rr, A.r * A.r, zombie.r * zombie.r * 1.4);
+      }
+      const bodyDamage = A.d.bodyDps * dt * 0.55 * (this.isZombieProtected(zombie) ? 0.58 : 1);
       if (bodyDamage > 0) {
         zombie.hp -= bodyDamage;
         zombie.damageBy.set(A.id, (zombie.damageBy.get(A.id) ?? 0) + bodyDamage);
@@ -1217,17 +1424,22 @@ export class Game {
       if (bullet.kind === 'drone' && bullet.attackState && bullet.attackState !== 'dive') return;
       if (!this.projectileCanHit(bullet, zombie.id)) return;
       if (bullet.kind === 'drone') bullet.hit.add(zombie.id);
-      zombie.hp -= bullet.dmg;
-      zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + bullet.dmg);
+      const guardianMul = this.isZombieProtected(zombie) ? 0.58 : 1;
+      const bossMul = zombie.bossKind ? 0.84 : 1;
+      const dealt = bullet.dmg * guardianMul * bossMul;
+      zombie.hp -= dealt;
+      zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
       const shotSpeed = Math.hypot(bullet.vx, bullet.vy);
       const hitX = shotSpeed > 0.001 ? bullet.vx / shotSpeed : Math.cos(bullet.angle);
       const hitY = shotSpeed > 0.001 ? bullet.vy / shotSpeed : Math.sin(bullet.angle);
-      const impact = clamp(shotSpeed * 0.11 + bullet.dmg * 0.28, 24, 140);
-      zombie.kvx += hitX * impact;
-      zombie.kvy += hitY * impact;
       zombie.hitFlash = 1;
       zombie.hitAngle = Math.atan2(hitY, hitX);
-      zombie.staggerT = Math.max(zombie.staggerT, Math.min(0.24, 0.06 + bullet.dmg * 0.001));
+      // Bosses are immovable and cannot be stagger-locked by rapid fire.
+      if (!zombie.bossKind) {
+        const impact = clamp(shotSpeed * 0.11 + bullet.dmg * 0.28, 24, 140);
+        zombie.kvx += hitX * impact; zombie.kvy += hitY * impact;
+        zombie.staggerT = Math.max(zombie.staggerT, Math.min(0.24, 0.06 + bullet.dmg * 0.001));
+      }
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0)
         : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
@@ -1235,8 +1447,20 @@ export class Game {
       const firstZombie = a.o as Zombie;
       const secondZombie = b.o as Zombie;
       // Physical separation and mass make the horde push around itself naturally.
-      this.separate(firstZombie, secondZombie, dx, dy, distance, rr,
-        firstZombie.r * firstZombie.r, secondZombie.r * secondZombie.r);
+      if (firstZombie.bossKind) {
+        const nx = dx / distance, ny = dy / distance, overlap = rr - distance;
+        secondZombie.x += nx * overlap; secondZombie.y += ny * overlap;
+        const kick = Math.min(overlap, 30) * 6;
+        secondZombie.kvx += nx * kick; secondZombie.kvy += ny * kick;
+      } else if (secondZombie.bossKind) {
+        const nx = dx / distance, ny = dy / distance, overlap = rr - distance;
+        firstZombie.x -= nx * overlap; firstZombie.y -= ny * overlap;
+        const kick = Math.min(overlap, 30) * 6;
+        firstZombie.kvx -= nx * kick; firstZombie.kvy -= ny * kick;
+      } else {
+        this.separate(firstZombie, secondZombie, dx, dy, distance, rr,
+          firstZombie.r * firstZombie.r, secondZombie.r * secondZombie.r);
+      }
     }
   }
 
@@ -1281,7 +1505,7 @@ export class Game {
   }
 
   private hurtPlayer(p: Player, amount: number, byId: number | null, byName: string) {
-    if (amount <= 0) return;
+    if (!p.alive || p.downed || amount <= 0) return;
     p.hp -= amount;
     p.damageTaken += amount;
     const attacker = byId == null ? undefined : this.players.get(byId);
@@ -1292,32 +1516,46 @@ export class Game {
   }
 
   private reap() {
-    for (const p of this.players.values()) {
-      if (!p.alive || p.hp > 0) continue;
-      p.alive = false; p.hp = 0; p.input.f = false; p.input.secondary = false;
-      this.bullets = this.bullets.filter((b) => b.owner !== p.id || b.kind === 'bullet');
-      const killer = p.lastHit?.id != null ? this.players.get(p.lastHit.id) : undefined;
-      if (killer && killer.alive && killer.id !== p.id &&
-          (killer.team == null || p.team == null || killer.team !== p.team)) {
-        killer.kills++;
-        killer.matchKills++;
-        if (killer.team) this.teamStats[killer.team].kills++;
-        this.addXp(killer, Math.max(25, Math.floor(p.xp * 0.6)));
+    for (const player of this.players.values()) {
+      if (!player.alive || player.downed || player.hp > 0) continue;
+      if (this.mode === 'survival') {
+        player.hp = 0; player.downed = true; player.bleedoutT = 22; player.reviveProgress = 0;
+        player.input.f = false; player.input.secondary = false; player.input.mx = 0; player.input.my = 0;
+        player.vx = player.vy = player.kvx = player.kvy = player.rvx = player.rvy = 0;
+        this.bullets = this.bullets.filter((bullet) => bullet.owner !== player.id || bullet.kind === 'bullet');
+        continue;
       }
-      this.events.push({
-        type: 'dead', id: p.id,
-        killer: p.lastHit?.name ?? 'the arena',
-        killerClass: p.lastHit?.classId ?? null,
-        killerTeam: killer?.team ?? null,
-        victim: p.name,
-        victimClass: p.cls,
-        victimTeam: p.team,
-        score: p.xp, level: p.level, kills: p.kills,
-        damageDealt: Math.round(p.damageDealt),
-        damageTaken: Math.round(p.damageTaken),
-        lifetime: Math.round(Math.max(0, this.time - p.lifeStartedAt) * 10) / 10,
-      });
+      this.finalizePlayerDeath(player);
     }
+    for (const zombie of this.zombies) {
+      if (zombie.hp > 0) continue;
+      this.spawnHealthDrop(zombie);
+      this.zombieKills++;
+      const totalDamage = [...zombie.damageBy.values()].reduce((sum, amount) => sum + amount, 0);
+      if (totalDamage > 0) {
+        for (const [playerId, damage] of zombie.damageBy) {
+          const contributor = this.players.get(playerId);
+          if (contributor) this.addXp(contributor, Math.max(1, Math.round(zombie.xp * damage / totalDamage)));
+        }
+      }
+      const killer = [...zombie.damageBy.entries()].sort((a, b) => b[1] - a[1])[0];
+      const player = killer ? this.players.get(killer[0]) : undefined;
+      if (player) { player.kills++; player.matchKills++; }
+    }
+    this.zombies = this.zombies.filter((zombie) => zombie.hp > 0);
+    if (this.shapes.some((shape) => shape.hp <= 0)) {
+      for (const shape of this.shapes) {
+        if (shape.hp > 0) continue;
+        const killer = shape.lastHitBy != null ? this.players.get(shape.lastHitBy) : undefined;
+        if (killer?.alive && !killer.downed) {
+          this.addXp(killer, SHAPES[SHAPE_KINDS[shape.kind]].xp);
+          if (CLASS_BY_ID[killer.cls].droneBehavior === 'necromancer' && shape.kind === 0) this.convertSquareToDrone(killer, shape);
+        }
+      }
+      this.shapes = this.shapes.filter((shape) => shape.hp > 0);
+    }
+  }
+
     for (const zombie of this.zombies) {
       if (zombie.hp > 0) continue;
       this.zombieKills++;
@@ -1390,7 +1628,8 @@ export class Game {
       nextWaveIn: Math.ceil(this.waveIntermission), elapsed: Math.floor(this.survivalElapsed),
       gameOver: this.survivalGameOver,
       top: [...this.players.values()].sort((a, b) => b.kills - a.kills || b.xp - a.xp).slice(0, limit)
-        .map((player) => ({ id: player.id, name: player.name, kills: player.kills, xp: player.xp, lv: player.level, alive: player.alive })),
+        .map((player) => ({ id: player.id, name: player.name, kills: player.kills, xp: player.xp, lv: player.level,
+          alive: player.alive && !player.downed, downed: player.downed })),
     };
   }
 
@@ -1418,19 +1657,28 @@ export class Game {
     const focus = myClass.id === 'predator' && me.input.secondary ? 1.55 : 1;
     return {
       t: 's', tick: this.tick, mode: this.mode,
-      z: this.zombies.filter((zombie) => near(zombie.x, zombie.y, zombie.r)).map((zombie) => ({
+      z: this.zombies.map((zombie) => ({
         id: zombie.id, x: r1(zombie.x), y: r1(zombie.y), r: r1(zombie.r),
         hp: r1(zombie.hp), mhp: r1(zombie.maxHp),
         angle: r2(zombie.angle), hitFlash: r2(zombie.hitFlash), hitAngle: r2(zombie.hitAngle),
+        kind: zombie.kind, protected: this.isZombieProtected(zombie),
         bossKind: zombie.bossKind, bossPhase: zombie.bossPhase, bossTimer: r2(zombie.bossTimer),
+        specialPhase: zombie.specialPhase, specialTimer: r2(zombie.specialTimer),
       })),
+      d: [...this.players.values()].filter((player) => player.alive && player.downed).map((player) => ({
+        id: player.id, name: player.name, x: r1(player.x), y: r1(player.y), r: r1(player.r),
+        reviveProgress: r2(player.reviveProgress / 4), bleedout: r1(player.bleedoutT),
+      })),
+      h: this.healthDrops.map((drop) => ({ id: drop.id, x: r1(drop.x), y: r1(drop.y), r: r1(drop.r), heal: r1(drop.heal) })),
       me: {
-        alive: me.alive, hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
+        alive: me.alive && !me.downed, downed: me.downed, reviveProgress: r2(me.reviveProgress / 4),
+        hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
         xpCur: currentXp, xpNext: nextXp, pts: me.pts, stats: me.stats.slice(),
-        cls: me.cls, opts: me.alive ? classOptions(me.cls, me.level) : [], fov: me.d.fovMul * focus,
+        cls: me.cls, opts: me.alive && !me.downed ? classOptions(me.cls, me.level) : [], fov: me.d.fovMul * focus,
         team: me.team,
       },
-      p: [...this.players.values()].filter((player) => player.alive && near(player.x, player.y, player.r)).map((player) => ({
+      p: [...this.players.values()].filter((player) => player.alive && !player.downed &&
+        (this.mode === 'survival' || near(player.x, player.y, player.r))).map((player) => ({
         id: player.id, name: player.name, x: r1(player.x), y: r1(player.y), a: r2(player.angle),
         hp: r1(player.hp), mhp: r1(player.maxHp), r: r1(player.r), lv: player.level,
         cls: CLASS_IDS.indexOf(player.cls), prot: player.protT > 0 ? 1 : 0, vis: player.visibility,

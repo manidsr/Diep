@@ -69,14 +69,25 @@ export interface PlayerSnap {
 }
 export type ZombieBossKind = 'breaker' | 'spitter' | 'summoner';
 export type ZombieBossPhase = 'idle' | 'windup' | 'charge' | 'recovery';
+export type ZombieKind = 'shambler' | 'runner' | 'tank' | 'ranger' | 'guardian' | 'bomber' | 'leaper';
+export type ZombieSpecialPhase = 'idle' | 'windup' | 'charge';
 
 export interface ZombieSnap {
   id: number; x: number; y: number; r: number; hp: number; mhp: number;
   angle: number; hitFlash: number; hitAngle: number;
+  kind: ZombieKind; protected: boolean;
   bossKind: ZombieBossKind | null; bossPhase: ZombieBossPhase; bossTimer: number;
+  specialPhase: ZombieSpecialPhase; specialTimer: number;
+}
+export interface DownedPlayerSnap {
+  id: number; name: string; x: number; y: number; r: number;
+  reviveProgress: number; bleedout: number;
+}
+export interface HealthDropSnap {
+  id: number; x: number; y: number; r: number; heal: number;
 }
 export interface SelfSnap {
-  alive: boolean; hp: number; mhp: number; lv: number;
+  alive: boolean; downed: boolean; reviveProgress: number; hp: number; mhp: number; lv: number;
   xp: number; xpCur: number; xpNext: number; pts: number;
   stats: number[]; cls: string; opts: string[]; fov: number; team: TeamId | null;
 }
@@ -91,6 +102,8 @@ export interface Snapshot {
   sh: [number, number, number, number, number, number, number, number, number, number][];
   mode: GameMode;
   z: ZombieSnap[];
+  d: DownedPlayerSnap[];
+  h: HealthDropSnap[];
 }
 export type ServerMessage =
   | { t: 'welcome'; id: number; arena: number; hz: number; devCheats: boolean; mode: GameMode }
@@ -104,7 +117,7 @@ export type ServerMessage =
   | {
       t: 'lb'; mode: 'survival'; wave: number; zombieKills: number; zombiesRemaining: number;
       nextWaveIn: number; elapsed: number; gameOver: boolean;
-      top: { id: number; name: string; kills: number; xp: number; lv: number; alive: boolean }[];
+      top: { id: number; name: string; kills: number; xp: number; lv: number; alive: boolean; downed: boolean }[];
     }
   | {
       t: 'dead'; score: number; level: number; killer: string; killerClass: string | null;

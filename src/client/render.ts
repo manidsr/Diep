@@ -1,5 +1,5 @@
 import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
-import type { GameMode, PlayerSnap, TeamId, ZombieSnap } from '../shared/protocol';
+import type { DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, ZombieSnap } from '../shared/protocol';
 import { STICK_RADIUS, type Input } from './input';
 
 export interface View {
@@ -7,6 +7,8 @@ export interface View {
   bullets: [number, number, number, number, number, number, number, number][];
   shapes: [number, number, number, number, number, number, number, number, number, number][];
   zombies: ZombieSnap[];
+  downed: DownedPlayerSnap[];
+  healthDrops: HealthDropSnap[];
   mode: GameMode;
 }
 
@@ -54,7 +56,9 @@ export function drawFrame(
 
   if (view.mode === 'teams') drawTeamBases(ctx);
   for (const shape of view.shapes) drawShape(ctx, shape);
+  for (const drop of view.healthDrops) drawHealthDrop(ctx, drop);
   for (const zombie of view.zombies) drawZombie(ctx, zombie);
+  for (const downed of view.downed) drawDownedPlayer(ctx, downed);
   for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
   for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true);
@@ -184,14 +188,21 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   const { x, y, r } = zombie;
   const hit = Math.max(0, Math.min(1, zombie.hitFlash));
   const boss = zombie.bossKind !== null;
-  const palettes = {
+  const bossPalettes = {
     breaker: { fill: '#a84a43', stroke: '#59272a', accent: '#ffc17a' },
     spitter: { fill: '#6c964f', stroke: '#304c2d', accent: '#d4f47a' },
     summoner: { fill: '#66518d', stroke: '#352653', accent: '#d2aaff' },
   } as const;
-  const palette = zombie.bossKind ? palettes[zombie.bossKind] : {
-    fill: '#4f854b', stroke: '#254b2b', accent: '#a8d66b',
+  const mobPalettes: Record<ZombieSnap['kind'], { fill: string; stroke: string; accent: string }> = {
+    shambler: { fill: '#4f854b', stroke: '#254b2b', accent: '#a8d66b' },
+    runner: { fill: '#b58a40', stroke: '#65451e', accent: '#ffe08a' },
+    tank: { fill: '#777b80', stroke: '#363c43', accent: '#c8d0d8' },
+    ranger: { fill: '#4b8297', stroke: '#244b5d', accent: '#a4e7ff' },
+    guardian: { fill: '#338f8a', stroke: '#15534f', accent: '#8fffee' },
+    bomber: { fill: '#b34e32', stroke: '#692b22', accent: '#ffbd71' },
+    leaper: { fill: '#955a87', stroke: '#512e55', accent: '#ffb2ea' },
   };
+  const palette = zombie.bossKind ? bossPalettes[zombie.bossKind] : mobPalettes[zombie.kind];
   const facingX = Math.cos(zombie.angle);
   const facingY = Math.sin(zombie.angle);
 
@@ -212,12 +223,20 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
       ctx.beginPath();
       ctx.arc(0, 0, r * (1.75 + pulse * 0.12), 0, Math.PI * 2);
       ctx.setLineDash([r * 0.28, r * 0.17]);
-      ctx.strokeStyle = palette.accent;
-      ctx.globalAlpha = 0.45 + pulse * 0.4;
-      ctx.lineWidth = 4 + pulse * 2;
+      ctx.strokeStyle = zombie.bossKind === 'breaker' ? '#ff293d' : '#ff4e45';
+      ctx.globalAlpha = 0.58 + pulse * 0.4;
+      ctx.lineWidth = 5 + pulse * 2;
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
+      if (zombie.bossKind === 'breaker') {
+        ctx.save(); ctx.rotate(zombie.angle);
+        ctx.fillStyle = 'rgba(255, 22, 40, 0.16)'; ctx.strokeStyle = '#ff293d'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(r * 0.45, -r * 0.36);
+        ctx.lineTo(r * 6.2, -r * 1.05); ctx.lineTo(r * 6.2, r * 1.05);
+        ctx.lineTo(r * 0.45, r * 0.36); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.restore();
+      }
     } else if (zombie.bossPhase === 'charge') {
       ctx.beginPath();
       ctx.arc(0, 0, r * 1.48, 0, Math.PI * 2);
@@ -229,6 +248,26 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     }
   }
 
+  if (!boss && zombie.kind === 'guardian') {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+    ctx.beginPath(); ctx.arc(0, 0, r * (1.62 + pulse * 0.08), 0, Math.PI * 2);
+    ctx.strokeStyle = '#75fff0'; ctx.globalAlpha = zombie.protected ? 0.88 : 0.48;
+    ctx.lineWidth = zombie.protected ? 5 : 3; ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  if (!boss && zombie.specialPhase === 'windup') {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 55);
+    ctx.beginPath(); ctx.arc(0, 0, r * (1.55 + pulse * 0.16), 0, Math.PI * 2);
+    ctx.strokeStyle = zombie.kind === 'ranger' ? '#ffe08a' : '#ff293d';
+    ctx.globalAlpha = 0.56 + pulse * 0.42; ctx.lineWidth = 4 + pulse * 2;
+    ctx.stroke(); ctx.globalAlpha = 1;
+    if (zombie.kind === 'leaper') {
+      ctx.save(); ctx.rotate(zombie.angle);
+      ctx.fillStyle = 'rgba(255, 30, 50, 0.16)'; ctx.strokeStyle = '#ff3548';
+      ctx.beginPath(); ctx.moveTo(r, -r * 0.7); ctx.lineTo(r * 4.7, -r * 1.15);
+      ctx.lineTo(r * 4.7, r * 1.15); ctx.lineTo(r, r * 0.7); ctx.closePath();
+      ctx.fill(); ctx.stroke(); ctx.restore();
+    }
+  }
   // Silhouette details identify each boss before its attack starts.
   if (zombie.bossKind === 'breaker') {
     ctx.fillStyle = '#6f292b';
@@ -263,6 +302,32 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     ctx.closePath(); ctx.fill(); ctx.stroke();
   }
 
+  if (!boss && zombie.kind === 'tank') {
+    ctx.beginPath(); ctx.arc(0, 0, r * 1.32, 0, Math.PI * 2);
+    ctx.strokeStyle = '#d0d5dc'; ctx.lineWidth = Math.max(4, r * 0.12); ctx.stroke();
+  } else if (!boss && zombie.kind === 'runner') {
+    ctx.fillStyle = '#e9bb60'; ctx.strokeStyle = palette.stroke; ctx.lineWidth = 3;
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(side * r * 0.75, -r * 0.35);
+      ctx.lineTo(side * r * 1.55, -r * 0.9); ctx.lineTo(side * r * 1.15, r * 0.15);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+  } else if (!boss && zombie.kind === 'ranger') {
+    ctx.strokeStyle = palette.accent; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.8); ctx.lineTo(0, -r * 1.32); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, -r * 1.38, r * 0.13, 0, Math.PI * 2);
+    ctx.fillStyle = palette.accent; ctx.fill();
+  } else if (!boss && zombie.kind === 'bomber') {
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.46, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff744b'; ctx.globalAlpha = 0.45 + (zombie.specialPhase === 'windup' ? 0.45 : 0);
+    ctx.fill(); ctx.globalAlpha = 1;
+  } else if (!boss && zombie.kind === 'leaper') {
+    ctx.fillStyle = '#6b3b68'; ctx.strokeStyle = palette.stroke; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-r * 0.4, -r * 0.68); ctx.lineTo(-r * 0.82, -r * 1.42);
+    ctx.lineTo(-r * 0.05, -r * 0.94); ctx.moveTo(r * 0.4, -r * 0.68);
+    ctx.lineTo(r * 0.82, -r * 1.42); ctx.lineTo(r * 0.05, -r * 0.94);
+    ctx.fill(); ctx.stroke();
+  }
   ctx.shadowColor = hit > 0.08 ? '#eaffd2' : palette.stroke;
   ctx.shadowBlur = 2 + hit * 15;
   ctx.fillStyle = hit > 0.18 ? '#e5ffd1' : palette.fill;
@@ -342,6 +407,30 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   } else {
     hpBar(ctx, x, y + r + 9, r * 2.1, zombie.hp / Math.max(1, zombie.mhp));
   }
+}
+
+function drawHealthDrop(ctx: CanvasRenderingContext2D, drop: HealthDropSnap) {
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180 + drop.id);
+  ctx.save(); ctx.translate(drop.x, drop.y); ctx.shadowColor = '#75ff9c'; ctx.shadowBlur = 7 + pulse * 8;
+  ctx.fillStyle = '#baffbb'; ctx.strokeStyle = '#267648'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(0, 0, drop.r * (1 + pulse * 0.08), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0; ctx.fillStyle = '#23884a';
+  ctx.fillRect(-drop.r * 0.18, -drop.r * 0.62, drop.r * 0.36, drop.r * 1.24);
+  ctx.fillRect(-drop.r * 0.62, -drop.r * 0.18, drop.r * 1.24, drop.r * 0.36);
+  ctx.restore();
+}
+
+function drawDownedPlayer(ctx: CanvasRenderingContext2D, player: DownedPlayerSnap) {
+  const progress = Math.max(0, Math.min(1, player.reviveProgress));
+  ctx.save(); ctx.translate(player.x, player.y); ctx.globalAlpha = 0.58;
+  circle(ctx, 0, 0, player.r, '#6c7e8b', '#1b2b36', 4); ctx.globalAlpha = 1;
+  ctx.strokeStyle = '#fff0a5'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(0, 0, player.r + 9, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#fff0a5'; ctx.font = '900 11px system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.fillText('DOWN', 0, -player.r - 13);
+  ctx.fillStyle = '#fff'; ctx.fillRect(-player.r * 0.42, -3, player.r * 0.84, 6);
+  ctx.fillRect(-3, -player.r * 0.42, 6, player.r * 0.84);
+  ctx.restore();
 }
 
 function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number]) {
@@ -497,6 +586,56 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
     ctx.fillText(player.name, player.x, y + NAME_GAP + 4);
   }
   ctx.restore();
+}
+
+/** Co-op Survival radar: full arena view with friendlies, horde and loot. */
+export function drawMinimap(ctx: CanvasRenderingContext2D, W: number, H: number, view: View, selfId: number) {
+  ctx.clearRect(0, 0, W, H);
+  if (view.mode !== 'survival') return;
+  const size = SURVIVAL_ARENA_SIZE, pad = 10, mapSize = Math.min(W, H) - pad * 2;
+  const left = (W - mapSize) / 2, top = (H - mapSize) / 2;
+  const px = (value: number) => left + value / size * mapSize;
+  const py = (value: number) => top + value / size * mapSize;
+  ctx.save(); ctx.fillStyle = 'rgba(8,15,20,0.9)'; ctx.strokeStyle = 'rgba(205,230,238,0.65)';
+  ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(2, 2, W - 4, H - 4, 12); ctx.fill(); ctx.stroke();
+  ctx.save(); ctx.beginPath(); ctx.rect(left, top, mapSize, mapSize); ctx.clip();
+  ctx.fillStyle = '#27343a'; ctx.fillRect(left, top, mapSize, mapSize);
+  ctx.strokeStyle = 'rgba(220,240,245,0.12)'; ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    const line = left + mapSize * i / 4;
+    ctx.beginPath(); ctx.moveTo(line, top); ctx.lineTo(line, top + mapSize);
+    ctx.moveTo(left, top + mapSize * i / 4); ctx.lineTo(left + mapSize, top + mapSize * i / 4); ctx.stroke();
+  }
+  for (const drop of view.healthDrops) {
+    ctx.fillStyle = '#77ff9a'; ctx.beginPath(); ctx.arc(px(drop.x), py(drop.y), 2.8, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const enemy of view.zombies) {
+    const x = px(enemy.x), y = py(enemy.y);
+    if (enemy.bossKind) {
+      ctx.fillStyle = '#ff4a42'; ctx.strokeStyle = '#ffd0b2'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, 5.8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.fillStyle = enemy.kind === 'guardian' ? '#85f4e8' : '#ff625b';
+      ctx.beginPath(); ctx.arc(x, y, enemy.kind === 'tank' ? 3.5 : 2.3, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  for (const ally of view.players) {
+    const x = px(ally.x), y = py(ally.y);
+    ctx.fillStyle = ally.id === selfId ? '#fff' : '#4bc6ff'; ctx.strokeStyle = '#092338'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y, ally.id === selfId ? 4.4 : 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    if (ally.id === selfId) {
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+    }
+  }
+  for (const ally of view.downed) {
+    const x = px(ally.x), y = py(ally.y); ctx.strokeStyle = '#ffd96d'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x - 3.5, y - 3.5); ctx.lineTo(x + 3.5, y + 3.5);
+    ctx.moveTo(x + 3.5, y - 3.5); ctx.lineTo(x - 3.5, y + 3.5); ctx.stroke();
+  }
+  ctx.restore();
+  ctx.fillStyle = '#d8e9ec'; ctx.font = '800 9px system-ui, sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('ALLIES', 10, H - 8); ctx.fillStyle = '#ff665d'; ctx.fillText('HORDE', 56, H - 8);
+  ctx.fillStyle = '#77ff9a'; ctx.fillText('HEALS', 104, H - 8); ctx.restore();
 }
 
 /** Virtual joysticks are shown on touch devices after the first touch. */
