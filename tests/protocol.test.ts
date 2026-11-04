@@ -62,3 +62,12 @@ test('join protocol validates optional reconnect tokens', () => {
   });
   assert.equal(parseClientMessage('{"t":"join","name":"Alice","resumeToken":"not-a-token"}'), null);
 });
+
+
+test('reward selections accept safe perk IDs and reject malformed IDs', () => {
+  assert.deepEqual(parseClientMessage('{"t":"reward","id":"heavyRounds"}'), { t: 'reward', id: 'heavyRounds' });
+  assert.deepEqual(parseClientMessage('{"t":"reward","id":"droneWingman"}'), { t: 'reward', id: 'droneWingman' });
+  assert.equal(parseClientMessage('{"t":"reward","id":"heavy rounds"}'), null);
+  assert.equal(parseClientMessage('{"t":"reward","id":"x"}'), null);
+  assert.equal(parseClientMessage('{"t":"reward","id":"' + 'a'.repeat(40) + '"}'), null);
+});
