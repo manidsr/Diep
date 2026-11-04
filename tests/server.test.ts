@@ -100,3 +100,50 @@ test('a full 24-player room rejects the next join without allocating a player', 
     await srv.close();
   }
 });
+
+
+test('eliminations broadcast a kill-feed line and send a detailed death report', async () => {
+  const game = new Game(seeded(19), 0);
+  const srv = await startServer({ port: 0, host: '127.0.0.1', game });
+  const attacker = client(srv.port);
+  const victim = client(srv.port);
+  try {
+    await Promise.all([attacker.opened, victim.opened]);
+    attacker.ws.send(JSON.stringify({ t: 'join', name: 'Hunter' }));
+    victim.ws.send(JSON.stringify({ t: 'join', name: 'Target' }));
+    const attackerWelcome = await attacker.waitFor((m) => m.t === 'welcome');
+    const victimWelcome = await victim.waitFor((m) => m.t === 'welcome');
+    assert.ok(attackerWelcome.t === 'welcome' && victimWelcome.t === 'welcome');
+
+    const a = game.players.get(attackerWelcome.id)!;
+    const v = game.players.get(victimWelcome.id)!;
+    Object.assign(a, { x: 1000, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
+    Object.assign(v, { x: 1080, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0, hp: 5 });
+    attacker.ws.send(JSON.stringify({ t: 'input', mx: 0, my: 0, a: 0, f: true }));
+
+    const [death, attackerFeed, victimFeed] = await Promise.all([
+      victim.waitFor((m) => m.t === 'dead', 4000),
+      attacker.waitFor((m) => m.t === 'feed', 4000),
+      victim.waitFor((m) => m.t === 'feed', 4000),
+    ]);
+    assert.ok(death.t === 'dead');
+    assert.equal(death.killer, 'Hunter');
+    assert.equal(death.killerClass, 'basic');
+    assert.equal(death.victimClass, 'basic');
+    assert.ok(death.damageTaken >= 5);
+    assert.ok(death.lifetime > 0);
+    assert.ok(death.damageDealt >= 0 && death.kills >= 0);
+
+    for (const feed of [attackerFeed, victimFeed]) {
+      assert.ok(feed.t === 'feed');
+      assert.equal(feed.killer, 'Hunter');
+      assert.equal(feed.victim, 'Target');
+      assert.equal(feed.killerClass, 'basic');
+      assert.equal(feed.victimClass, 'basic');
+    }
+  } finally {
+    attacker.ws.close();
+    victim.ws.close();
+    await srv.close();
+  }
+});
