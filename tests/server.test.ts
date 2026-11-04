@@ -150,3 +150,40 @@ test('eliminations broadcast a kill-feed line and send a detailed death report',
     await srv.close();
   }
 });
+
+
+test('clients join isolated FFA and Team Mode worlds selected in the lobby', async () => {
+  const srv = await startServer({ port: 0, host: '127.0.0.1', game: new Game(seeded(40), 0) });
+  const solo = client(srv.port);
+  const blue = client(srv.port);
+  const red = client(srv.port);
+  try {
+    await Promise.all([solo.opened, blue.opened, red.opened]);
+    solo.ws.send(JSON.stringify({ t: 'join', name: 'Solo', mode: 'ffa' }));
+    blue.ws.send(JSON.stringify({ t: 'join', name: 'Blue', mode: 'teams' }));
+    red.ws.send(JSON.stringify({ t: 'join', name: 'Red', mode: 'teams' }));
+
+    const [soloWelcome, blueWelcome, redWelcome] = await Promise.all([
+      solo.waitFor((m) => m.t === 'welcome'),
+      blue.waitFor((m) => m.t === 'welcome'),
+      red.waitFor((m) => m.t === 'welcome'),
+    ]);
+    assert.ok(soloWelcome.t === 'welcome' && soloWelcome.mode === 'ffa');
+    assert.ok(blueWelcome.t === 'welcome' && blueWelcome.mode === 'teams');
+    assert.ok(redWelcome.t === 'welcome' && redWelcome.mode === 'teams');
+    assert.equal(srv.game.players.size, 1);
+    assert.equal(srv.teamGame.players.size, 2);
+    assert.equal(srv.teamGame.players.get(blueWelcome.id)?.team, 'blue');
+    assert.equal(srv.teamGame.players.get(redWelcome.id)?.team, 'red');
+
+    const teamSnap = await blue.waitFor((m) => m.t === 's');
+    assert.ok(teamSnap.t === 's' && teamSnap.me.team === 'blue');
+    assert.equal(teamSnap.flags.length, 2);
+    assert.ok(blue.msgs.some((m) => m.t === 'lb' && m.mode === 'teams'));
+  } finally {
+    solo.ws.close();
+    blue.ws.close();
+    red.ws.close();
+    await srv.close();
+  }
+});

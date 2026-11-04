@@ -21,6 +21,13 @@
     background: linear-gradient(90deg, #ffd86b, #ff9d5c, #ffd86b); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text;
     color: transparent; animation: sheen 4s linear infinite; }
   #lbrows { position: relative; }
+  #teamscore { margin: 0 0 6px; padding: 5px 4px; border-radius: 6px; background: #09090dcc;
+    text-align: center; font-size: 9px; line-height: 1.45; font-weight: 900; letter-spacing: .035em;
+    color: #e9e9ef; font-variant-numeric: tabular-nums; white-space: normal; }
+  #teamscore[hidden] { display: none !important; }
+  .lrow.blue .nm { color: #80dfff; }
+  .lrow.red .nm { color: #ff9aa1; }
+  #teamscore { border: 1px solid #ffffff22; }
   .lrow { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 6px;
     border-radius: 6px; overflow: hidden; transition: transform .45s cubic-bezier(.3,1.2,.4,1); animation: lbin .4s ease-out; }
   .lrow .bar { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #ffffff30, #ffffff08);
@@ -132,6 +139,14 @@
   #msg { color: #ffb86b; min-height: 1.3em; }
   #lan code { background: #0006; padding: 1px 5px; border-radius: 4px; user-select: text; -webkit-user-select: text; }
 
+  /* ---------- Match mode picker ---------- */
+  #mode-select { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 0; }
+  #mode-select button { width: 100%; min-width: 0; padding: 11px 6px; border: 1px solid #ffffff26;
+    background: #16191f; color: #dfe8f0; font-size: 13px; font-weight: 900; line-height: 1.2; }
+  #mode-select button.selected { border: 2px solid #7edbff; background: linear-gradient(180deg,#245a7d,#173b55); color: white;
+    box-shadow: 0 0 0 2px #39a9df22, 0 4px 14px #0005; }
+  #mode-help { min-height: 2.6em; margin: 5px 0 9px; color: #c9d0db; font-size: 11px; }
+
 
   /* ---------- Arena kill feed ---------- */
   #killfeed { right: max(8px, env(safe-area-inset-right)); bottom: max(10px, env(safe-area-inset-bottom)); width: min(300px, 42vw);
@@ -140,6 +155,7 @@
     color: #f4f4f6; font-size: 11px; line-height: 1.25; text-align: right; text-shadow: 0 1px 2px #000; opacity: 1;
     transition: opacity .8s ease; overflow-wrap: anywhere; }
   .killfeed-row.fade { opacity: 0; }
+  .killfeed-row.flag-event { border-color: #f0c86a99; color: #ffe7a4; }
   /* ---------- Death report ---------- */
   #deathpanel[hidden] { display: none !important; }
   #deathpanel { margin: 10px 0 12px; padding: 12px; border: 1px solid #ff8a7a66; border-radius: 10px;
@@ -186,7 +202,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="lb" class="hud"><h4>LEADERBOARD</h4><div id="lbrows"></div></div>
+<div id="lb" class="hud"><h4 id="lbtitle">LEADERBOARD</h4><div id="teamscore" hidden></div><div id="lbrows"></div></div>
 <div id="killfeed" class="hud" aria-live="polite" aria-label="Recent eliminations"></div>
 <div id="classes" class="hud"></div>
 <div id="devtools" hidden>
@@ -215,6 +231,11 @@
       <div id="deathfeed"></div>
     </section>
     <input id="name" maxlength="16" placeholder="Nickname" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div id="mode-select" role="group" aria-label="Choose game mode">
+      <button id="mode-ffa" type="button" class="selected" aria-pressed="true">FREE FOR ALL<br><small>Every tank for itself</small></button>
+      <button id="mode-teams" type="button" aria-pressed="false">TEAM MODE<br><small>Blue vs Red · Capture the flag</small></button>
+    </div>
+    <p id="mode-help" class="small">Every tank fights for itself. Earn XP and climb the individual leaderboard.</p>
     <button id="play" disabled>Play</button>
     <p id="status" class="small">Connecting…</p>
     <p class="small"><b>PC:</b> WASD/arrows move, mouse aims, click/Space/E fires, right-click or Shift uses secondary controls, C toggles auto-spin, keys 1-8 upgrade.<br>

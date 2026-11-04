@@ -490,3 +490,67 @@ test('spawn selection avoids shape overlap and prefers quieter space', () => {
   assert.ok(Math.hypot(first.x - second.x, first.y - second.y) > 200,
     'a new player should prefer a lower-traffic area away from active players');
 });
+
+
+test('Team Mode balances players and spawns each team on its own map side', () => {
+  const game = new Game(seeded(33), 0, 'teams');
+  const blue = game.addPlayer('blue')!;
+  const red = game.addPlayer('red')!;
+  const blueTwo = game.addPlayer('blue two')!;
+  const redTwo = game.addPlayer('red two')!;
+  assert.equal(blue.team, 'blue');
+  assert.equal(red.team, 'red');
+  assert.equal(blueTwo.team, 'blue');
+  assert.equal(redTwo.team, 'red');
+  assert.ok(blue.x < ARENA_SIZE / 2 && blueTwo.x < ARENA_SIZE / 2);
+  assert.ok(red.x > ARENA_SIZE / 2 && redTwo.x > ARENA_SIZE / 2);
+  assert.equal(game.flags.length, 2);
+  assert.equal(game.snapshotFor(blue.id)?.me.team, 'blue');
+  assert.deepEqual(game.snapshotFor(blue.id)?.flags.map((flag) => flag.team), ['blue', 'red']);
+});
+
+test('Team Mode blocks friendly fire and keeps enemy damage enabled', () => {
+  const game = new Game(seeded(34), 0, 'teams');
+  const shooter = game.addPlayer('blue shooter')!;
+  const ally = game.addPlayer('blue ally')!;
+  const enemy = game.addPlayer('red enemy')!;
+  Object.assign(shooter, { x: 800, y: 800, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
+  Object.assign(ally, { x: 880, y: 800, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
+  Object.assign(enemy, { x: 960, y: 800, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
+  const makeBullet = (id: number, x: number, targetId: number) => ({
+    id, owner: shooter.id, x, y: 800, vx: 0, vy: 0,
+    r: 8, dmg: 20, hp: 5, life: 1, hit: new Set<number>(),
+    kind: 'bullet' as const, angle: 0, maxSpeed: 0, turnRate: 0,
+  });
+  game.bullets.push(makeBullet(9001, ally.x, ally.id));
+  const allyHp = ally.hp;
+  game.step(DT);
+  assert.equal(ally.hp, allyHp, 'blue bullets must pass through blue teammates without damage');
+
+  game.bullets.push(makeBullet(9002, enemy.x, enemy.id));
+  const enemyHp = enemy.hp;
+  game.step(DT);
+  assert.ok(enemy.hp < enemyHp, 'blue bullets must still damage red opponents');
+});
+
+test('Capture the Flag: steal, carry home, score and restore the enemy flag', () => {
+  const game = new Game(seeded(35), 0, 'teams');
+  const blue = game.addPlayer('blue carrier')!;
+  const red = game.addPlayer('red defender')!;
+  const blueFlag = game.flags.find((flag) => flag.team === 'blue')!;
+  const redFlag = game.flags.find((flag) => flag.team === 'red')!;
+
+  Object.assign(blue, { x: redFlag.x, y: redFlag.y, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
+  Object.assign(red, { x: 2400, y: 1200, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
+  game.step(DT);
+  assert.equal(redFlag.carrierId, blue.id);
+  assert.equal(redFlag.atBase, false);
+
+  blue.x = blueFlag.baseX;
+  blue.y = blueFlag.baseY;
+  game.step(DT);
+  assert.equal(game.teamStats.blue.captures, 1);
+  assert.equal(redFlag.carrierId, null);
+  assert.equal(redFlag.atBase, true);
+  assert.ok(game.drainEvents().some((event) => event.type === 'flag' && event.action === 'captured'));
+});

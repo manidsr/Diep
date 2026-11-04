@@ -31,3 +31,13 @@ test('accepts valid upgrade/class and sanitizes names', () => {
   assert.equal(sanitizeName(42), 'Tank');
   assert.ok(sanitizeName('x'.repeat(100)).length <= 16);
 });
+
+
+test('join protocol supports FFA and Team Mode selection', () => {
+  assert.deepEqual(parseClientMessage('{"t":"join","name":"Solo","mode":"ffa"}'), {
+    t: 'join', name: 'Solo', mode: 'ffa',
+  });
+  assert.deepEqual(parseClientMessage('{"t":"join","name":"Team","mode":"teams"}'), {
+    t: 'join', name: 'Team', mode: 'teams',
+  });
+});
