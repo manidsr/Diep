@@ -640,8 +640,9 @@ test('Co-op Survival: damaging zombies awards XP and records shared zombie kills
 test('Co-op Survival advances to a harder wave after the arena is cleared', () => {
   const game = new Game(seeded(63), 0, 'survival');
   game.addPlayer('wave tester');
-  const waveState = game as unknown as { waveSpawnRemaining: number; waveIntermission: number };
+  const waveState = game as unknown as { waveSpawnRemaining: number; waveSpawned: number; waveIntermission: number };
   waveState.waveSpawnRemaining = 0;
+  waveState.waveSpawned = 9; // Solo Wave 1's full quota has already spawned and been cleared.
   game.zombies = [];
   game.step(DT);
   run(game, 5.1);
