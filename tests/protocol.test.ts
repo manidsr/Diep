@@ -13,7 +13,7 @@ test('rejects malformed, oversized and unknown messages', () => {
 
 test('clamps input and normalizes fire flag', () => {
   const m = parseClientMessage('{"t":"input","mx":50,"my":-50,"a":3,"f":1}');
-  assert.deepEqual(m, { t: 'input', mx: 1, my: -1, a: 3, f: true });
+  assert.deepEqual(m, { t: 'input', mx: 1, my: -1, a: 3, f: true, secondary: false, spin: false });\n  assert.deepEqual(parseClientMessage('{"t":"input","mx":0,"my":0,"a":1,"f":0,"secondary":1,"spin":true}'),\n    { t: 'input', mx: 0, my: 0, a: 1, f: false, secondary: true, spin: true });
 });
 
 test('accepts valid upgrade/class and sanitizes names', () => {

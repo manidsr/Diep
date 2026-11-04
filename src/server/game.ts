@@ -1,7 +1,8 @@
 import {
   ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_STAT_LEVEL,
-  PLAYER_PIERCE_COST, REGEN_DELAY_S, RESPAWN_PROTECTION_S, SHAPES, SHAPE_KINDS, SHAPE_TARGET_COUNT,
-  SERVER_TICK_HZ, STAT_KEYS, VIEW_HALF,
+  PLAYER_PIERCE_COST, PROJECTILE_KIND_IDS, REGEN_DELAY_S, RESPAWN_PROTECTION_S, SHAPES,
+  SHAPE_KINDS, SHAPE_TARGET_COUNT, SERVER_TICK_HZ, STAT_KEYS, VIEW_HALF,
+  type BarrelDef, type ProjectileKind,
 } from '../shared/config';
 import {
   classOptions, deriveStats, levelFromXp, statPointsEarned, totalXpForLevel, type DerivedStats,
@@ -14,14 +15,15 @@ export interface Player {
   x: number; y: number; vx: number; vy: number; kvx: number; kvy: number; rvx: number; rvy: number;
   r: number; angle: number; hp: number; maxHp: number;
   level: number; xp: number; pts: number; stats: number[]; cls: string;
-  alive: boolean; protT: number; lastDamageT: number;
-  lastHit: { id: number | null; name: string } | null;
-  input: { mx: number; my: number; a: number; f: boolean };
-  wasFiring: boolean; cd: number[]; d: DerivedStats;
+  alive: boolean; protT: number; lastDamageT: number; lastHit: { id: number | null; name: string } | null;
+  input: { mx: number; my: number; a: number; f: boolean; secondary: boolean; spin: boolean };
+  wasFiring: boolean; wasSecondary: boolean; cd: number[]; autoCd: number[];
+  droneSpawnCd: number; stealthT: number; visibility: number; d: DerivedStats;
 }
 export interface Bullet {
   id: number; owner: number; x: number; y: number; vx: number; vy: number;
   r: number; dmg: number; hp: number; life: number; hit: Set<number>;
+  kind: ProjectileKind; angle: number; maxSpeed: number; turnRate: number;
 }
 export interface Shape {
   id: number; kind: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
@@ -30,12 +32,15 @@ export interface Shape {
 export type GameEvent = { type: 'dead'; id: number; killer: string; score: number; level: number };
 
 type Ent = { k: 0 | 1 | 2; o: Player | Shape | Bullet };
+type Target = { x: number; y: number };
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
-// Retain 82% of recoil velocity per server tick for a punchier, longer kick.
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const angleDelta = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
 const RECOIL_DECAY_PER_TICK = 0.82;
-// A standard 20-wide cannon moves the tank about one body radius per isolated shot.
 const BASE_RECOIL_DISTANCE = 28;
+const DRONE_LIFE_S = 24;
+const FIREWORK_PELLETS = 16;
 
 export class Game {
   tick = 0;
@@ -51,21 +56,26 @@ export class Game {
     for (let i = 0; i < initialShapes; i++) this.spawnShape();
   }
 
-  // ---------- lifecycle ----------
-  /** Returns null when the room is full. */
   addPlayer(name: string): Player | null {
     if (this.players.size >= MAX_PLAYERS) return null;
+    const stats = STAT_KEYS.map(() => 0);
     const p: Player = {
-      id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, r: 26, angle: 0, hp: 50, maxHp: 0,
-      level: 1, xp: 0, pts: 0, stats: STAT_KEYS.map(() => 0), cls: 'basic', alive: true, protT: 0,
-      lastDamageT: -99, lastHit: null, input: { mx: 0, my: 0, a: 0, f: false }, wasFiring: false, cd: [0],
-      d: deriveStats(1, STAT_KEYS.map(() => 0), 'basic'),
+      id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
+      r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, pts: 0, stats, cls: 'basic',
+      alive: true, protT: 0, lastDamageT: -99, lastHit: null,
+      input: { mx: 0, my: 0, a: 0, f: false, secondary: false, spin: false },
+      wasFiring: false, wasSecondary: false, cd: [0], autoCd: [], droneSpawnCd: 0,
+      stealthT: 0, visibility: 1, d: deriveStats(1, stats, 'basic'),
     };
     this.players.set(p.id, p);
     this.respawn(p.id, name);
     return p;
   }
-  removePlayer(id: number) { this.players.delete(id); }
+
+  removePlayer(id: number) {
+    this.players.delete(id);
+    this.bullets = this.bullets.filter((b) => b.owner !== id || b.kind === 'bullet');
+  }
 
   respawn(id: number, name?: string) {
     const p = this.players.get(id);
@@ -76,43 +86,64 @@ export class Game {
     p.y = 200 + this.rng() * (ARENA_SIZE - 400);
     p.vx = p.vy = p.kvx = p.kvy = p.rvx = p.rvy = 0;
     p.alive = true; p.protT = RESPAWN_PROTECTION_S; p.lastHit = null; p.lastDamageT = -99;
-    p.input = { mx: 0, my: 0, a: p.angle, f: false }; p.wasFiring = false;
+    p.input = { mx: 0, my: 0, a: p.angle, f: false, secondary: false, spin: false };
+    p.wasFiring = false; p.wasSecondary = false; p.stealthT = 0; p.visibility = 1;
+    p.droneSpawnCd = 0;
+    this.bullets = this.bullets.filter((b) => b.owner !== id || b.kind === 'bullet');
     this.refresh(p);
     p.hp = p.maxHp;
   }
 
-  // ---------- intents (validated by caller's protocol layer, re-clamped here) ----------
-  setInput(id: number, i: { mx: number; my: number; a: number; f: boolean }) {
+  // ---------- validated player intents ----------
+  setInput(id: number, input: { mx: number; my: number; a: number; f: boolean; secondary?: boolean; spin?: boolean }) {
     const p = this.players.get(id);
     if (!p || !p.alive) return;
-    const cl = (v: number) => (Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0);
-    p.input = { mx: cl(i.mx), my: cl(i.my), a: Number.isFinite(i.a) ? i.a : p.input.a, f: !!i.f };
+    const unit = (v: number) => Number.isFinite(v) ? clamp(v, -1, 1) : 0;
+    p.input = {
+      mx: unit(input.mx), my: unit(input.my),
+      a: Number.isFinite(input.a) ? input.a : p.input.a,
+      f: !!input.f, secondary: !!input.secondary, spin: !!input.spin,
+    };
   }
 
   upgradeStat(id: number, idx: number): boolean {
     const p = this.players.get(id);
     if (!p || !p.alive || !Number.isInteger(idx) || idx < 0 || idx >= STAT_KEYS.length) return false;
+    const cls = CLASS_BY_ID[p.cls];
+    // Smasher branches refund and lock all projectile-only stats.
+    if (cls.smasher && idx >= 3 && idx <= 6) return false;
     if (p.pts <= 0 || p.stats[idx] >= MAX_STAT_LEVEL) return false;
     p.stats[idx]++;
     this.refresh(p);
     return true;
   }
 
-  chooseClass(id: string | number, classId: string): boolean {
-    const p = this.players.get(id as number);
+  chooseClass(id: number, classId: string): boolean {
+    const p = this.players.get(id);
     if (!p || !p.alive || !classOptions(p.cls, p.level).includes(classId)) return false;
-    p.cls = classId;
-    this.refresh(p);
+    this.switchClass(p, classId);
     return true;
   }
-  /** Bypass evolution requirements for a developer. The WebSocket server must authorize before calling. */
+
+  /** Bypasses evolution rules. The WebSocket server must authorize this before calling. */
   debugSetClass(id: number, classId: string): boolean {
     const p = this.players.get(id);
     if (!p || !p.alive || !CLASS_IDS.includes(classId as (typeof CLASS_IDS)[number])) return false;
-    p.cls = classId;
-    this.refresh(p);
-    p.cd.fill(0);
+    this.switchClass(p, classId);
     return true;
+  }
+
+  private switchClass(p: Player, classId: string) {
+    p.cls = classId;
+    if (CLASS_BY_ID[classId].smasher) {
+      // Return invested projectile points to the player when entering the Smasher branch.
+      for (let i = 3; i <= 6; i++) p.stats[i] = 0;
+    }
+    // Remove owned special weapons so class changes cannot leave stale drones, traps or missiles.
+    this.bullets = this.bullets.filter((b) => b.owner !== p.id || b.kind === 'bullet');
+    p.droneSpawnCd = 0;
+    p.stealthT = 0; p.visibility = 1;
+    this.refresh(p);
   }
 
   // ---------- simulation ----------
@@ -121,23 +152,31 @@ export class Game {
     this.tick++;
     for (const p of this.players.values()) if (p.alive) this.updatePlayer(p, dt);
     for (const s of this.shapes) this.updateShape(s, dt);
+
     for (const b of this.bullets) {
-      b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+      if (b.kind === 'drone') this.updateDrone(b, dt);
+      else if (b.kind === 'missile') this.updateMissile(b, dt);
+      else if (b.kind !== 'trap') { b.x += b.vx * dt; b.y += b.vy * dt; }
+      b.life -= dt;
     }
+    this.explodeExpiredFireworks();
     this.collideAll(dt);
     this.reap();
-    this.bullets = this.bullets.filter(
-      (b) => b.hp > 0 && b.life > 0 && b.x > -50 && b.y > -50 && b.x < ARENA_SIZE + 50 && b.y < ARENA_SIZE + 50,
+    this.bullets = this.bullets.filter((b) =>
+      b.hp > 0 && b.life > 0 && b.x > -80 && b.y > -80 && b.x < ARENA_SIZE + 80 && b.y < ARENA_SIZE + 80,
     );
     if (this.shapes.length < SHAPE_TARGET_COUNT && this.rng() < dt * 4) this.spawnShape();
   }
 
   private updatePlayer(p: Player, dt: number) {
-    const { mx, my, a, f } = p.input;
-    p.angle = a;
+    const cls = CLASS_BY_ID[p.cls];
+    const { mx, my, a, f, secondary, spin } = p.input;
+    if (spin) p.angle += (cls.spinSpeed ?? 1.2) * dt;
+    else p.angle = a;
+
     let ix = mx, iy = my;
-    const len = Math.hypot(ix, iy);
-    if (len > 1) { ix /= len; iy /= len; }
+    const inputLen = Math.hypot(ix, iy);
+    if (inputLen > 1) { ix /= inputLen; iy /= inputLen; }
     const k = 1 - Math.exp(-dt * 7);
     p.vx += (ix * p.d.moveSpeed - p.vx) * k;
     p.vy += (iy * p.d.moveSpeed - p.vy) * k;
@@ -145,49 +184,241 @@ export class Game {
     p.y += (p.vy + p.kvy + p.rvy) * dt;
     const dec = Math.exp(-dt * 6);
     p.kvx *= dec; p.kvy *= dec;
-    // Keep recoil separate from collision knockback so tuning one does not alter the other.
     const recoilDecay = Math.pow(RECOIL_DECAY_PER_TICK, dt * SERVER_TICK_HZ);
     p.rvx *= recoilDecay; p.rvy *= recoilDecay;
-    p.x = Math.min(ARENA_SIZE - p.r, Math.max(p.r, p.x));
-    p.y = Math.min(ARENA_SIZE - p.r, Math.max(p.r, p.y));
+    p.x = clamp(p.x, p.r, ARENA_SIZE - p.r);
+    p.y = clamp(p.y, p.r, ARENA_SIZE - p.r);
+
     if (p.protT > 0) p.protT -= dt;
     if (this.time - p.lastDamageT > REGEN_DELAY_S && p.hp < p.maxHp) {
       p.hp = Math.min(p.maxHp, p.hp + p.maxHp * p.d.regenFrac * dt);
     }
-    const barrels = CLASS_BY_ID[p.cls].barrels;
+
+    // Stealth requires a genuinely stationary, non-firing player. Damage reveals immediately.
+    if (cls.stealthAfter != null) {
+      const settled = inputLen < 0.05 && Math.hypot(p.vx, p.vy) < 8 && !f && !secondary;
+      p.stealthT = settled ? p.stealthT + dt : 0;
+      p.visibility = p.stealthT >= cls.stealthAfter ? (cls.stealthAlpha ?? 0.1) : 1;
+    } else {
+      p.stealthT = 0; p.visibility = 1;
+    }
+
+    const barrels = cls.barrels;
     for (let i = 0; i < p.cd.length; i++) p.cd[i] = Math.max(0, p.cd[i] - dt);
+    for (let i = 0; i < p.autoCd.length; i++) p.autoCd[i] = Math.max(0, p.autoCd[i] - dt);
+
     if (f && !p.wasFiring) {
-      for (let i = 0; i < barrels.length; i++) p.cd[i] = Math.max(p.cd[i], barrels[i].delay * p.d.reload);
+      for (let i = 0; i < barrels.length; i++) {
+        if ((barrels[i].trigger ?? 'primary') === 'primary') {
+          p.cd[i] = Math.max(p.cd[i], barrels[i].delay * p.d.reload);
+        }
+      }
     }
     p.wasFiring = f;
-    if (f) this.fire(p, barrels);
+
+    if (secondary && !p.wasSecondary && cls.id === 'firework') this.splitOwnedFireworks(p.id);
+    p.wasSecondary = secondary;
+
+    if (f || secondary) this.fire(p, barrels);
+    this.maintainDrones(p, dt);
+    this.updateAutoTurrets(p, dt);
   }
 
-  private fire(p: Player, barrels: { angle: number; offset: number; length: number; width: number; spread?: number; recoil?: number }[]) {
-    const sc = p.r / 26;
+  private fire(p: Player, barrels: BarrelDef[]) {
     for (let i = 0; i < barrels.length; i++) {
-      if (p.cd[i] > 0 || this.bullets.length >= MAX_BULLETS) continue;
-      const b = barrels[i];
-      const da = p.angle + b.angle;
-      const ang = da + (b.spread ? (this.rng() * 2 - 1) * b.spread : 0);
-      const cx = Math.cos(da), cy = Math.sin(da);
-      const bulletRadius = b.width * 0.5 * sc;
-      this.bullets.push({
-        id: this.nextId++, owner: p.id,
-        x: p.x + cx * b.length * sc - cy * b.offset * sc,
-        y: p.y + cy * b.length * sc + cx * b.offset * sc,
-        vx: Math.cos(ang) * p.d.bulletSpeed, vy: Math.sin(ang) * p.d.bulletSpeed,
-        r: bulletRadius, dmg: p.d.bulletDamage, hp: p.d.bulletHp, life: BULLET_LIFE_S, hit: new Set(),
-      });
-      // Treat barrel width as projectile diameter: cross-sectional area scales with width squared.
-      // The impulse is opposite the actual shot direction, including any barrel spread.
-      const sizeRatio = b.width / 20;
-      const recoilMultiplier = b.recoil ?? 1;
-      const recoilDistance = BASE_RECOIL_DISTANCE * sizeRatio * sizeRatio * recoilMultiplier;
-      const recoilImpulse = recoilDistance * SERVER_TICK_HZ * (1 - RECOIL_DECAY_PER_TICK);
-      p.rvx -= Math.cos(ang) * recoilImpulse;
-      p.rvy -= Math.sin(ang) * recoilImpulse;
+      const barrel = barrels[i];
+      const trigger = barrel.trigger ?? 'primary';
+      const requested = trigger === 'secondary' ? p.input.secondary : p.input.f;
+      if (!requested || barrel.projectile === 'drone' || p.cd[i] > 0 || this.bullets.length >= MAX_BULLETS) continue;
+      this.fireBarrel(p, barrel, p.angle + barrel.angle);
       p.cd[i] = p.d.reload;
+    }
+  }
+
+  private fireBarrel(p: Player, barrel: BarrelDef, direction: number, origin?: Target) {
+    if (this.bullets.length >= MAX_BULLETS) return;
+    const cls = CLASS_BY_ID[p.cls];
+    const spreadAngle = direction + (barrel.spread ? (this.rng() * 2 - 1) * barrel.spread : 0);
+    const sc = p.r / 26;
+    const cx = Math.cos(direction), cy = Math.sin(direction);
+    const bulletRadius = barrel.width * 0.5 * sc;
+    const kind = barrel.projectile ?? 'bullet';
+    const muzzleX = origin?.x ?? (p.x + cx * barrel.length * sc - cy * barrel.offset * sc);
+    const muzzleY = origin?.y ?? (p.y + cy * barrel.length * sc + cx * barrel.offset * sc);
+    let speed = p.d.bulletSpeed * (barrel.speedMul ?? 1);
+    let life = BULLET_LIFE_S * (cls.bulletLifeMul ?? 1);
+    if (kind === 'trap') { speed = 0; life = cls.trapLife ?? 9; }
+    else if (kind === 'missile') { speed *= 0.52; life *= 1.6; }
+    else if (kind === 'firework') { life = 1.45; }
+    else if (kind === 'drone') { speed *= 0.55; life = DRONE_LIFE_S; }
+
+    const bullet: Bullet = {
+      id: this.nextId++, owner: p.id, x: muzzleX, y: muzzleY,
+      vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed,
+      r: bulletRadius, dmg: p.d.bulletDamage * (barrel.damageMul ?? 1), hp: kind === 'drone' ? 8 : kind === 'trap' ? 100 : p.d.bulletHp,
+      life, hit: new Set(), kind, angle: spreadAngle,
+      maxSpeed: kind === 'missile' ? p.d.bulletSpeed * 1.45 : speed,
+      turnRate: kind === 'missile' ? 2.7 : 4.2,
+    };
+    this.bullets.push(bullet);
+
+    // Recoil is per barrel and based on projectile cross-sectional area.
+    // Rear barrels naturally propel the tank forward because recoil opposes their shot direction.
+    const sizeRatio = barrel.width / 20;
+    const recoilDistance = BASE_RECOIL_DISTANCE * sizeRatio * sizeRatio * (barrel.recoil ?? 1);
+    const recoilImpulse = recoilDistance * SERVER_TICK_HZ * (1 - RECOIL_DECAY_PER_TICK);
+    p.rvx -= Math.cos(spreadAngle) * recoilImpulse;
+    p.rvy -= Math.sin(spreadAngle) * recoilImpulse;
+  }
+
+  private maintainDrones(p: Player, dt: number) {
+    const cls = CLASS_BY_ID[p.cls];
+    if (!cls.droneLimit) return;
+    p.droneSpawnCd = Math.max(0, p.droneSpawnCd - dt);
+    const current = this.bullets.reduce((n, b) => n + (b.owner === p.id && b.kind === 'drone' ? 1 : 0), 0);
+    if (current >= cls.droneLimit || p.droneSpawnCd > 0 || this.bullets.length >= MAX_BULLETS) return;
+
+    const source = cls.barrels.find((barrel) => barrel.projectile === 'drone');
+    const slotAngle = p.angle + ((current % 8) / 8) * Math.PI * 2;
+    const length = source?.length ?? 28;
+    const radius = source?.width ?? 14;
+    const origin = { x: p.x + Math.cos(slotAngle) * (p.r + 5), y: p.y + Math.sin(slotAngle) * (p.r + 5) };
+    const drone: Bullet = {
+      id: this.nextId++, owner: p.id, x: origin.x, y: origin.y,
+      vx: Math.cos(slotAngle) * 70, vy: Math.sin(slotAngle) * 70,
+      r: radius * 0.65, dmg: p.d.bulletDamage * (cls.droneDamageMul ?? 0.85),
+      hp: 8, life: DRONE_LIFE_S, hit: new Set(), kind: 'drone',
+      angle: slotAngle, maxSpeed: 300 * (cls.droneSpeedMul ?? 1), turnRate: 4.2,
+    };
+    // Keep the first spawn close to the tank; barrel length is used as a size hint for drone spacing.
+    drone.x += Math.cos(slotAngle) * Math.min(8, length * 0.1);
+    drone.y += Math.sin(slotAngle) * Math.min(8, length * 0.1);
+    this.bullets.push(drone);
+    p.droneSpawnCd = cls.droneBehavior === 'factory' ? 0.28 : 0.38;
+  }
+
+  private updateDrone(drone: Bullet, dt: number) {
+    const owner = this.players.get(drone.owner);
+    if (!owner?.alive) {
+      drone.x += drone.vx * dt; drone.y += drone.vy * dt;
+      return;
+    }
+    const cls = CLASS_BY_ID[owner.cls];
+    const commandAngle = owner.input.a + (owner.input.secondary ? Math.PI : 0);
+    const target = this.findTarget(owner, 980, commandAngle);
+    let desired: number;
+    if (target) desired = Math.atan2(target.y - drone.y, target.x - drone.x);
+    else if (Math.hypot(drone.x - owner.x, drone.y - owner.y) > 650) {
+      desired = Math.atan2(owner.y - drone.y, owner.x - drone.x);
+    } else if (owner.input.f || owner.input.secondary) {
+      desired = commandAngle;
+    } else {
+      const radial = Math.atan2(drone.y - owner.y, drone.x - owner.x);
+      desired = radial + (Math.sin(this.time * 1.7 + drone.id) > 0 ? 1 : -1) * 1.15;
+    }
+    const turn = clamp(angleDelta(drone.angle, desired), -drone.turnRate * dt, drone.turnRate * dt);
+    drone.angle += turn;
+    const speed = Math.min(drone.maxSpeed, Math.hypot(drone.vx, drone.vy) + 700 * dt);
+    drone.vx = Math.cos(drone.angle) * speed;
+    drone.vy = Math.sin(drone.angle) * speed;
+    drone.dmg = owner.d.bulletDamage * (cls.droneDamageMul ?? 0.85);
+    drone.x += drone.vx * dt; drone.y += drone.vy * dt;
+  }
+
+  private updateMissile(missile: Bullet, dt: number) {
+    const owner = this.players.get(missile.owner);
+    if (owner?.alive) {
+      const target = this.findTarget(owner, 900, missile.angle);
+      if (target) {
+        const desired = Math.atan2(target.y - missile.y, target.x - missile.x);
+        missile.angle += clamp(angleDelta(missile.angle, desired), -missile.turnRate * dt, missile.turnRate * dt);
+      }
+    }
+    const speed = Math.min(missile.maxSpeed, Math.hypot(missile.vx, missile.vy) + 420 * dt);
+    missile.vx = Math.cos(missile.angle) * speed;
+    missile.vy = Math.sin(missile.angle) * speed;
+    missile.x += missile.vx * dt; missile.y += missile.vy * dt;
+  }
+
+  private findTarget(owner: Player, range: number, preferredAngle: number): Target | null {
+    let best: Target | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const p of this.players.values()) {
+      if (!p.alive || p.id === owner.id) continue;
+      const dx = p.x - owner.x, dy = p.y - owner.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > range) continue;
+      const angle = Math.atan2(dy, dx);
+      const score = distance * (1 + Math.abs(angleDelta(preferredAngle, angle)) * 0.35);
+      if (score < bestScore) { bestScore = score; best = { x: p.x, y: p.y }; }
+    }
+    if (best) return best;
+    for (const s of this.shapes) {
+      const dx = s.x - owner.x, dy = s.y - owner.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > range) continue;
+      const angle = Math.atan2(dy, dx);
+      const score = distance * (1 + Math.abs(angleDelta(preferredAngle, angle)) * 0.5);
+      if (score < bestScore) { bestScore = score; best = { x: s.x, y: s.y }; }
+    }
+    return best;
+  }
+
+  private updateAutoTurrets(p: Player, dt: number) {
+    const cls = CLASS_BY_ID[p.cls];
+    const count = cls.turretCount ?? 0;
+    if (!count) return;
+    const range = cls.turretRange ?? 560;
+    const kind = cls.turretProjectile ?? 'bullet';
+    const width = kind === 'trap' ? 15 : 9;
+    const barrel: BarrelDef = {
+      angle: 0, offset: 0, length: 24, width, delay: 0,
+      recoil: kind === 'trap' ? 0.35 : 0.12, projectile: kind,
+      damageMul: kind === 'trap' ? 0.75 : 0.42, speedMul: 1,
+    };
+    for (let i = 0; i < count; i++) {
+      p.autoCd[i] = Math.max(0, (p.autoCd[i] ?? 0) - dt);
+      if (p.autoCd[i] > 0) continue;
+      const target = this.findTarget(p, range, p.angle + (i / count) * Math.PI * 2);
+      if (!target) continue;
+      const angle = Math.atan2(target.y - p.y, target.x - p.x);
+      const orbit = (i / count) * Math.PI * 2;
+      const origin = {
+        x: p.x + Math.cos(orbit) * p.r * 0.48,
+        y: p.y + Math.sin(orbit) * p.r * 0.48,
+      };
+      this.fireBarrel(p, barrel, angle, origin);
+      p.autoCd[i] = p.d.reload * (cls.turretReloadMul ?? 1.2);
+    }
+  }
+
+  private explodeExpiredFireworks() {
+    for (const rocket of this.bullets) {
+      if (rocket.kind !== 'firework' || rocket.life > 0 || rocket.hp <= 0) continue;
+      this.explodeFirework(rocket);
+    }
+  }
+
+  private splitOwnedFireworks(ownerId: number) {
+    for (const rocket of this.bullets) {
+      if (rocket.owner === ownerId && rocket.kind === 'firework' && rocket.hp > 0) {
+        this.explodeFirework(rocket);
+      }
+    }
+  }
+
+  private explodeFirework(rocket: Bullet) {
+    rocket.hp = 0;
+    const baseAngle = rocket.angle;
+    const speed = Math.max(260, Math.hypot(rocket.vx, rocket.vy) * 0.75);
+    for (let i = 0; i < FIREWORK_PELLETS && this.bullets.length < MAX_BULLETS; i++) {
+      const angle = baseAngle + (i / FIREWORK_PELLETS) * Math.PI * 2;
+      this.bullets.push({
+        id: this.nextId++, owner: rocket.owner, x: rocket.x, y: rocket.y,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        r: Math.max(3, rocket.r * 0.45), dmg: rocket.dmg * 0.42, hp: 1,
+        life: 0.8, hit: new Set(), kind: 'bullet', angle, maxSpeed: speed, turnRate: 0,
+      });
     }
   }
 
@@ -195,34 +426,38 @@ export class Game {
     s.x += (s.vx + s.kvx) * dt; s.y += (s.vy + s.kvy) * dt; s.rot += s.rotSpeed * dt;
     const dec = Math.exp(-dt * 4);
     s.kvx *= dec; s.kvy *= dec;
-    if (s.x < s.r || s.x > ARENA_SIZE - s.r) { s.vx = -s.vx; s.x = Math.min(ARENA_SIZE - s.r, Math.max(s.r, s.x)); }
-    if (s.y < s.r || s.y > ARENA_SIZE - s.r) { s.vy = -s.vy; s.y = Math.min(ARENA_SIZE - s.r, Math.max(s.r, s.y)); }
+    if (s.x < s.r || s.x > ARENA_SIZE - s.r) { s.vx = -s.vx; s.x = clamp(s.x, s.r, ARENA_SIZE - s.r); }
+    if (s.y < s.r || s.y > ARENA_SIZE - s.r) { s.vy = -s.vy; s.y = clamp(s.y, s.r, ARENA_SIZE - s.r); }
   }
 
   spawnShape() {
-    const total = SHAPE_KINDS.reduce((a, k) => a + SHAPES[k].weight, 0);
+    const total = SHAPE_KINDS.reduce((sum, kind) => sum + SHAPES[kind].weight, 0);
     let roll = this.rng() * total, kind = 0;
-    for (let i = 0; i < SHAPE_KINDS.length; i++) { roll -= SHAPES[SHAPE_KINDS[i]].weight; if (roll <= 0) { kind = i; break; } }
+    for (let i = 0; i < SHAPE_KINDS.length; i++) {
+      roll -= SHAPES[SHAPE_KINDS[i]].weight;
+      if (roll <= 0) { kind = i; break; }
+    }
     const def = SHAPES[SHAPE_KINDS[kind]];
-    const ang = this.rng() * Math.PI * 2, spd = 6 + this.rng() * 12;
+    const angle = this.rng() * Math.PI * 2, speed = 6 + this.rng() * 12;
     this.shapes.push({
       id: this.nextId++, kind, x: 100 + this.rng() * (ARENA_SIZE - 200), y: 100 + this.rng() * (ARENA_SIZE - 200),
-      vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, kvx: 0, kvy: 0, r: def.radius, hp: def.hp, maxHp: def.hp,
-      rot: this.rng() * 6.28, rotSpeed: (this.rng() - 0.5) * 0.8, lastHitBy: null,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kvx: 0, kvy: 0,
+      r: def.radius, hp: def.hp, maxHp: def.hp, rot: this.rng() * 6.28,
+      rotSpeed: (this.rng() - 0.5) * 0.8, lastHitBy: null,
     });
   }
 
   // ---------- collisions ----------
   private collideAll(dt: number) {
-    const ents: Ent[] = [];
-    for (const p of this.players.values()) if (p.alive) ents.push({ k: 0, o: p });
-    for (const s of this.shapes) ents.push({ k: 1, o: s });
-    for (const b of this.bullets) ents.push({ k: 2, o: b });
+    const entities: Ent[] = [];
+    for (const p of this.players.values()) if (p.alive) entities.push({ k: 0, o: p });
+    for (const s of this.shapes) entities.push({ k: 1, o: s });
+    for (const b of this.bullets) if (b.hp > 0 && b.life > 0) entities.push({ k: 2, o: b });
     this.grid.clear();
-    ents.forEach((e, i) => this.grid.insert(i, e.o.x, e.o.y));
-    ents.forEach((a, i) => {
+    entities.forEach((entity, index) => this.grid.insert(index, entity.o.x, entity.o.y));
+    entities.forEach((a, i) => {
       this.grid.forNeighbors(a.o.x, a.o.y, (j) => {
-        if (j > i) this.collidePair(a, ents[j], dt);
+        if (j > i) this.collidePair(a, entities[j], dt);
       });
     });
   }
@@ -233,46 +468,47 @@ export class Game {
     const dx = B.x - A.x, dy = B.y - A.y, rr = A.r + B.r;
     const d2 = dx * dx + dy * dy;
     if (d2 >= rr * rr) return;
-    const d = Math.max(Math.sqrt(d2), 0.001);
+    const distance = Math.max(Math.sqrt(d2), 0.001);
     if (a.k === 0 && b.k === 0) {
-      this.separate(A, B, dx, dy, d, rr, A.r * A.r, B.r * B.r);
+      this.separate(A, B, dx, dy, distance, rr, A.r * A.r, B.r * B.r);
       if (A.protT <= 0 && B.protT <= 0) {
         this.hurtPlayer(A, B.d.bodyDps * dt, B.id, B.name);
         this.hurtPlayer(B, A.d.bodyDps * dt, A.id, A.name);
       }
     } else if (a.k === 0 && b.k === 1) {
-      const s = b.o as unknown as Shape, def = SHAPES[SHAPE_KINDS[s.kind]];
-      this.separate(A, s as unknown as Player, dx, dy, d, rr, A.r * A.r, s.r * s.r * 1.5);
+      const shape = b.o as unknown as Shape, def = SHAPES[SHAPE_KINDS[shape.kind]];
+      this.separate(A, shape as unknown as Player, dx, dy, distance, rr, A.r * A.r, shape.r * shape.r * 1.5);
       if (A.protT <= 0) this.hurtPlayer(A, def.bodyDps * dt, null, 'a shape');
-      s.hp -= A.d.bodyDps * dt; s.lastHitBy = A.id;
+      shape.hp -= A.d.bodyDps * dt; shape.lastHitBy = A.id;
     } else if (a.k === 0 && b.k === 2) {
-      const bl = b.o as unknown as Bullet;
-      if (bl.owner === A.id || bl.hit.has(A.id) || A.protT > 0) return;
-      bl.hit.add(A.id);
-      const owner = this.players.get(bl.owner);
-      this.hurtPlayer(A, bl.dmg, bl.owner, owner?.name ?? 'Someone');
-      bl.hp -= PLAYER_PIERCE_COST;
-      A.kvx += (bl.vx / 8); A.kvy += (bl.vy / 8);
+      const bullet = b.o as unknown as Bullet;
+      if (bullet.owner === A.id || bullet.hit.has(A.id) || A.protT > 0) return;
+      bullet.hit.add(A.id);
+      const owner = this.players.get(bullet.owner);
+      this.hurtPlayer(A, bullet.dmg, bullet.owner, owner?.name ?? 'Someone');
+      bullet.hp -= bullet.kind === 'drone' ? 1 : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
+      A.kvx += bullet.vx / 8; A.kvy += bullet.vy / 8;
     } else if (a.k === 1 && b.k === 2) {
-      const s = a.o as unknown as Shape, bl = b.o as unknown as Bullet;
-      if (bl.hit.has(s.id)) return;
-      bl.hit.add(s.id);
-      s.hp -= bl.dmg; s.lastHitBy = bl.owner;
-      bl.hp -= SHAPES[SHAPE_KINDS[s.kind]].pierceCost;
-      s.kvx += bl.vx / 12; s.kvy += bl.vy / 12;
+      const shape = a.o as unknown as Shape, bullet = b.o as unknown as Bullet;
+      if (bullet.hit.has(shape.id)) return;
+      bullet.hit.add(shape.id);
+      shape.hp -= bullet.dmg; shape.lastHitBy = bullet.owner;
+      bullet.hp -= bullet.kind === 'drone' ? 1 : bullet.kind === 'trap' ? 1 : SHAPES[SHAPE_KINDS[shape.kind]].pierceCost;
+      shape.kvx += bullet.vx / 12; shape.kvy += bullet.vy / 12;
     }
   }
 
   private separate(
-    A: { x: number; y: number; kvx: number; kvy: number }, B: { x: number; y: number; kvx: number; kvy: number },
-    dx: number, dy: number, d: number, rr: number, mA: number, mB: number,
+    A: { x: number; y: number; kvx: number; kvy: number },
+    B: { x: number; y: number; kvx: number; kvy: number },
+    dx: number, dy: number, distance: number, rr: number, massA: number, massB: number,
   ) {
-    const nx = dx / d, ny = dy / d, ov = rr - d, tot = mA + mB;
-    A.x -= nx * ov * (mB / tot); A.y -= ny * ov * (mB / tot);
-    B.x += nx * ov * (mA / tot); B.y += ny * ov * (mA / tot);
-    const kick = Math.min(ov, 30) * 6;
-    A.kvx -= nx * kick * (mB / tot); A.kvy -= ny * kick * (mB / tot);
-    B.kvx += nx * kick * (mA / tot); B.kvy += ny * kick * (mA / tot);
+    const nx = dx / distance, ny = dy / distance, overlap = rr - distance, totalMass = massA + massB;
+    A.x -= nx * overlap * (massB / totalMass); A.y -= ny * overlap * (massB / totalMass);
+    B.x += nx * overlap * (massA / totalMass); B.y += ny * overlap * (massA / totalMass);
+    const kick = Math.min(overlap, 30) * 6;
+    A.kvx -= nx * kick * (massB / totalMass); A.kvy -= ny * kick * (massB / totalMass);
+    B.kvx += nx * kick * (massA / totalMass); B.kvy += ny * kick * (massA / totalMass);
   }
 
   private hurtPlayer(p: Player, amount: number, byId: number | null, byName: string) {
@@ -280,24 +516,41 @@ export class Game {
     p.hp -= amount;
     p.lastDamageT = this.time;
     p.lastHit = { id: byId, name: byName };
+    p.stealthT = 0; p.visibility = 1;
   }
 
   private reap() {
     for (const p of this.players.values()) {
       if (!p.alive || p.hp > 0) continue;
-      p.alive = false; p.hp = 0; p.input.f = false;
+      p.alive = false; p.hp = 0; p.input.f = false; p.input.secondary = false;
+      this.bullets = this.bullets.filter((b) => b.owner !== p.id || b.kind === 'bullet');
       const killer = p.lastHit?.id != null ? this.players.get(p.lastHit.id) : undefined;
       if (killer && killer.alive && killer.id !== p.id) this.addXp(killer, Math.max(25, Math.floor(p.xp * 0.6)));
       this.events.push({ type: 'dead', id: p.id, killer: p.lastHit?.name ?? 'the arena', score: p.xp, level: p.level });
     }
-    if (this.shapes.some((s) => s.hp <= 0)) {
-      for (const s of this.shapes) {
-        if (s.hp > 0) continue;
-        const k = s.lastHitBy != null ? this.players.get(s.lastHitBy) : undefined;
-        if (k && k.alive) this.addXp(k, SHAPES[SHAPE_KINDS[s.kind]].xp);
+    if (this.shapes.some((shape) => shape.hp <= 0)) {
+      for (const shape of this.shapes) {
+        if (shape.hp > 0) continue;
+        const killer = shape.lastHitBy != null ? this.players.get(shape.lastHitBy) : undefined;
+        if (killer?.alive) {
+          this.addXp(killer, SHAPES[SHAPE_KINDS[shape.kind]].xp);
+          if (CLASS_BY_ID[killer.cls].droneBehavior === 'necromancer' && shape.kind === 0) this.convertSquareToDrone(killer, shape);
+        }
       }
-      this.shapes = this.shapes.filter((s) => s.hp > 0);
+      this.shapes = this.shapes.filter((shape) => shape.hp > 0);
     }
+  }
+
+  private convertSquareToDrone(owner: Player, shape: Shape) {
+    const cls = CLASS_BY_ID[owner.cls];
+    const owned = this.bullets.filter((b) => b.owner === owner.id && b.kind === 'drone').length;
+    if (owned >= (cls.droneLimit ?? 0) || this.bullets.length >= MAX_BULLETS) return;
+    this.bullets.push({
+      id: this.nextId++, owner: owner.id, x: shape.x, y: shape.y, vx: 0, vy: 0,
+      r: 12, dmg: owner.d.bulletDamage * (cls.droneDamageMul ?? 0.6), hp: 8,
+      life: DRONE_LIFE_S, hit: new Set(), kind: 'drone', angle: owner.angle,
+      maxSpeed: 300 * (cls.droneSpeedMul ?? 1), turnRate: 4.2,
+    });
   }
 
   addXp(p: Player, amount: number) {
@@ -306,16 +559,16 @@ export class Game {
     this.refresh(p);
   }
 
-  /** Recompute derived stats; keep hp ratio when max hp changes. */
   private refresh(p: Player) {
-    const prevMax = p.maxHp;
+    const previousMax = p.maxHp;
     p.d = deriveStats(p.level, p.stats, p.cls);
     p.maxHp = p.d.maxHp;
     p.r = p.d.radius;
-    if (prevMax > 0) p.hp = Math.min(p.maxHp, p.hp * (p.maxHp / prevMax));
-    p.pts = statPointsEarned(p.level) - p.stats.reduce((a, b) => a + b, 0);
-    const n = CLASS_BY_ID[p.cls].barrels.length;
-    if (p.cd.length !== n) p.cd = new Array(n).fill(0);
+    if (previousMax > 0) p.hp = Math.min(p.maxHp, p.hp * (p.maxHp / previousMax));
+    p.pts = statPointsEarned(p.level) - p.stats.reduce((sum, value) => sum + value, 0);
+    const cls = CLASS_BY_ID[p.cls];
+    if (p.cd.length !== cls.barrels.length) p.cd = new Array(cls.barrels.length).fill(0);
+    if (p.autoCd.length !== (cls.turretCount ?? 0)) p.autoCd = new Array(cls.turretCount ?? 0).fill(0);
   }
 
   // ---------- output ----------
@@ -324,25 +577,35 @@ export class Game {
       .map((p) => ({ id: p.id, name: p.name, score: p.xp, lv: p.level }));
   }
 
-  drainEvents(): GameEvent[] { const e = this.events; this.events = []; return e; }
+  drainEvents(): GameEvent[] { const events = this.events; this.events = []; return events; }
 
   snapshotFor(id: number): Snapshot | null {
     const me = this.players.get(id);
     if (!me) return null;
-    const near = (x: number, y: number, r: number) => Math.abs(x - me.x) <= VIEW_HALF + r && Math.abs(y - me.y) <= VIEW_HALF + r;
-    const cur = totalXpForLevel(me.level), next = me.level >= 45 ? cur : totalXpForLevel(me.level + 1);
+    const near = (x: number, y: number, radius: number) =>
+      Math.abs(x - me.x) <= VIEW_HALF + radius && Math.abs(y - me.y) <= VIEW_HALF + radius;
+    const currentXp = totalXpForLevel(me.level);
+    const nextXp = me.level >= 45 ? currentXp : totalXpForLevel(me.level + 1);
+    const myClass = CLASS_BY_ID[me.cls];
+    const focus = myClass.id === 'predator' && me.input.secondary ? 1.55 : 1;
     return {
       t: 's', tick: this.tick,
       me: {
-        alive: me.alive, hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp, xpCur: cur, xpNext: next,
-        pts: me.pts, stats: me.stats.slice(), cls: me.cls, opts: me.alive ? classOptions(me.cls, me.level) : [],
+        alive: me.alive, hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
+        xpCur: currentXp, xpNext: nextXp, pts: me.pts, stats: me.stats.slice(),
+        cls: me.cls, opts: me.alive ? classOptions(me.cls, me.level) : [], fov: me.d.fovMul * focus,
       },
-      p: [...this.players.values()].filter((q) => q.alive && near(q.x, q.y, q.r)).map((q) => ({
-        id: q.id, name: q.name, x: r1(q.x), y: r1(q.y), a: r2(q.angle), hp: r1(q.hp), mhp: r1(q.maxHp),
-        r: r1(q.r), lv: q.level, cls: CLASS_IDS.indexOf(q.cls), prot: q.protT > 0 ? 1 : 0,
+      p: [...this.players.values()].filter((player) => player.alive && near(player.x, player.y, player.r)).map((player) => ({
+        id: player.id, name: player.name, x: r1(player.x), y: r1(player.y), a: r2(player.angle),
+        hp: r1(player.hp), mhp: r1(player.maxHp), r: r1(player.r), lv: player.level,
+        cls: CLASS_IDS.indexOf(player.cls), prot: player.protT > 0 ? 1 : 0, vis: player.visibility,
       })),
-      b: this.bullets.filter((b) => near(b.x, b.y, b.r)).map((b) => [b.id, r1(b.x), r1(b.y), r1(b.r), b.owner]),
-      sh: this.shapes.filter((s) => near(s.x, s.y, s.r)).map((s) => [s.id, r1(s.x), r1(s.y), r2(s.rot), s.kind, r2(s.hp / s.maxHp)]),
+      b: this.bullets.filter((bullet) => near(bullet.x, bullet.y, bullet.r)).map((bullet) => [
+        bullet.id, r1(bullet.x), r1(bullet.y), r1(bullet.r), bullet.owner,
+        PROJECTILE_KIND_IDS[bullet.kind], r2(bullet.angle),
+      ]),
+      sh: this.shapes.filter((shape) => near(shape.x, shape.y, shape.r)).map((shape) =>
+        [shape.id, r1(shape.x), r1(shape.y), r2(shape.rot), shape.kind, r2(shape.hp / shape.maxHp)]),
     };
   }
 }

@@ -26,7 +26,7 @@ test('class tree: tier 1 at 15, tier 2 at 30; parents exist', () => {
   assert.deepEqual(classOptions('basic', 15).sort(), ['flank', 'machine', 'sniper', 'twin']);
   assert.deepEqual(classOptions('twin', 29), []);
   assert.deepEqual(classOptions('twin', 30), ['triple']);
-  for (const c of CLASSES) if (c.parent) assert.ok(CLASSES.some((p) => p.id === c.parent), c.id);
+  for (const c of CLASSES) {\n    if (c.parent) assert.ok(CLASSES.some((p) => p.id === c.parent), c.id);\n    for (const parent of c.alternateParents ?? []) assert.ok(CLASSES.some((p) => p.id === parent), c.id);\n  }\n  assert.ok(classOptions('auto3', 45).includes('auto5'));\n  assert.ok(classOptions('overseer', 45).includes('overtrapper'));
 });
 
 test('each stat point improves its derived value in the right direction', () => {

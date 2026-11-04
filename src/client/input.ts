@@ -1,92 +1,113 @@
-/** Unified keyboard / mouse / touch input. Produces movement intent + aim angle + fire flag. */
+/** Unified keyboard, mouse and touch controls for movement, aim, fire and tank abilities. */
 interface Stick { id: number; ox: number; oy: number; x: number; y: number }
 export const STICK_RADIUS = 60;
 
 export class Input {
-  mx = 0; my = 0; angle = 0; fire = false;
+  mx = 0; my = 0; angle = 0; fire = false; secondary = false; spin = false;
   moveStick: Stick | null = null;
   aimStick: Stick | null = null;
   touchSeen = false;
   private keys = new Set<string>();
-  private mouse = { x: 0, y: 0, down: false, seen: false };
+  private mouse = { x: 0, y: 0, down: false, rightDown: false, seen: false };
   private everAimed = false;
   onUpgrade: (idx: number) => void = () => {};
 
   constructor(private canvas: HTMLCanvasElement) {
-    const typing = (e: Event) => (e.target as HTMLElement | null)?.tagName === 'INPUT';
-    window.addEventListener('keydown', (e) => {
-      if (typing(e)) return;
-      if (e.key >= '1' && e.key <= '8' && !e.repeat) this.onUpgrade(Number(e.key) - 1);
-      this.keys.add(e.key.toLowerCase());
-      if (e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
+    const typing = (event: Event) => (event.target as HTMLElement | null)?.tagName === 'INPUT';
+    window.addEventListener('keydown', (event) => {
+      if (typing(event)) return;
+      const key = event.key.toLowerCase();
+      if (event.key >= '1' && event.key <= '8' && !event.repeat) this.onUpgrade(Number(event.key) - 1);
+      if (key === 'c' && !event.repeat) this.spin = !this.spin;
+      this.keys.add(key);
+      if (event.key === ' ' || event.key.startsWith('Arrow')) event.preventDefault();
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
+    window.addEventListener('keyup', (event) => this.keys.delete(event.key.toLowerCase()));
     window.addEventListener('blur', () => this.reset());
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    canvas.addEventListener('pointerdown', (e) => this.down(e));
-    canvas.addEventListener('pointermove', (e) => this.move(e));
-    canvas.addEventListener('pointerup', (e) => this.up(e));
-    canvas.addEventListener('pointercancel', (e) => this.up(e));
-    canvas.addEventListener('lostpointercapture', (e) => this.up(e));
-    // Stop iOS pinch/scroll gestures while playing.
-    for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, (e) => e.preventDefault());
-    canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+    canvas.addEventListener('pointerdown', (event) => this.down(event));
+    canvas.addEventListener('pointermove', (event) => this.move(event));
+    canvas.addEventListener('pointerup', (event) => this.up(event));
+    canvas.addEventListener('pointercancel', (event) => this.up(event));
+    canvas.addEventListener('lostpointercapture', (event) => this.up(event));
+    for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+      document.addEventListener(type, (event) => event.preventDefault());
+    }
+    canvas.addEventListener('touchmove', (event) => event.preventDefault(), { passive: false });
   }
 
   reset() {
-    this.keys.clear(); this.mouse.down = false; this.moveStick = null; this.aimStick = null;
+    this.keys.clear();
+    this.mouse.down = false;
+    this.mouse.rightDown = false;
+    this.moveStick = null;
+    this.aimStick = null;
+    this.spin = false;
   }
 
-  private down(e: PointerEvent) {
-    e.preventDefault();
-    if (e.pointerType === 'mouse') {
-      this.mouse.x = e.clientX; this.mouse.y = e.clientY; this.mouse.seen = true;
-      if (e.button === 0) this.mouse.down = true;
+  private down(event: PointerEvent) {
+    event.preventDefault();
+    if (event.pointerType === 'mouse') {
+      this.mouse.x = event.clientX; this.mouse.y = event.clientY; this.mouse.seen = true;
+      if (event.button === 0) this.mouse.down = true;
+      if (event.button === 2) this.mouse.rightDown = true;
     } else {
       this.touchSeen = true;
-      const s: Stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: e.clientX, y: e.clientY };
-      const left = e.clientX < window.innerWidth / 2;
-      if (left && !this.moveStick) this.moveStick = s;
-      else if (!left && !this.aimStick) this.aimStick = s;
-      else if (!this.moveStick) this.moveStick = s;
-      else if (!this.aimStick) this.aimStick = s;
+      const stick: Stick = { id: event.pointerId, ox: event.clientX, oy: event.clientY, x: event.clientX, y: event.clientY };
+      const left = event.clientX < window.innerWidth / 2;
+      if (left && !this.moveStick) this.moveStick = stick;
+      else if (!left && !this.aimStick) this.aimStick = stick;
+      else if (!this.moveStick) this.moveStick = stick;
+      else if (!this.aimStick) this.aimStick = stick;
       else return;
     }
-    try { this.canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-  }
-  private move(e: PointerEvent) {
-    if (e.pointerType === 'mouse') { this.mouse.x = e.clientX; this.mouse.y = e.clientY; this.mouse.seen = true; return; }
-    for (const s of [this.moveStick, this.aimStick]) if (s && s.id === e.pointerId) { s.x = e.clientX; s.y = e.clientY; }
-  }
-  private up(e: PointerEvent) {
-    if (e.pointerType === 'mouse') { if (e.button === 0 || e.type !== 'pointerup') this.mouse.down = false; return; }
-    if (this.moveStick?.id === e.pointerId) this.moveStick = null;
-    if (this.aimStick?.id === e.pointerId) this.aimStick = null;
+    try { this.canvas.setPointerCapture(event.pointerId); } catch { /* capture is optional */ }
   }
 
-  /** Recompute intents for the current frame. w/h are CSS pixel size of the canvas. */
+  private move(event: PointerEvent) {
+    if (event.pointerType === 'mouse') {
+      this.mouse.x = event.clientX; this.mouse.y = event.clientY; this.mouse.seen = true;
+      return;
+    }
+    for (const stick of [this.moveStick, this.aimStick]) {
+      if (stick?.id === event.pointerId) { stick.x = event.clientX; stick.y = event.clientY; }
+    }
+  }
+
+  private up(event: PointerEvent) {
+    if (event.pointerType === 'mouse') {
+      if (event.button === 0 || event.type !== 'pointerup') this.mouse.down = false;
+      if (event.button === 2 || event.type !== 'pointerup') this.mouse.rightDown = false;
+      return;
+    }
+    if (this.moveStick?.id === event.pointerId) this.moveStick = null;
+    if (this.aimStick?.id === event.pointerId) this.aimStick = null;
+  }
+
+  /** Recompute intent for the current frame. w/h are CSS pixel canvas dimensions. */
   update(w: number, h: number) {
-    const k = this.keys;
-    let mx = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0);
-    let my = (k.has('s') || k.has('arrowdown') ? 1 : 0) - (k.has('w') || k.has('arrowup') ? 1 : 0);
+    const keys = this.keys;
+    let mx = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
+    let my = (keys.has('s') || keys.has('arrowdown') ? 1 : 0) - (keys.has('w') || keys.has('arrowup') ? 1 : 0);
     if (this.moveStick) {
-      const dx = (this.moveStick.x - this.moveStick.ox) / STICK_RADIUS, dy = (this.moveStick.y - this.moveStick.oy) / STICK_RADIUS;
-      const len = Math.hypot(dx, dy);
-      if (len > 0.15) { mx = dx / Math.max(1, len); my = dy / Math.max(1, len); }
-      if (!this.everAimed && len > 0.3) this.angle = Math.atan2(dy, dx);
+      const dx = (this.moveStick.x - this.moveStick.ox) / STICK_RADIUS;
+      const dy = (this.moveStick.y - this.moveStick.oy) / STICK_RADIUS;
+      const length = Math.hypot(dx, dy);
+      if (length > 0.15) { mx = dx / Math.max(1, length); my = dy / Math.max(1, length); }
+      if (!this.everAimed && length > 0.3) this.angle = Math.atan2(dy, dx);
     }
     this.mx = mx; this.my = my;
-    let fire = k.has(' ') || this.mouse.down;
+
+    let fire = keys.has(' ') || keys.has('e') || this.mouse.down;
     if (this.aimStick) {
       const dx = this.aimStick.x - this.aimStick.ox, dy = this.aimStick.y - this.aimStick.oy;
-      const len = Math.hypot(dx, dy);
-      if (len > 8) { this.angle = Math.atan2(dy, dx); this.everAimed = true; }
-      if (len > 14) fire = true;
-    } else if (this.mouse.seen && !this.touchSeen) {
-      this.angle = Math.atan2(this.mouse.y - h / 2, this.mouse.x - w / 2);
-    } else if (this.mouse.seen && this.mouse.down) {
+      const length = Math.hypot(dx, dy);
+      if (length > 8) { this.angle = Math.atan2(dy, dx); this.everAimed = true; }
+      if (length > 14) fire = true;
+    } else if (this.mouse.seen && (!this.touchSeen || this.mouse.down || this.mouse.rightDown)) {
       this.angle = Math.atan2(this.mouse.y - h / 2, this.mouse.x - w / 2);
     }
     this.fire = fire;
+    this.secondary = this.mouse.rightDown || keys.has('shift');
   }
 }

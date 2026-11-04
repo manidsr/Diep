@@ -73,7 +73,7 @@ const INTERP_MS = 100;
 function onSnapshot(s: Snapshot) {
   // New bullets owned by us trigger a short directional camera punch. Bigger rounds hit harder.
   for (const bullet of s.b) {
-    if (bullet[4] !== selfId || seenOwnBulletIds.has(bullet[0])) continue;
+    if (bullet[4] !== selfId || bullet[5] !== 0 || seenOwnBulletIds.has(bullet[0])) continue;
     seenOwnBulletIds.add(bullet[0]);
     const kick = Math.min(5.5, 1.5 + bullet[3] * 0.3);
     recoilCameraX = Math.max(-22, Math.min(22, recoilCameraX + Math.cos(input.angle) * kick));
@@ -104,7 +104,7 @@ function sample(now: number): View | null {
   const t = a === b ? 1 : Math.min(1, Math.max(0, (rt - a.recv) / (b.recv - a.recv)));
   return {
     players: b.snap.p.map((p) => { const q = a.pm.get(p.id); return q ? { ...p, x: lerp(q.x, p.x, t), y: lerp(q.y, p.y, t), a: lerpAng(q.a, p.a, t) } : p; }),
-    bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4]] : x; }),
+    bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4], x[5], x[6]] : x; }),
     shapes: b.snap.sh.map((x) => { const q = a.sm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), lerpAng(q[3], x[3], t), x[4], x[5]] : x; }),
   };
 }
@@ -217,7 +217,7 @@ function updateHud(m: SelfSnap) {
       if (lastLv > 0) showToast('EVOLUTION READY', 'Choose a new tank class');
     }
     m.opts.forEach((id, n) => {
-      const b = document.createElement('button'); b.textContent = CLASS_BY_ID[id]?.name ?? id;
+      const b = document.createElement('button'); b.textContent = CLASS_BY_ID[id]?.name ?? id; b.title = CLASS_BY_ID[id]?.description ?? id;
       b.style.animationDelay = `${n * 0.08}s, ${0.5 + n * 0.08}s`;
       b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (playing) send({ t: 'class', id }); });
       classesEl.append(b);
@@ -285,7 +285,7 @@ function frame(now: number) {
   requestAnimationFrame(frame);
   input.update(W, H);
   if (playing && now - lastSendT >= 33) {
-    const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${input.angle.toFixed(2)},"f":${input.fire ? 1 : 0}}`;
+    const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${input.angle.toFixed(2)},"f":${input.fire ? 1 : 0},"secondary":${input.secondary ? 1 : 0},"spin":${input.spin ? 1 : 0}}`;
     if (msg !== lastSent || now - lastSendT > 500) {
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
       lastSent = msg; lastSendT = now;
@@ -302,7 +302,7 @@ function frame(now: number) {
   recoilCameraX *= 0.72; recoilCameraY *= 0.72;
   if (Math.abs(recoilCameraX) < 0.05) recoilCameraX = 0;
   if (Math.abs(recoilCameraY) < 0.05) recoilCameraY = 0;
-  drawFrame(ctx, W, H, cam, view, selfId);
+  drawFrame(ctx, W, H, cam, view, selfId, frames[frames.length - 1]?.snap.me.fov ?? 1);
   if (playing) drawSticks(ctx, W, H, input);
 }
 requestAnimationFrame(frame);

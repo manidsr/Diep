@@ -4,24 +4,26 @@ import { STICK_RADIUS, type Input } from './input';
 
 export interface View {
   players: PlayerSnap[];
-  bullets: [number, number, number, number, number][];
+  bullets: [number, number, number, number, number, number, number][];
   shapes: [number, number, number, number, number, number][];
 }
 
 const ME = { fill: '#00b2e1', stroke: '#0083a8' };
 const FOE = { fill: '#f14e54', stroke: '#b43a3f' };
-
-// ---- Tank look: tweak these to taste ----
-const BODY_STROKE = 4.5;          // body outline thickness
-const BARREL_STROKE = 4;          // barrel outline thickness
+const BODY_STROKE = 4.5;
+const BARREL_STROKE = 4;
 const BARREL_FILL = '#999999';
 const BARREL_EDGE = '#727272';
-const BARREL_WIDTH_MUL = 1.15;    // makes barrels a little chunkier (render only)
-const NAME_GAP = 16;              // distance of name below the tank edge
-const HP_GAP = 10;                // distance of hp bar below the tank edge
+const BARREL_WIDTH_MUL = 1.15;
+const NAME_GAP = 16;
+const HP_GAP = 10;
 
-export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, cam: { x: number; y: number }, view: View, selfId: number) {
-  const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000);
+export function drawFrame(
+  ctx: CanvasRenderingContext2D, W: number, H: number,
+  cam: { x: number; y: number }, view: View, selfId: number, fovMul = 1,
+) {
+  const fov = Math.max(0.65, Math.min(1.8, fovMul));
+  const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000) / fov;
   ctx.fillStyle = '#b4b4b8';
   ctx.fillRect(0, 0, W, H);
   ctx.save();
@@ -31,9 +33,10 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, c
 
   ctx.fillStyle = '#cdcdd2';
   ctx.fillRect(0, 0, ARENA_SIZE, ARENA_SIZE);
-  // grid (visible range only)
-  const x0 = Math.max(0, Math.floor((cam.x - W / 2 / scale) / 50) * 50), x1 = Math.min(ARENA_SIZE, cam.x + W / 2 / scale);
-  const y0 = Math.max(0, Math.floor((cam.y - H / 2 / scale) / 50) * 50), y1 = Math.min(ARENA_SIZE, cam.y + H / 2 / scale);
+  const x0 = Math.max(0, Math.floor((cam.x - W / 2 / scale) / 50) * 50);
+  const x1 = Math.min(ARENA_SIZE, cam.x + W / 2 / scale);
+  const y0 = Math.max(0, Math.floor((cam.y - H / 2 / scale) / 50) * 50);
+  const y1 = Math.min(ARENA_SIZE, cam.y + H / 2 / scale);
   ctx.strokeStyle = '#c1c1c7';
   ctx.lineWidth = 1 / scale + 0.5;
   ctx.beginPath();
@@ -41,93 +44,144 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, c
   for (let y = y0; y <= y1; y += 50) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
   ctx.stroke();
 
-  for (const s of view.shapes) drawShape(ctx, s);
-  for (const b of view.bullets) {
-    const c = b[4] === selfId ? ME : FOE;
-    circle(ctx, b[1], b[2], b[3], c.fill, c.stroke, 3);
-  }
-  // Draw other tanks first, own tank on top.
-  for (const p of view.players) if (p.id !== selfId) drawTank(ctx, p, false);
-  for (const p of view.players) if (p.id === selfId) drawTank(ctx, p, true);
+  for (const shape of view.shapes) drawShape(ctx, shape);
+  for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId);
+  for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false);
+  for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true);
   ctx.restore();
 }
 
-function circle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, stroke: string, lw: number) {
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+function circle(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, fill: string, stroke: string, lineWidth: number) {
+  ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.fillStyle = fill; ctx.fill();
-  ctx.lineWidth = lw; ctx.strokeStyle = stroke; ctx.stroke();
+  ctx.lineWidth = lineWidth; ctx.strokeStyle = stroke; ctx.stroke();
 }
 
-function drawShape(ctx: CanvasRenderingContext2D, s: View['shapes'][number]) {
-  const def = SHAPES[SHAPE_KINDS[s[4]]];
+function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][number], mine: boolean) {
+  const [, x, y, radius, , kind, angle] = bullet;
+  const palette = mine ? ME : FOE;
+  if (kind === 1) {
+    // Drone: diamond-shaped body with a visible centre.
+    ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+    ctx.beginPath(); ctx.moveTo(radius * 1.35, 0); ctx.lineTo(0, radius * 0.95);
+    ctx.lineTo(-radius * 1.15, 0); ctx.lineTo(0, -radius * 0.95); ctx.closePath();
+    ctx.fillStyle = '#d8f3ff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = palette.stroke; ctx.stroke();
+    circle(ctx, 0, 0, Math.max(2, radius * 0.28), palette.fill, palette.stroke, 1);
+    ctx.restore();
+  } else if (kind === 2) {
+    // Trap: stationary square with a heavy outline.
+    ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#f3c56b'; ctx.strokeStyle = '#8d6232'; ctx.lineWidth = 3;
+    ctx.fillRect(-radius * 0.78, -radius * 0.78, radius * 1.56, radius * 1.56);
+    ctx.strokeRect(-radius * 0.78, -radius * 0.78, radius * 1.56, radius * 1.56);
+    ctx.restore();
+  } else if (kind === 3 || kind === 4) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+    ctx.beginPath(); ctx.moveTo(radius * 1.9, 0); ctx.lineTo(-radius, -radius * 0.72); ctx.lineTo(-radius * 0.55, 0);
+    ctx.lineTo(-radius, radius * 0.72); ctx.closePath();
+    ctx.fillStyle = kind === 3 ? '#ffc36a' : '#fff0a0'; ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = kind === 3 ? '#9c5a23' : '#b78327'; ctx.stroke();
+    ctx.restore();
+  } else {
+    circle(ctx, x, y, radius, palette.fill, palette.stroke, 3);
+  }
+}
+
+function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number]) {
+  const def = SHAPES[SHAPE_KINDS[shape[4]]];
   ctx.beginPath();
   for (let i = 0; i < def.sides; i++) {
-    const a = s[3] + (i * Math.PI * 2) / def.sides;
-    const px = s[1] + Math.cos(a) * def.radius, py = s[2] + Math.sin(a) * def.radius;
+    const angle = shape[3] + (i * Math.PI * 2) / def.sides;
+    const px = shape[1] + Math.cos(angle) * def.radius;
+    const py = shape[2] + Math.sin(angle) * def.radius;
     if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
   }
   ctx.closePath();
   ctx.fillStyle = def.color; ctx.fill();
   ctx.lineWidth = 3; ctx.strokeStyle = def.stroke; ctx.lineJoin = 'round'; ctx.stroke();
-  if (s[5] < 1) hpBar(ctx, s[1], s[2] + def.radius + 10, def.radius * 1.4, s[5]);
+  if (shape[5] < 1) hpBar(ctx, shape[1], shape[2] + def.radius + 10, def.radius * 1.4, shape[5]);
 }
 
-function hpBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, frac: number) {
-  ctx.fillStyle = '#000a'; ctx.fillRect(x - w / 2 - 2, y - 4, w + 4, 8);
-  ctx.fillStyle = '#85e37d'; ctx.fillRect(x - w / 2, y - 2, w * Math.max(0, Math.min(1, frac)), 4);
+function hpBar(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, fraction: number) {
+  ctx.fillStyle = '#000a'; ctx.fillRect(x - width / 2 - 2, y - 4, width + 4, 8);
+  ctx.fillStyle = '#85e37d'; ctx.fillRect(x - width / 2, y - 2, width * Math.max(0, Math.min(1, fraction)), 4);
 }
 
-function drawTank(ctx: CanvasRenderingContext2D, p: PlayerSnap, mine: boolean) {
-  const c = mine ? ME : FOE;
-  const cls = CLASSES[p.cls] ?? CLASSES[0];
-  const sc = p.r / PLAYER_BASE_RADIUS;
-
-  // Barrels (drawn first so the round body covers their base).
+function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boolean) {
+  const palette = mine ? ME : FOE;
+  const cls = CLASSES[player.cls] ?? CLASSES[0];
+  const scale = player.r / PLAYER_BASE_RADIUS;
   ctx.save();
-  ctx.translate(p.x, p.y);
-  ctx.rotate(p.a);
+  ctx.globalAlpha *= Math.max(0.04, Math.min(1, player.vis ?? 1));
+
+  // Main barrels.
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  ctx.rotate(player.a);
   ctx.lineJoin = 'round';
-  for (const b of cls.barrels) {
+  for (const barrel of cls.barrels) {
     ctx.save();
-    ctx.rotate(b.angle);
-    const w = b.width * sc * BARREL_WIDTH_MUL;
-    const len = b.length * sc;
-    ctx.fillStyle = BARREL_FILL; ctx.strokeStyle = BARREL_EDGE; ctx.lineWidth = BARREL_STROKE;
-    ctx.fillRect(0, b.offset * sc - w / 2, len, w);
-    ctx.strokeRect(0, b.offset * sc - w / 2, len, w);
+    ctx.rotate(barrel.angle);
+    const width = barrel.width * scale * BARREL_WIDTH_MUL;
+    const length = barrel.length * scale;
+    ctx.fillStyle = barrel.projectile === 'trap' ? '#b8a17e' : barrel.projectile === 'missile' ? '#bd9b70' : BARREL_FILL;
+    ctx.strokeStyle = BARREL_EDGE; ctx.lineWidth = BARREL_STROKE;
+    ctx.fillRect(0, barrel.offset * scale - width / 2, length, width);
+    ctx.strokeRect(0, barrel.offset * scale - width / 2, length, width);
+    ctx.restore();
+  }
+
+  // Auto turrets are mounted on the body and can aim independently on the server.
+  const turretCount = cls.turretCount ?? 0;
+  for (let i = 0; i < turretCount; i++) {
+    const angle = (i / turretCount) * Math.PI * 2;
+    const mountRadius = player.r * 0.42;
+    const tx = Math.cos(angle) * mountRadius;
+    const ty = Math.sin(angle) * mountRadius;
+    ctx.save();
+    ctx.translate(tx, ty);
+    ctx.rotate(angle - player.a);
+    ctx.fillStyle = '#777'; ctx.strokeStyle = '#555'; ctx.lineWidth = 2.5;
+    ctx.fillRect(-2, -5 * scale, 18 * scale, 10 * scale);
+    ctx.strokeRect(-2, -5 * scale, 18 * scale, 10 * scale);
+    circle(ctx, 0, 0, 6 * scale, '#888', '#555', 2);
     ctx.restore();
   }
   ctx.restore();
 
-  // Body
-  circle(ctx, p.x, p.y, p.r, c.fill, c.stroke, BODY_STROKE);
-
-  // Spawn protection: opaque tank plus a pulsing shield ring instead of see-through
-  if (p.prot) {
+  // Body and shield.
+  circle(ctx, player.x, player.y, player.r, palette.fill, palette.stroke, BODY_STROKE);
+  if (player.prot) {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 7 + pulse * 3, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(player.x, player.y, player.r + 7 + pulse * 3, 0, Math.PI * 2);
     ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.4})`; ctx.stroke();
   }
-
-  // Health bar (only when hurt) then name, both below the tank.
-  let y = p.y + p.r;
-  if (p.hp < p.mhp) { hpBar(ctx, p.x, y + HP_GAP, p.r * 1.8, p.hp / p.mhp); y += HP_GAP + 8; }
+  let y = player.y + player.r;
+  if (player.hp < player.mhp && player.vis > 0.5) {
+    hpBar(ctx, player.x, y + HP_GAP, player.r * 1.8, player.hp / player.mhp);
+    y += HP_GAP + 8;
+  }
   ctx.font = 'bold 15px system-ui, sans-serif';
   ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = '#000b'; ctx.fillStyle = '#fff';
-  ctx.strokeText(p.name, p.x, y + NAME_GAP + 4);
-  ctx.fillText(p.name, p.x, y + NAME_GAP + 4);
+  if (player.vis > 0.5) {
+    ctx.strokeText(player.name, player.x, y + NAME_GAP + 4);
+    ctx.fillText(player.name, player.x, y + NAME_GAP + 4);
+  }
+  ctx.restore();
 }
 
-/** Virtual joysticks (screen space). Faint hints are shown on touch devices before any touch. */
+/** Virtual joysticks are shown on touch devices after the first touch. */
 export function drawSticks(ctx: CanvasRenderingContext2D, W: number, H: number, input: Input) {
   if (!input.touchSeen) return;
-  const draw = (s: { ox: number; oy: number; x: number; y: number } | null, hx: number, hy: number, col: string) => {
-    const ox = s ? s.ox : hx, oy = s ? s.oy : hy;
-    ctx.globalAlpha = s ? 0.5 : 0.18;
+  const draw = (stick: { ox: number; oy: number; x: number; y: number } | null, hintX: number, hintY: number, color: string) => {
+    const ox = stick ? stick.ox : hintX, oy = stick ? stick.oy : hintY;
+    ctx.globalAlpha = stick ? 0.5 : 0.18;
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ox, oy, STICK_RADIUS, 0, Math.PI * 2); ctx.fill();
-    if (s) {
-      const dx = s.x - s.ox, dy = s.y - s.oy, len = Math.hypot(dx, dy), k = len > STICK_RADIUS ? STICK_RADIUS / len : 1;
-      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(ox + dx * k, oy + dy * k, 26, 0, Math.PI * 2); ctx.fill();
+    if (stick) {
+      const dx = stick.x - stick.ox, dy = stick.y - stick.oy;
+      const length = Math.hypot(dx, dy), factor = length > STICK_RADIUS ? STICK_RADIUS / length : 1;
+      ctx.fillStyle = color; ctx.beginPath();
+      ctx.arc(ox + dx * factor, oy + dy * factor, 26, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
   };

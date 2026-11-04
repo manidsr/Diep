@@ -169,3 +169,97 @@ test('room cap and shape respawn', () => {
   run(g, 60);
   assert.ok(g.shapes.length > 50);
 });
+
+
+test('Smasher branches refund projectile stats and only allow body-focused upgrades', () => {
+  const game = fresh();
+  const player = game.addPlayer('rammer')!;
+  game.addXp(player, totalXpForLevel(28));
+  for (const index of [3, 4, 5, 6]) assert.ok(game.upgradeStat(player.id, index));
+  const spentPoints = player.pts;
+  assert.ok(game.debugSetClass(player.id, 'smasher'));
+  assert.deepEqual(player.stats.slice(3, 7), [0, 0, 0, 0]);
+  assert.ok(player.pts > spentPoints);
+  assert.equal(game.upgradeStat(player.id, 3), false);
+  assert.equal(game.upgradeStat(player.id, 6), false);
+  assert.ok(player.d.bodyDps > 18);
+  assert.equal(player.cd.length, 0);
+});
+
+test('Overlord drones spawn up to their class limit and are server simulated', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('overlord')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'overlord'));
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: true });
+  run(game, 4);
+  const drones = game.bullets.filter((bullet) => bullet.owner === player.id && bullet.kind === 'drone');
+  assert.equal(drones.length, 8);
+  assert.ok(drones.every((drone) => Number.isFinite(drone.x) && Number.isFinite(drone.y)));
+});
+
+test('Trapper launches a stationary trap instead of a normal travelling bullet', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('trapper')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'trapper'));
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: true });
+  game.step(DT);
+  const trap = game.bullets.find((bullet) => bullet.owner === player.id && bullet.kind === 'trap');
+  assert.ok(trap);
+  assert.equal(trap!.vx, 0);
+  assert.equal(trap!.vy, 0);
+  const x = trap!.x, y = trap!.y;
+  run(game, 0.5);
+  assert.equal(trap!.x, x);
+  assert.equal(trap!.y, y);
+});
+
+test('guided missiles accelerate after launch', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('skimmer')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'skimmer'));
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: true });
+  game.step(DT);
+  const missile = game.bullets.find((bullet) => bullet.owner === player.id && bullet.kind === 'missile');
+  assert.ok(missile);
+  const initialSpeed = Math.hypot(missile!.vx, missile!.vy);
+  run(game, 0.25);
+  assert.ok(Math.hypot(missile!.vx, missile!.vy) > initialSpeed);
+});
+
+test('Firework rockets split into sixteen pellets on secondary input', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('firework')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'firework'));
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: true });
+  game.step(DT);
+  assert.equal(game.bullets.filter((bullet) => bullet.kind === 'firework').length, 1);
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false, secondary: true });
+  game.step(DT);
+  assert.equal(game.bullets.filter((bullet) => bullet.owner === player.id && bullet.kind === 'bullet').length, 16);
+  assert.equal(game.bullets.filter((bullet) => bullet.kind === 'firework').length, 0);
+});
+
+test('Stalker becomes hidden while stationary and is revealed by firing', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('stalker')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'stalker'));
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
+  run(game, 2.2);
+  assert.equal(player.visibility, 0.08);
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: true });
+  game.step(DT);
+  assert.equal(player.visibility, 1);
+});
+
+test('Auto 3 turret fires at a nearby target without player firing input', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('auto')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'auto3'));
+  game.shapes.push({
+    id: 9999, kind: 0, x: 1200, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
+    r: 24, hp: 100, maxHp: 100, rot: 0, rotSpeed: 0, lastHitBy: null,
+  });
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
+  game.step(DT);
+  assert.ok(game.bullets.some((bullet) => bullet.owner === player.id && bullet.kind === 'bullet'));
+});
