@@ -1769,8 +1769,8 @@ export class Game {
     return guardianMul * armourMul * bossMul * perkMul;
   }
 
-  private applySurvivalHitEffects(owner: Player, zombie: Zombie, dealt: number, bullet: Bullet) {
-    if (this.mode !== 'survival') return;
+  private applySurvivalHitEffects(owner: Player | undefined, zombie: Zombie, dealt: number, bullet: Bullet) {
+    if (this.mode !== 'survival' || !owner) return;
     const lifesteal = this.perkCount(owner, 'lifesteal');
     if (lifesteal > 0) owner.hp = Math.min(owner.maxHp, owner.hp + dealt * 0.05 * lifesteal);
     if (bullet.chilled) zombie.slowT = Math.max(zombie.slowT, 3);

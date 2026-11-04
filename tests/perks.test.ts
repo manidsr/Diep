@@ -183,7 +183,7 @@ test('lifesteal, burn, chain, splash and enemy-specific damage cards apply on re
     const oldHp = player.hp;
     hit(game, b, direct);
     assert.ok(player.hp > oldHp);
-    assert.ok(direct.burnT >= 3 && (direct.burnDps ?? 0) > 0);
+    assert.ok((direct.burnT ?? 0) >= 3 && (direct.burnDps ?? 0) > 0);
     assert.ok(chain.hp < chain.maxHp);
     const beforeBurn = direct.hp;
     c.updateZombie(direct, 0.51);
@@ -346,7 +346,7 @@ test('movement and drone-support cards improve real player and drone movement/da
     for (let i = 0; i < 12; i++) c.maintainDrones(player, 0.5);
     const d = game.bullets.find((b) => b.owner === player.id && b.kind === 'drone')!;
     const cls = CLASS_BY_ID.overseer!;
-    assert.ok(Math.abs(d.dmg - player.d.bulletDamage * cls.droneDamageMul * 1.15 * 1.15) < 0.001);
+    assert.ok(Math.abs(d.dmg - player.d.bulletDamage * (cls.droneDamageMul ?? 0.85) * 1.15 * 1.15) < 0.001);
     assert.ok(Math.abs(d.maxSpeed - 300 * cls.droneSpeedMul! * 1.08 * 1.1) < 0.001);
     assert.equal(d.chilled, true);
     assert.equal(d.explosionRadius, 42);
