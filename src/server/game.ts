@@ -950,7 +950,8 @@ export class Game {
         Math.hypot(player.x - drop.x, player.y - drop.y) <= player.r + drop.r + 8
       );
       if (!collector) continue;
-      collector.hp = Math.min(collector.maxHp, collector.hp + drop.heal);
+      const medicalStacks = this.mode === 'survival' ? this.perkCount(collector, 'medicalSupplies') : 0;
+      collector.hp = Math.min(collector.maxHp, collector.hp + drop.heal * (1 + medicalStacks * 0.18));
       collector.lastDamageT = Math.min(collector.lastDamageT, this.time - REGEN_DELAY_S);
       drop.life = 0;
     }
@@ -974,6 +975,10 @@ export class Game {
   private updateXpDrops(dt: number) {
     for (const drop of this.xpDrops) {
       drop.age += dt; drop.life -= dt;
+      // Any living teammate can collect a world orb; its XP is immediately shared with the whole run.
+      const collector = [...this.players.values()].find((player) => player.connected && player.alive && !player.downed &&
+        Math.hypot(player.x - drop.x, player.y - drop.y) <= player.r + drop.r + 10);
+      if (collector) { this.collectXpDrop(drop); continue; }
       if (drop.age >= 10) {
         let nearest: Player | undefined, nearestDistance = Infinity;
         for (const player of this.players.values()) {
