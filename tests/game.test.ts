@@ -624,6 +624,8 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
   });
   Object.assign(teammate, { x: 2200, y: 2200, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0, protT: 0 });
   const xpBefore = player.xp, teammateXpBefore = teammate.xp;
+  const waveState = game as unknown as { waveSpawnRemaining: number };
+  waveState.waveSpawnRemaining = Math.max(1, waveState.waveSpawnRemaining); // Keep the wave active while testing physical collection.
   game.bullets.push({
     id: 99001, owner: player.id, x: zombie.x, y: zombie.y, vx: 0, vy: 0,
     r: 8, dmg: zombie.hp + 100, hp: 5, life: 2, hit: new Set<number>(),
@@ -689,15 +691,16 @@ test('Co-op Survival advances to a harder wave after the arena is cleared', () =
   assert.ok(waveState.waveSpawnRemaining > 0, 'the next wave should queue a larger enemy group');
 });
 
-test('Co-op Survival ends the run when every player is eliminated', () => {
+test('Co-op Survival keeps a squad-wiped player downed instead of ending the run', () => {
   const game = new Game(seeded(64), 0, 'survival');
   const player = game.addPlayer('last survivor')!;
   player.hp = 0;
   player.lastDamageT = game.time;
   game.step(DT);
-  assert.equal(player.alive, false);
-  assert.equal(game.survivalGameOver, true);
-  assert.equal(game.survivalLeaderboard().gameOver, true);
+  assert.equal(player.downed, true);
+  assert.equal(player.alive, true);
+  assert.equal(game.survivalGameOver, false);
+  assert.equal(game.survivalLeaderboard().gameOver, false);
 });
 
 
@@ -1028,9 +1031,9 @@ test('A downed survivor stays revivable indefinitely and keeps their progress un
 test('Boss kills guarantee a health pickup that heals a wounded survivor', () => {
   const game = new Game(seeded(100), 0, 'survival');
   const player = place(game, game.addPlayer('loot tester')!.id, 1000, 1000);
-  const state = game as unknown as { wave: number; waveSpawned: number; spawnZombie: () => boolean };
+  const state = game as unknown as { wave: number; waveSpawned: number; waveSpawnRemaining: number; spawnZombie: () => boolean };
   state.wave = 5; state.waveSpawned = 0; assert.ok(state.spawnZombie());
-  state.waveSpawned = 21; // Wave 5 solo quota has been fully spawned; only this boss is being reaped.
+  state.waveSpawned = 21; state.waveSpawnRemaining = 1; // Keep the wave active so the boss XP cache remains visible for the assertion.
   const boss = game.zombies[0]!;
   Object.assign(boss, { x: 1800, y: 1800, hp: 0, damageBy: new Map([[player.id, 100]]) });
   player.hp = player.maxHp * 0.3;
