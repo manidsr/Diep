@@ -88,7 +88,7 @@ export class Game {
     p.alive = true; p.protT = RESPAWN_PROTECTION_S; p.lastHit = null; p.lastDamageT = -99;
     p.input = { mx: 0, my: 0, a: p.angle, f: false, secondary: false, spin: false };
     p.wasFiring = false; p.wasSecondary = false; p.stealthT = 0; p.visibility = 1;
-    p.droneSpawnCd = 0;
+    p.droneSpawnCd = 0; p.cd = [0]; p.autoCd = [];
     this.bullets = this.bullets.filter((b) => b.owner !== id || b.kind === 'bullet');
     this.refresh(p);
     p.hp = p.maxHp;
@@ -143,6 +143,9 @@ export class Game {
     this.bullets = this.bullets.filter((b) => b.owner !== p.id || b.kind === 'bullet');
     p.droneSpawnCd = 0;
     p.stealthT = 0; p.visibility = 1;
+    p.wasFiring = false; p.wasSecondary = false;
+    p.cd = new Array(CLASS_BY_ID[classId].barrels.length).fill(0);
+    p.autoCd = new Array(CLASS_BY_ID[classId].turretCount ?? 0).fill(0);
     this.refresh(p);
   }
 

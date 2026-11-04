@@ -263,3 +263,22 @@ test('Auto 3 turret fires at a nearby target without player firing input', () =>
   game.step(DT);
   assert.ok(game.bullets.some((bullet) => bullet.owner === player.id && bullet.kind === 'bullet'));
 });
+
+
+test('class changes and respawns clear weapon and auto-turret cooldowns', () => {
+  const game = fresh();
+  const player = game.addPlayer('cooldowns')!;
+  player.cd[0] = 5;
+  assert.ok(game.debugSetClass(player.id, 'auto3'));
+  assert.equal(player.cd.length, 1);
+  assert.equal(player.cd[0], 0);
+  assert.equal(player.autoCd.length, 3);
+  assert.ok(player.autoCd.every((value) => value === 0));
+
+  player.cd[0] = 4;
+  player.autoCd.fill(3);
+  game.respawn(player.id);
+  assert.equal(player.cls, 'basic');
+  assert.deepEqual(player.cd, [0]);
+  assert.deepEqual(player.autoCd, []);
+});
