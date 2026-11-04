@@ -527,7 +527,8 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
   const palette = player.team ? TEAM_COLOURS[player.team] : mine ? ME : FOE;
   const cls = CLASSES[player.cls] ?? CLASSES[0];
   const scale = player.r / PLAYER_BASE_RADIUS;
-  ctx.save();
+  ctx.save(); // Keep the whole tank draw isolated from the arena camera state.
+  ctx.save(); // Fade barrels/turrets independently; the body and labels remain fully readable.
   ctx.globalAlpha *= Math.max(0.04, Math.min(1, player.vis ?? 1));
 
   // Main barrels sit beneath the hull first, so their roots blend naturally into it.

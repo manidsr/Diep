@@ -1000,3 +1000,18 @@ test('Survival minimap snapshots include distant allies, enemies and health drop
   assert.ok(snapshot.z.length > 0, 'off-screen enemies are included');
   assert.ok(snapshot.h.some((drop) => drop.id === 777), 'health pickups are included');
 });
+
+
+test('Co-op Survival sends each connected player their own tank and every teammate', () => {
+  const game = new Game(seeded(102), 0, 'survival');
+  const first = game.addPlayer('first survivor')!;
+  const second = game.addPlayer('second survivor')!;
+
+  const firstView = game.snapshotFor(first.id)!;
+  const secondView = game.snapshotFor(second.id)!;
+
+  assert.ok(firstView.p.some((player) => player.id === first.id), 'first client receives its own tank');
+  assert.ok(firstView.p.some((player) => player.id === second.id), 'first client receives the second tank');
+  assert.ok(secondView.p.some((player) => player.id === second.id), 'second client receives its own tank');
+  assert.ok(secondView.p.some((player) => player.id === first.id), 'second client receives the first tank');
+});
