@@ -648,6 +648,34 @@ test('Co-op Survival: zombie XP drops are collected once and shared with every s
   assert.equal(game.zombies.some((entry) => entry.id === zombie.id), false);
 });
 
+test('Survival rewards are independent, non-blocking and reset between runs', () => {
+  const game = new Game(seeded(64), 0, 'survival');
+  const first = game.addPlayer('first')!;
+  const second = game.addPlayer('second')!;
+  const internals = game as unknown as {
+    offerSurvivalRewards: (bossReward: boolean) => void;
+    updateRewardOffers: (dt: number) => void;
+    resetSurvivalRun: () => void;
+  };
+  internals.offerSurvivalRewards(false);
+  assert.equal(first.rewardOffers.length, 1);
+  assert.equal(second.rewardOffers.length, 1);
+  assert.equal(first.rewardOffers[0]!.cards.length, 3);
+  assert.equal(second.rewardOffers[0]!.cards.length, 3);
+  const chosen = first.rewardOffers[0]!.cards[0]!;
+  assert.ok(game.chooseSurvivalReward(first.id, chosen.id));
+  assert.equal(first.survivalPerks[chosen.id], 1);
+  assert.equal(first.rewardOffers.length, 0);
+  assert.equal(second.rewardOffers.length, 1, 'another player can keep choosing while this player continues fighting');
+  assert.equal(second.rewardOffers[0]!.cards.length, 3);
+  internals.updateRewardOffers(20);
+  assert.equal(second.rewardOffers.length, 0, 'the timer auto-selects for a player who does not choose');
+  assert.equal(Object.values(second.survivalPerks).reduce((sum, count) => sum + count, 0), 1);
+  internals.resetSurvivalRun();
+  assert.deepEqual(first.survivalPerks, {}, 'temporary perks reset for a new run');
+  assert.deepEqual(second.survivalPerks, {});
+});
+
 test('Co-op Survival advances to a harder wave after the arena is cleared', () => {
   const game = new Game(seeded(63), 0, 'survival');
   game.addPlayer('wave tester');
