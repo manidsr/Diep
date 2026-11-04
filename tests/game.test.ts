@@ -242,6 +242,49 @@ test('hits on map shapes apply punchier knockback and expose impact feedback', (
   assert.ok(shape.hitFlash < 1, 'impact flash should fade smoothly');
 });
 
+test('overseer drones attack a mouse-prioritised shape instead of orbiting outside contact range', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('drone-ai')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'overseer'));
+  const hex = {
+    id: 9900, kind: 2, x: 1260, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
+    r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
+    hitFlash: 0, hitX: 0, hitY: 0, hitAngle: 0,
+  };
+  game.shapes.push(hex);
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
+  run(game, 3);
+  const drones = game.bullets.filter((bullet) => bullet.owner === player.id && bullet.kind === 'drone');
+  assert.ok(drones.length > 0);
+  assert.ok(hex.hp < hex.maxHp, 'drones should make contact and damage the selected hexagon');
+  assert.ok(drones.some((drone) => drone.hit.has(hex.id)), 'at least one drone should register a successful hit');
+});
+
+test('a drone can damage the same object again after its contact cooldown', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('repeat-hit')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'overseer'));
+  const hex = {
+    id: 9901, kind: 2, x: 1100, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
+    r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
+    hitFlash: 0, hitX: 0, hitY: 0, hitAngle: 0,
+  };
+  game.shapes.push(hex);
+  const drone = {
+    id: 9902, owner: player.id, x: 1100, y: 1000, vx: 0, vy: 0,
+    r: 10, dmg: 12, hp: 8, life: 20, hit: new Set<number>(), kind: 'drone' as const,
+    angle: 0, maxSpeed: 300, turnRate: 4.6,
+  };
+  game.bullets.push(drone);
+  game.step(DT);
+  const once = hex.hp;
+  assert.ok(once < hex.maxHp, 'first contact should deal damage');
+  // Keep the drone in contact; the second strike should occur after 0.62 seconds.
+  run(game, 0.8);
+  assert.ok(hex.hp < once, 'a drone should not be permanently locked out after its first hit');
+  assert.equal(drone.hp, 7, 'repeat hits on the same target should not consume extra drone durability');
+});
+
 test('Trapper launches a stationary trap instead of a normal travelling bullet', () => {
   const game = fresh();
   const player = place(game, game.addPlayer('trapper')!.id, 1000, 1000);

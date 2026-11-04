@@ -26,6 +26,8 @@ export interface Bullet {
   kind: ProjectileKind; angle: number; maxSpeed: number; turnRate: number;
   /** Stable place in the owner's drone formation, reused when a drone is lost. */
   formationSlot?: number;
+  /** Drones may re-hit a target after a short contact cooldown. */
+  hitCooldowns?: Map<number, number>;
 }
 export interface Shape {
   id: number; kind: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
@@ -35,7 +37,7 @@ export interface Shape {
 export type GameEvent = { type: 'dead'; id: number; killer: string; score: number; level: number };
 
 type Ent = { k: 0 | 1 | 2; o: Player | Shape | Bullet };
-type Target = { x: number; y: number };
+type Target = { x: number; y: number; r: number };
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -325,56 +327,74 @@ export class Game {
     }
     const cls = CLASS_BY_ID[owner.cls];
     const aimAngle = owner.input.a;
-
-    // Right-click / Shift is a direct cursor command. Otherwise the existing
-    // automatic target selection remains in charge and favours mouse direction.
     const manualCommand = owner.input.secondary;
+    // Keep the established mouse-direction target scoring, but drive directly
+    // into the selected target instead of orbiting around a waypoint beside it.
     const target = manualCommand ? null : this.findTarget(owner, 980, aimAngle);
-    let centerX = owner.x, centerY = owner.y;
-    if (manualCommand) {
-      centerX += Math.cos(aimAngle) * 560;
-      centerY += Math.sin(aimAngle) * 560;
-    } else if (target) {
-      centerX = target.x; centerY = target.y;
-    } else if (Math.hypot(drone.x - owner.x, drone.y - owner.y) > 650) {
-      centerX = owner.x; centerY = owner.y;
-    } else if (owner.input.f) {
-      centerX += Math.cos(aimAngle) * 440;
-      centerY += Math.sin(aimAngle) * 440;
-    }
 
-    // Stable formation slots plus a slow orbit give each drone its own lane.
     const slot = Math.max(0, drone.formationSlot ?? (drone.id % 8));
     const ring = Math.floor(slot / 8);
     const ringIndex = slot % 8;
     const slotAngle = (ringIndex / 8) * Math.PI * 2 + ring * 0.28 + this.time * 0.2;
-    const orbitRadius = (manualCommand || target || owner.input.f ? 66 : 120) + ring * 42 + drone.r;
-    const goalX = centerX + Math.cos(slotAngle) * orbitRadius;
-    const goalY = centerY + Math.sin(slotAngle) * orbitRadius;
 
-    // Soft separation prevents overlap without breaking the squad's formation.
+    let goalX: number, goalY: number;
+    let attackRun = false;
+    let targetDistance = Number.POSITIVE_INFINITY;
+
+    if (target) {
+      attackRun = true;
+      const dx = target.x - drone.x, dy = target.y - drone.y;
+      targetDistance = Math.hypot(dx, dy);
+      const invDistance = 1 / Math.max(0.001, targetDistance);
+      const surfaceDistance = target.r + drone.r * 0.78;
+      // Approach the target's surface so the drone makes contact and can deal
+      // repeated damage, rather than circling at a fixed radius outside range.
+      goalX = target.x - dx * invDistance * surfaceDistance;
+      goalY = target.y - dy * invDistance * surfaceDistance;
+    } else if (manualCommand) {
+      // Right-click / Shift remains a direct command along the current mouse aim.
+      attackRun = true;
+      goalX = owner.x + Math.cos(aimAngle) * 560;
+      goalY = owner.y + Math.sin(aimAngle) * 560;
+    } else if (Math.hypot(drone.x - owner.x, drone.y - owner.y) > 650) {
+      // Regroup distant drones behind the tank before they get stranded.
+      goalX = owner.x + Math.cos(slotAngle) * (owner.r + 28 + ring * 30);
+      goalY = owner.y + Math.sin(slotAngle) * (owner.r + 28 + ring * 30);
+    } else {
+      // While idle, keep a loose moving guard formation around the owner.
+      const followRadius = 112 + ring * 38;
+      goalX = owner.x + Math.cos(slotAngle) * followRadius;
+      goalY = owner.y + Math.sin(slotAngle) * followRadius;
+    }
+
+    // Separation is deliberately gentle during an attack run. Drones should
+    // avoid occupying the same space, but must still be able to reach the target.
     let separationX = 0, separationY = 0;
     for (const other of this.bullets) {
       if (other === drone || other.owner !== drone.owner || other.kind !== 'drone' || other.hp <= 0) continue;
       const dx = drone.x - other.x, dy = drone.y - other.y;
       const distanceSq = dx * dx + dy * dy;
-      const minDistance = (drone.r + other.r) * 2.35 + 8;
+      const minDistance = (drone.r + other.r) * 1.4 + 3;
       if (distanceSq >= minDistance * minDistance) continue;
       const distance = Math.max(0.001, Math.sqrt(distanceSq));
       const push = (minDistance - distance) / minDistance;
       separationX += (dx / distance) * push;
       separationY += (dy / distance) * push;
     }
-
-    const steerX = goalX - drone.x + separationX * (drone.r * 10 + 42);
-    const steerY = goalY - drone.y + separationY * (drone.r * 10 + 42);
+    const separationWeight = attackRun
+      ? clamp(targetDistance / 130, 0.12, 0.62)
+      : 1;
+    const steerX = goalX - drone.x + separationX * (drone.r * 8 + 28) * separationWeight;
+    const steerY = goalY - drone.y + separationY * (drone.r * 8 + 28) * separationWeight;
     const desired = Math.atan2(steerY, steerX);
-    const turn = clamp(angleDelta(drone.angle, desired), -drone.turnRate * dt, drone.turnRate * dt);
-    drone.angle += turn;
+    const turnRate = drone.turnRate * (attackRun ? 1.3 : 1);
+    drone.angle += clamp(angleDelta(drone.angle, desired), -turnRate * dt, turnRate * dt);
+
     const distanceToGoal = Math.hypot(steerX, steerY);
-    const desiredSpeed = drone.maxSpeed * clamp(distanceToGoal / 150, 0.42, 1);
     const currentSpeed = Math.hypot(drone.vx, drone.vy);
-    const speed = currentSpeed + (desiredSpeed - currentSpeed) * (1 - Math.exp(-dt * 3.5));
+    const speedFactor = attackRun ? clamp(distanceToGoal / 135, 0.12, 1) : clamp(distanceToGoal / 150, 0.38, 1);
+    const desiredSpeed = drone.maxSpeed * speedFactor;
+    const speed = currentSpeed + (desiredSpeed - currentSpeed) * (1 - Math.exp(-dt * (attackRun ? 5 : 3.5)));
     drone.vx = Math.cos(drone.angle) * speed;
     drone.vy = Math.sin(drone.angle) * speed;
     drone.dmg = owner.d.bulletDamage * (cls.droneDamageMul ?? 0.85);
@@ -406,7 +426,7 @@ export class Game {
       if (distance > range) continue;
       const angle = Math.atan2(dy, dx);
       const score = distance * (1 + Math.abs(angleDelta(preferredAngle, angle)) * 0.35);
-      if (score < bestScore) { bestScore = score; best = { x: p.x, y: p.y }; }
+      if (score < bestScore) { bestScore = score; best = { x: p.x, y: p.y, r: p.r }; }
     }
     if (best) return best;
     for (const s of this.shapes) {
@@ -415,7 +435,7 @@ export class Game {
       if (distance > range) continue;
       const angle = Math.atan2(dy, dx);
       const score = distance * (1 + Math.abs(angleDelta(preferredAngle, angle)) * 0.5);
-      if (score < bestScore) { bestScore = score; best = { x: s.x, y: s.y }; }
+      if (score < bestScore) { bestScore = score; best = { x: s.x, y: s.y, r: s.r }; }
     }
     return best;
   }
@@ -543,18 +563,20 @@ export class Game {
       this.impactShape(shape, A.x + nx * A.r, A.y + ny * A.r, nx, ny, bodyImpact);
     } else if (a.k === 0 && b.k === 2) {
       const bullet = b.o as unknown as Bullet;
-      if (bullet.owner === A.id || bullet.hit.has(A.id) || A.protT > 0) return;
-      bullet.hit.add(A.id);
+      const firstDroneContact = bullet.kind === 'drone' && !bullet.hit.has(A.id);
+      if (bullet.owner === A.id || A.protT > 0 || !this.projectileCanHit(bullet, A.id)) return;
+      if (bullet.kind === 'drone') bullet.hit.add(A.id);
       const owner = this.players.get(bullet.owner);
       this.hurtPlayer(A, bullet.dmg, bullet.owner, owner?.name ?? 'Someone');
-      bullet.hp -= bullet.kind === 'drone' ? 1 : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
+      bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
       A.kvx += bullet.vx / 8; A.kvy += bullet.vy / 8;
     } else if (a.k === 1 && b.k === 2) {
       const shape = a.o as unknown as Shape, bullet = b.o as unknown as Bullet;
-      if (bullet.hit.has(shape.id)) return;
-      bullet.hit.add(shape.id);
+      const firstDroneContact = bullet.kind === 'drone' && !bullet.hit.has(shape.id);
+      if (!this.projectileCanHit(bullet, shape.id)) return;
+      if (bullet.kind === 'drone') bullet.hit.add(shape.id);
       shape.hp -= bullet.dmg; shape.lastHitBy = bullet.owner;
-      bullet.hp -= bullet.kind === 'drone' ? 1 : bullet.kind === 'trap' ? 1 : SHAPES[SHAPE_KINDS[shape.kind]].pierceCost;
+      bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : SHAPES[SHAPE_KINDS[shape.kind]].pierceCost;
       const def = SHAPES[SHAPE_KINDS[shape.kind]];
       const speed = Math.hypot(bullet.vx, bullet.vy);
       const impulse = clamp(speed * 0.11 * (28 / def.radius) + bullet.dmg * 0.4, 18, 105);
@@ -589,6 +611,19 @@ export class Game {
     const armX = x - shape.x, armY = y - shape.y;
     const torque = (armX * ny - armY * nx) / Math.max(1, shape.r);
     shape.rotSpeed += clamp(torque * impulse * 0.012, -1.6, 1.6);
+  }
+
+  private projectileCanHit(bullet: Bullet, targetId: number): boolean {
+    if (bullet.kind !== 'drone') {
+      if (bullet.hit.has(targetId)) return false;
+      bullet.hit.add(targetId);
+      return true;
+    }
+    const cooldowns = bullet.hitCooldowns ?? (bullet.hitCooldowns = new Map<number, number>());
+    const nextHit = cooldowns.get(targetId) ?? 0;
+    if (this.time < nextHit) return false;
+    cooldowns.set(targetId, this.time + 0.62);
+    return true;
   }
 
   private hurtPlayer(p: Player, amount: number, byId: number | null, byName: string) {
