@@ -80,6 +80,28 @@
   @keyframes lvlpulse { 0% { box-shadow: 0 0 0 0 #ffe36aee; transform: scale(1); } 30% { transform: scale(1.08); }
     100% { box-shadow: 0 0 0 22px #ffe36a00; transform: scale(1); } }
 
+  /* ---------- Non-blocking Survival reward cards ---------- */
+  #reward-panel { top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(520px, calc(100vw - 32px));
+    z-index: 14; padding: 8px; border: 1px solid #ffe28a66; border-radius: 10px; background: #171a20ef;
+    box-shadow: 0 8px 28px #0009; pointer-events: none; }
+  #reward-panel[hidden] { display: none !important; }
+  #reward-panel .reward-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px;
+    color: #fff0ae; font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+  #reward-panel .reward-heading span:last-child { color: #fff; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+  #reward-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+  .reward-card { min-width: 0; min-height: 74px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 7px;
+    border: 1px solid #ffffff2e; border-radius: 8px; background: #2a303b; color: #f6f4ea; text-align: left; pointer-events: auto; }
+  .reward-card:active { transform: scale(.97); }
+  .reward-card .reward-rarity { font-size: 8px; font-weight: 950; letter-spacing: .1em; color: #cbd5e1; }
+  .reward-card strong { font-size: 12px; line-height: 1.1; }
+  .reward-card small { color: #d6dbe4; font-size: 9px; line-height: 1.2; }
+  .reward-card.rarity-rare { border-color: #67baffaa; background: #18334c; }
+  .reward-card.rarity-rare .reward-rarity { color: #7bc6ff; }
+  .reward-card.rarity-epic { border-color: #c38affbb; background: #36234d; }
+  .reward-card.rarity-epic .reward-rarity { color: #d4a6ff; }
+  .reward-card.rarity-legendary { border-color: #ffd46bbb; background: #4a3518; }
+  .reward-card.rarity-legendary .reward-rarity { color: #ffe28a; }
+
   /* ---------- Level-up toast ---------- */
   #toast { left: 50%; top: 24%; transform: translateX(-50%); text-align: center; opacity: 0; white-space: nowrap; }
   #toast .big { font-size: clamp(26px, 6vw, 44px); font-weight: 900; letter-spacing: .06em; color: #fff3a8;
@@ -325,6 +347,12 @@
     #classes { display: none; }
     body.choosing-class #classes { display: flex; }
 
+    #reward-panel { top: auto; bottom: max(48px, calc(env(safe-area-inset-bottom) + 44px)); width: calc(100vw - 14px); padding: 6px; }
+    #reward-panel .reward-heading { margin-bottom: 4px; font-size: 9px; }
+    #reward-cards { gap: 5px; }
+    .reward-card { min-height: 64px; padding: 6px; border-radius: 7px; }
+    .reward-card strong { font-size: 10px; }
+    .reward-card small { font-size: 8px; }
     #xp { width: min(220px, 48vw); bottom: max(7px, env(safe-area-inset-bottom)); }
     #xp .bar { height: 10px; border-width: 1px; border-radius: 6px; }
     #xp .txt { margin-top: 1px; font-size: 9px; }
@@ -371,6 +399,10 @@
 <div id="lb" class="hud mobile-collapsed"><h4><button id="lbtitle" type="button" aria-expanded="false">LEADERBOARD</button></h4><div id="teamscore" hidden></div><div id="lbrows"></div></div>
 <div id="killfeed" class="hud" aria-live="polite" aria-label="Recent eliminations"></div>
 <div id="classes" class="hud"></div>
+<div id="reward-panel" class="hud" hidden aria-live="polite">
+  <div class="reward-heading"><span>RUN REWARD · CHOOSE ONE</span><span id="reward-timer">20s</span></div>
+  <div id="reward-cards"></div>
+</div>
 <div id="devtools" hidden>
   <button id="devtoggle" type="button" title="Developer tools (F2)">DEV · F2</button>
   <div id="devpanel">
