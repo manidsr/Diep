@@ -30,5 +30,7 @@ jobs:
         run: npm run typecheck
       - name: Run tests
         run: npm test
+      - name: Benchmark all tank classes
+        run: npm run balance
       - name: Build client
         run: npm run build
