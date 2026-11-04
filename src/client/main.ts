@@ -12,6 +12,7 @@ const input = new Input(canvas);
 let ws: WebSocket | null = null;
 let selfId = -1;
 let playing = false;
+let joining = false;
 let devCheatsEnabled = false;
 let lastDevClass = '';
 let recoilCameraX = 0, recoilCameraY = 0;
@@ -25,9 +26,9 @@ function send(m: object) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(J
 function connect() {
   statusEl.textContent = 'Connecting…'; playBtn.disabled = true;
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  ws.onopen = () => { statusEl.textContent = 'Connected'; playBtn.disabled = false; };
+  ws.onopen = () => { statusEl.textContent = 'Connected'; playBtn.disabled = false; joining = false; };
   ws.onclose = () => {
-    playing = false; frames.length = 0; menu.classList.remove('hide');
+    playing = false; joining = false; playBtn.disabled = true; frames.length = 0; menu.classList.remove('hide');
     statusEl.textContent = 'Disconnected – reconnecting…'; playBtn.disabled = true;
     setTimeout(connect, 1500);
   };
@@ -37,7 +38,7 @@ function connect() {
     if (m.t === 's') onSnapshot(m);
     else if (m.t === 'lb') renderLeaderboard(m.top);
     else if (m.t === 'welcome') {
-      selfId = m.id; playing = true; menu.classList.add('hide');
+      selfId = m.id; playing = true; joining = false; playBtn.disabled = false; msgEl.textContent = ''; menu.classList.add('hide');
       devCheatsEnabled = m.devCheats;
       devTools.hidden = !devCheatsEnabled;
       if (!devCheatsEnabled) devTools.classList.remove('open');
@@ -46,14 +47,15 @@ function connect() {
       playing = false; input.reset(); frames.length = 0; lastLv = 0;
       msgEl.textContent = `Destroyed by ${m.killer} — level ${m.level}, score ${m.score}`;
       playBtn.textContent = 'Play again'; menu.classList.remove('hide');
-    } else if (m.t === 'err') { statusEl.textContent = m.msg; }
+    } else if (m.t === 'err') { joining = false; playing = false; playBtn.disabled = false; statusEl.textContent = m.msg; msgEl.textContent = m.msg; menu.classList.remove('hide'); }
   };
 }
 
 function play() {
+  if (joining || playing || !ws || ws.readyState !== WebSocket.OPEN) return;
   try { localStorage.setItem('nick', nameEl.value); } catch { /* storage may be blocked */ }
+  joining = true; playBtn.disabled = true; statusEl.textContent = 'Joining…'; msgEl.textContent = '';
   send({ t: 'join', name: nameEl.value });
-  playing = true; msgEl.textContent = ''; menu.classList.add('hide');
 }
 playBtn.addEventListener('click', play);
 nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !playBtn.disabled) play(); });
@@ -293,7 +295,8 @@ let lastSent = '', lastSendT = 0;
 function frame(now: number) {
   requestAnimationFrame(frame);
   input.update(W, H);
-  if (playing && now - lastSendT >= 33) {
+  // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.
+  if (playing && now - lastSendT >= 1000 / 60) {
     const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${input.angle.toFixed(2)},"f":${input.fire ? 1 : 0},"secondary":${input.secondary ? 1 : 0},"spin":${input.spin ? 1 : 0}}`;
     if (msg !== lastSent || now - lastSendT > 500) {
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);

@@ -96,8 +96,9 @@ export class Game {
     if (!p) return;
     if (name) p.name = name;
     p.level = 1; p.xp = 0; p.stats = STAT_KEYS.map(() => 0); p.cls = 'basic'; p.maxHp = 0;
-    p.x = 200 + this.rng() * (ARENA_SIZE - 400);
-    p.y = 200 + this.rng() * (ARENA_SIZE - 400);
+    const spawn = this.findSafeSpawn(p.r);
+    p.x = spawn.x;
+    p.y = spawn.y;
     p.vx = p.vy = p.kvx = p.kvy = p.rvx = p.rvy = 0;
     p.alive = true; p.protT = RESPAWN_PROTECTION_S; p.lastHit = null; p.lastDamageT = -99;
     p.input = { mx: 0, my: 0, a: p.angle, f: false, secondary: false, spin: false };
@@ -106,6 +107,48 @@ export class Game {
     this.bullets = this.bullets.filter((b) => b.owner !== id || b.kind === 'bullet');
     this.refresh(p);
     p.hp = p.maxHp;
+  }
+
+  /**
+   * Pick a quiet, unobstructed spawn point. Sampling is bounded so joining never
+   * stalls the simulation; candidates are scored by nearby player traffic and
+   * clearance from world shapes, with the best candidate used as a fallback.
+   */
+  private findSafeSpawn(radius: number): { x: number; y: number } {
+    let best = { x: ARENA_SIZE / 2, y: ARENA_SIZE / 2 };
+    let bestScore = -Infinity;
+    const margin = Math.max(150, radius + 100);
+    for (let i = 0; i < 72; i++) {
+      const x = margin + this.rng() * (ARENA_SIZE - margin * 2);
+      const y = margin + this.rng() * (ARENA_SIZE - margin * 2);
+      let nearestPlayer = 1200;
+      let playerTraffic = 0;
+      for (const other of this.players.values()) {
+        if (!other.alive) continue;
+        const distance = Math.hypot(x - other.x, y - other.y);
+        nearestPlayer = Math.min(nearestPlayer, distance);
+        if (distance < 520) playerTraffic += (520 - distance) / 520;
+      }
+      let nearestShape = 900;
+      let shapeTraffic = 0;
+      let blocked = false;
+      for (const shape of this.shapes) {
+        const distance = Math.hypot(x - shape.x, y - shape.y) - shape.r - radius;
+        nearestShape = Math.min(nearestShape, distance);
+        if (distance < 80) blocked = true;
+        if (distance < 420) shapeTraffic += (420 - distance) / 420;
+      }
+      // Hard-avoid spawning inside an object; otherwise maximize open space and
+      // separation from active players, with a strong penalty for busy clusters.
+      const score = (blocked ? -5000 : 0)
+        + Math.min(nearestPlayer, 1100) * 1.2
+        + Math.min(nearestShape, 600) * 1.5
+        - playerTraffic * 260
+        - shapeTraffic * 95;
+      if (score > bestScore) { bestScore = score; best = { x, y }; }
+      if (!blocked && nearestPlayer > 650 && nearestShape > 140 && playerTraffic < 0.2) return { x, y };
+    }
+    return best;
   }
 
   // ---------- validated player intents ----------

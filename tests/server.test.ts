@@ -79,3 +79,24 @@ test('LAN server: join, snapshots, input, validation, disconnect cleanup', async
     await srv.close();
   }
 });
+
+
+test('a full 24-player room rejects the next join without allocating a player', async () => {
+  const game = new Game(seeded(24), 0);
+  const srv = await startServer({ port: 0, host: '127.0.0.1', game });
+  const clients = Array.from({ length: 25 }, () => client(srv.port));
+  try {
+    await Promise.all(clients.map((c) => c.opened));
+    for (let i = 0; i < 24; i++) clients[i].ws.send(JSON.stringify({ t: 'join', name: `Tank${i}` }));
+    await Promise.all(clients.slice(0, 24).map((c) => c.waitFor((m) => m.t === 'welcome')));
+    clients[24].ws.send(JSON.stringify({ t: 'join', name: 'Extra' }));
+    const rejected = await clients[24].waitFor((m) => m.t === 'err');
+    assert.equal(rejected.t, 'err');
+    assert.equal(rejected.msg, 'Room is full');
+    assert.equal(game.players.size, 24);
+    assert.equal(clients[24].msgs.some((m) => m.t === 'welcome'), false);
+  } finally {
+    for (const c of clients) c.ws.close();
+    await srv.close();
+  }
+});

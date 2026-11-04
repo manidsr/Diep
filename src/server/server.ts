@@ -50,12 +50,14 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
     }
   });
 
-  const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MESSAGE_BYTES });
+  const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
   const send = (ws: WebSocket, m: ServerMessage) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); };
 
   wss.on('connection', (ws) => {
     const c: Conn = { ws, playerId: null, count: 0, windowStart: Date.now(), alive: true };
     conns.add(c);
+    // Small real-time game packets should not wait for Nagle coalescing.
+    ws._socket?.setNoDelay(true);
     ws.on('pong', () => { c.alive = true; });
     ws.on('message', (data, isBinary) => {
       if (isBinary) return;

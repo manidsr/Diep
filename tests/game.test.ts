@@ -468,3 +468,15 @@ test('class changes and respawns clear weapon and auto-turret cooldowns', () => 
   assert.deepEqual(player.cd, [0]);
   assert.deepEqual(player.autoCd, []);
 });
+
+
+test('spawn selection avoids shape overlap and prefers quieter space', () => {
+  const game = fresh();
+  const first = game.addPlayer('first')!;
+  assert.ok(game.shapes.every((shape) =>
+    Math.hypot(first.x - shape.x, first.y - shape.y) >= first.r + shape.r + 79
+  ), 'spawn should not overlap a world object');
+  const second = game.addPlayer('second')!;
+  assert.ok(Math.hypot(first.x - second.x, first.y - second.y) > 200,
+    'a new player should prefer a lower-traffic area away from active players');
+});
