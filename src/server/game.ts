@@ -351,6 +351,12 @@ export class Game {
   }
 
   private resetSurvivalRun() {
+    for (const player of this.players.values()) {
+      player.survivalPerks = {};
+      player.rewardOffers = [];
+      player.shotsFired = 0;
+      player.emergencyShieldCd = 0;
+    }
     this.zombies = [];
     this.healthDrops = [];
     this.xpDrops = [];
