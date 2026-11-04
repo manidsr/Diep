@@ -1556,34 +1556,6 @@ export class Game {
     }
   }
 
-    for (const zombie of this.zombies) {
-      if (zombie.hp > 0) continue;
-      this.zombieKills++;
-      const totalDamage = [...zombie.damageBy.values()].reduce((sum, amount) => sum + amount, 0);
-      if (totalDamage > 0) {
-        for (const [playerId, damage] of zombie.damageBy) {
-          const contributor = this.players.get(playerId);
-          if (contributor) this.addXp(contributor, Math.max(1, Math.round(zombie.xp * damage / totalDamage)));
-        }
-      }
-      const killer = [...zombie.damageBy.entries()].sort((a, b) => b[1] - a[1])[0];
-      const player = killer ? this.players.get(killer[0]) : undefined;
-      if (player) { player.kills++; player.matchKills++; }
-    }
-    this.zombies = this.zombies.filter((zombie) => zombie.hp > 0);
-    if (this.shapes.some((shape) => shape.hp <= 0)) {
-      for (const shape of this.shapes) {
-        if (shape.hp > 0) continue;
-        const killer = shape.lastHitBy != null ? this.players.get(shape.lastHitBy) : undefined;
-        if (killer?.alive) {
-          this.addXp(killer, SHAPES[SHAPE_KINDS[shape.kind]].xp);
-          if (CLASS_BY_ID[killer.cls].droneBehavior === 'necromancer' && shape.kind === 0) this.convertSquareToDrone(killer, shape);
-        }
-      }
-      this.shapes = this.shapes.filter((shape) => shape.hp > 0);
-    }
-  }
-
   private convertSquareToDrone(owner: Player, shape: Shape) {
     const cls = CLASS_BY_ID[owner.cls];
     const owned = this.bullets.filter((b) => b.owner === owner.id && b.kind === 'drone').length;
