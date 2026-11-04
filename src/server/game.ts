@@ -348,7 +348,6 @@ export class Game {
     let attackRun = false;
     let orbitalAttack = false;
     let orbitalVelocityX = 0, orbitalVelocityY = 0;
-    let targetDistance = Number.POSITIVE_INFINITY;
 
     if (leashRetreat) {
       const regroupRadius = owner.r + 42 + ring * 18;
@@ -357,8 +356,8 @@ export class Game {
     } else if (target) {
       attackRun = true;
       orbitalAttack = true;
-      const dx = target.x - drone.x, dy = target.y - drone.y;
-      targetDistance = Math.hypot(dx, dy);
+      const dx = drone.x - target.x, dy = drone.y - target.y;
+      const distanceToTarget = Math.max(0.001, Math.hypot(dx, dy));
       // Each drone keeps its own phase but continuously sweeps around the
       // target. The orbit sits just inside contact range, so the squad clips
       // the target as it passes instead of camping at fixed compass points.
