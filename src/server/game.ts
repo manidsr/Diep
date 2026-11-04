@@ -171,7 +171,7 @@ export class Game {
   private updatePlayer(p: Player, dt: number) {
     const cls = CLASS_BY_ID[p.cls];
     const { mx, my, a, f, secondary, spin } = p.input;
-    if (spin) p.angle += (cls.spinSpeed ?? 1.2) * dt;
+    if (spin && cls.spinSpeed) p.angle += cls.spinSpeed * dt;
     else p.angle = a;
 
     let ix = mx, iy = my;

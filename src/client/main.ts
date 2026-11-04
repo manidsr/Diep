@@ -202,7 +202,7 @@ function updateHud(m: SelfSnap) {
         if (j === v - 1 && v > prev) retrigger(p, 'pop');
       });
       if (v > prev) retrigger(rowEls[i], 'flash');
-      btnEls[i].disabled = m.pts <= 0 || v >= MAX_STAT_LEVEL;
+      btnEls[i].disabled = m.pts <= 0 || v >= MAX_STAT_LEVEL || (!!CLASS_BY_ID[m.cls]?.smasher && i >= 3 && i <= 6);
     });
     lastStats = m.stats.slice();
   }
