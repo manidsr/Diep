@@ -302,6 +302,9 @@ test('drone squads surround a target instead of stacking at its centre', () => {
     r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
   };
   game.shapes.push(hex);
+  // Keep this fixture stationary so the test measures drone spacing, not
+  // knockback moving the target away from the squad during repeated contacts.
+  (game as unknown as { updateShape: (shape: unknown, dt: number) => void }).updateShape = () => {};
   game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
   run(game, 5);
 
