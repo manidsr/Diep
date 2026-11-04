@@ -201,7 +201,7 @@ export const CLASSES: TankClassDef[] = [
     { reloadMul: 1.65, damageMul: 1.25, bulletSpeedMul: 1.9, bulletLifeMul: 1.5, fovMul: 1.35 }),
   T('streamliner', 'Streamliner', 'Five narrow overlapping barrels fire in a precise sequence.', 'gunner', 45,
     [B(0, -20, 32, 9, 0, 0, 0.16), B(0, -10, 38, 9, 0.2, 0, 0.16), B(0, 0, 44, 9, 0.4, 0, 0.16), B(0, 10, 38, 9, 0.6, 0, 0.16), B(0, 20, 32, 9, 0.8, 0, 0.16)],
-    { alternateParents: ['hunter'], reloadMul: 0.45, damageMul: 0.45, bulletSpeedMul: 1.2 }),
+    { alternateParents: ['hunter'], reloadMul: 0.55, damageMul: 0.40, bulletSpeedMul: 1.2 }),
   T('triTrapper', 'Tri-Trapper', 'Three trap launchers cover a wide area around the tank.', 'trapper', 45,
     [B(0, 0, 34, 24, 0, 0, 1.25, 'trap'), B(2.1, 0, 34, 24, 0.33, 0, 1.25, 'trap'), B(-2.1, 0, 34, 24, 0.66, 0, 1.25, 'trap')],
     { reloadMul: 1.35, trapLife: 10 }),

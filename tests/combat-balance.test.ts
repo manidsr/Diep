@@ -1,19 +1,30 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runClassCombatBenchmark } from './combat-bench';
+import { CLASS_IDS } from '../src/shared/config';
+import { runAllCombatBenchmarks } from './combat-bench';
 
-test('combat benchmark measures real damage, burst, range and passive durability for each archetype', () => {
-  const representativeClasses = ['basic', 'trapper', 'overlord', 'firework', 'auto3', 'smasher'];
-  for (const classId of representativeClasses) {
-    const metric = runClassCombatBenchmark(classId);
-    assert.equal(metric.id, classId);
-    assert.ok(metric.sustainedDps > 0, classId + ' should deal measurable damage in its combat scenario');
-    assert.ok(metric.burstDamage > 0, classId + ' should register a burst window');
-    assert.ok(metric.effectiveRange > 0, classId + ' should have a measured engagement distance');
-    assert.ok(metric.survivalSeconds > 0, classId + ' should have a survivability result');
-    assert.ok(Number.isFinite(metric.sustainedDps));
-    assert.ok(Number.isFinite(metric.burstDamage));
-    assert.ok(Number.isFinite(metric.effectiveRange));
-    assert.ok(Number.isFinite(metric.survivalSeconds));
+test('combat benchmark measures every tank through the real server simulation', () => {
+  const metrics = runAllCombatBenchmarks();
+  assert.equal(metrics.length, 54);
+  assert.deepEqual(metrics.map((metric) => metric.id).sort(), [...CLASS_IDS].sort());
+
+  for (const metric of metrics) {
+    assert.ok(metric.sustainedDps > 0, metric.id + ' should deal measurable damage');
+    assert.ok(metric.burstDamage > 0, metric.id + ' should register a burst window');
+    assert.ok(metric.effectiveRange > 0, metric.id + ' should have a measured engagement distance');
+    assert.ok(metric.survivalSeconds > 0, metric.id + ' should have a survivability result');
+    assert.equal(typeof metric.rangeAtCeiling, 'boolean');
+    assert.ok(Number.isFinite(metric.sustainedDps), metric.id);
+    assert.ok(Number.isFinite(metric.burstDamage), metric.id);
+    assert.ok(Number.isFinite(metric.effectiveRange), metric.id);
+    assert.ok(Number.isFinite(metric.survivalSeconds), metric.id);
   }
+
+  const byId = new Map(metrics.map((metric) => [metric.id, metric]));
+  const streamliner = byId.get('streamliner')!;
+  const gunner = byId.get('gunner')!;
+  assert.ok(
+    streamliner.sustainedDps <= gunner.sustainedDps * 1.1,
+    'Streamliner should remain within 10% of its Gunner baseline after targeted tuning',
+  );
 });
