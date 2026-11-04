@@ -480,7 +480,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
       lbRows.set(e.id, r);
     }
     r.el.style.transform = `translateY(${i * LB_ROW_H}px)`;
-    const team = message.mode === 'teams' && 'team' in e ? e.team : null;
+    const team = 'team' in e && typeof e.team === 'string' ? e.team : null;
     r.el.className = `lrow${i < 3 ? ` r${i + 1}` : ''}${e.id === selfId ? ' me' : ''}${team ? ' ' + team : ''}`;
     r.bar.style.width = `${Math.max(4, (e.score / max) * 100)}%`;
     r.rk.textContent = String(i + 1);
