@@ -37,7 +37,7 @@ export interface Shape {
 export type GameEvent = { type: 'dead'; id: number; killer: string; score: number; level: number };
 
 type Ent = { k: 0 | 1 | 2; o: Player | Shape | Bullet };
-type Target = { x: number; y: number; r: number };
+type Target = { x: number; y: number; r?: number };
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -345,12 +345,10 @@ export class Game {
       attackRun = true;
       const dx = target.x - drone.x, dy = target.y - drone.y;
       targetDistance = Math.hypot(dx, dy);
-      const invDistance = 1 / Math.max(0.001, targetDistance);
-      const surfaceDistance = target.r + drone.r * 0.78;
-      // Approach the target's surface so the drone makes contact and can deal
-      // repeated damage, rather than circling at a fixed radius outside range.
-      goalX = target.x - dx * invDistance * surfaceDistance;
-      goalY = target.y - dy * invDistance * surfaceDistance;
+      // Aim for the object/player itself. The earlier ring-around-target goal
+      // was the cause of drones orbiting just outside collision range.
+      goalX = target.x;
+      goalY = target.y;
     } else if (manualCommand) {
       // Right-click / Shift remains a direct command along the current mouse aim.
       attackRun = true;
@@ -392,7 +390,7 @@ export class Game {
 
     const distanceToGoal = Math.hypot(steerX, steerY);
     const currentSpeed = Math.hypot(drone.vx, drone.vy);
-    const speedFactor = attackRun ? clamp(distanceToGoal / 135, 0.12, 1) : clamp(distanceToGoal / 150, 0.38, 1);
+    const speedFactor = attackRun ? clamp(distanceToGoal / 165, 0.1, 1) : clamp(distanceToGoal / 150, 0.38, 1);
     const desiredSpeed = drone.maxSpeed * speedFactor;
     const speed = currentSpeed + (desiredSpeed - currentSpeed) * (1 - Math.exp(-dt * (attackRun ? 5 : 3.5)));
     drone.vx = Math.cos(drone.angle) * speed;
