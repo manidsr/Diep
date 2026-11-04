@@ -907,8 +907,12 @@ export class Game {
     this.survivalElapsed = Math.max(0, this.time - this.survivalStartedAt);
     this.updateRevives(dt);
     this.updateRewardOffers(dt);
-    // A squad wipe does not end the run: downed survivors wait indefinitely for rescue.
-    if (![...this.players.values()].some((player) => player.connected && player.alive && !player.downed)) return;
+    // Downed players can be revived while at least one teammate remains on their feet.
+    // When the entire squad is down, lock the run and show the game-over state.
+    if (![...this.players.values()].some((player) => player.alive && !player.downed)) {
+      this.survivalGameOver = true;
+      return;
+    }
     if (this.wave === 0) { this.beginSurvivalWave(); return; }
 
     this.syncSurvivalWaveSize();

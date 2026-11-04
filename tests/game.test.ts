@@ -739,16 +739,24 @@ test('Co-op Survival advances to a harder wave after the arena is cleared', () =
   assert.ok(waveState.waveSpawnRemaining > 0, 'the next wave should queue a larger enemy group');
 });
 
-test('Co-op Survival keeps a squad-wiped player downed instead of ending the run', () => {
+test('Co-op Survival ends the run only after every teammate is down', () => {
   const game = new Game(seeded(64), 0, 'survival');
-  const player = game.addPlayer('last survivor')!;
-  player.hp = 0;
-  player.lastDamageT = game.time;
+  const first = game.addPlayer('first survivor')!;
+  const second = game.addPlayer('last survivor')!;
+  first.hp = 0;
+  first.lastDamageT = game.time;
   game.step(DT);
-  assert.equal(player.downed, true);
-  assert.equal(player.alive, true);
-  assert.equal(game.survivalGameOver, false);
-  assert.equal(game.survivalLeaderboard().gameOver, false);
+  assert.equal(first.downed, true);
+  assert.equal(first.alive, true);
+  assert.equal(game.survivalGameOver, false, 'one standing teammate can still rescue the downed player');
+
+  second.hp = 0;
+  second.lastDamageT = game.time;
+  game.step(DT);
+  assert.equal(second.downed, true);
+  assert.equal(second.alive, true);
+  assert.equal(game.survivalGameOver, true, 'the run ends as soon as the last standing teammate is down');
+  assert.equal(game.survivalLeaderboard().gameOver, true);
 });
 
 
@@ -1049,7 +1057,7 @@ test('Revive progress falls when the helper leaves the downed ally', () => {
   assert.equal(downed.downed, true);
 });
 
-test('A downed survivor stays revivable indefinitely and keeps their progress until rescued', () => {
+test('A solo squad wipe ends Survival and a later join can start a new rescue run', () => {
   const game = new Game(seeded(99), 0, 'survival');
   const downed = place(game, game.addPlayer('last survivor')!.id, 1000, 1000);
   downed.hp = 0; downed.lastDamageT = game.time;
@@ -1058,14 +1066,15 @@ test('A downed survivor stays revivable indefinitely and keeps their progress un
   game.step(DT);
   assert.equal(downed.downed, true);
   assert.equal(downed.alive, true);
+  assert.equal(game.survivalGameOver, true, 'a solo player being downed ends the run');
   const level = downed.level, xp = downed.xp, classId = downed.cls;
   run(game, 75);
-  assert.equal(downed.downed, true, 'a downed player never times out, even after a long wait');
-  assert.equal(downed.alive, true, 'downed status must not become a normal death');
+  assert.equal(downed.downed, true, 'the downed survivor stays in the results state');
+  assert.equal(downed.alive, true, 'downed status remains distinct from a normal death');
   assert.equal(downed.level, level);
   assert.equal(downed.xp, xp);
   assert.equal(downed.cls, classId);
-  assert.equal(game.survivalGameOver, false, 'a squad wipe waits for a rescuer instead of ending the run');
+  assert.equal(game.survivalGameOver, true, 'game over remains visible until a fresh run starts');
   const rescuer = place(game, game.addPlayer('late rescuer')!.id, 1040, 1000);
   Object.assign(rescuer, { vx: 0, vy: 0 });
   run(game, 2.7);
