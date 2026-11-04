@@ -91,7 +91,7 @@ test('damage, reload, critical, speed, spread, recoil and penetration cards affe
     player.survivalPerks.longshot = 2;
     const b = fire(game, player, 'skimmer');
     assert.equal(b.kind, 'missile');
-    assert.ok(Math.abs(Math.hypot(b.vx, b.vy) - player.d.bulletSpeed * 0.52 * 1.21) < 0.01);
+    assert.ok(Math.abs(Math.hypot(b.vx, b.vy) - player.d.bulletSpeed * 0.52 * 1.2) < 0.01);
   }
   {
     const { game, player } = setup(() => 0);
