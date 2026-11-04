@@ -28,7 +28,8 @@ test('rendering two players keeps the arena camera transform intact for both tan
   });
   const view: View = {
     players: [player(1, 'host', 1000), player(2, 'guest', 1200)],
-    bullets: [], shapes: [], zombies: [], downed: [], healthDrops: [], mode: 'survival',
+    bullets: [], shapes: [], zombies: [], downed: [], healthDrops: [],
+    xpDrops: [{ id: 3, x: 1040, y: 1100, r: 8, xp: 25 }], pools: [{ id: 4, x: 1080, y: 1100, r: 90, life: 3 }], mode: 'survival',
   };
 
   drawFrame(ctx, 800, 600, { x: 1000, y: 1100 }, view, 2);
