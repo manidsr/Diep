@@ -912,7 +912,7 @@ export class Game {
   }
 
   teamLeaderboard(limit = 5) {
-    const members = (team: TeamId) => [...this.players.values()]
+    const members = <T extends TeamId>(team: T) => [...this.players.values()]
       .filter((player) => player.team === team)
       .sort((a, b) => b.matchKills - a.matchKills || b.level - a.level)
       .slice(0, limit)
