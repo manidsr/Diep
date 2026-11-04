@@ -46,6 +46,8 @@ const RECOIL_DECAY_PER_TICK = 0.82;
 const BASE_RECOIL_DISTANCE = 28;
 const DRONE_LIFE_S = 24;
 const FIREWORK_PELLETS = 16;
+const OVERLORD_DRONE_RECALL_RADIUS = 440;
+const OVERLORD_DRONE_LEASH_RADIUS = 480;
 
 export class Game {
   tick = 0;
@@ -328,9 +330,14 @@ export class Game {
     const cls = CLASS_BY_ID[owner.cls];
     const aimAngle = owner.input.a;
     const manualCommand = owner.input.secondary;
-    // Keep the established mouse-direction target scoring, but drive directly
-    // into the selected target instead of orbiting around a waypoint beside it.
-    const target = manualCommand ? null : this.findTarget(owner, 980, aimAngle);
+    const isOverlord = cls.id === 'overlord';
+    const ownerDistance = Math.hypot(drone.x - owner.x, drone.y - owner.y);
+    const leashRetreat = isOverlord && ownerDistance > OVERLORD_DRONE_RECALL_RADIUS;
+    // Overlord drones can only acquire targets while inside their command radius.
+    // Crossing the recall radius cancels the attack and pulls the drone home.
+    const target = manualCommand || leashRetreat
+      ? null
+      : this.findTarget(owner, isOverlord ? OVERLORD_DRONE_RECALL_RADIUS : 980, aimAngle);
 
     const slot = Math.max(0, drone.formationSlot ?? (drone.id % 8));
     const ring = Math.floor(slot / 8);
@@ -341,7 +348,11 @@ export class Game {
     let attackRun = false;
     let targetDistance = Number.POSITIVE_INFINITY;
 
-    if (target) {
+    if (leashRetreat) {
+      const regroupRadius = owner.r + 42 + ring * 18;
+      goalX = owner.x + Math.cos(slotAngle) * regroupRadius;
+      goalY = owner.y + Math.sin(slotAngle) * regroupRadius;
+    } else if (target) {
       attackRun = true;
       const dx = target.x - drone.x, dy = target.y - drone.y;
       targetDistance = Math.hypot(dx, dy);
@@ -350,10 +361,12 @@ export class Game {
       goalX = target.x;
       goalY = target.y;
     } else if (manualCommand) {
-      // Right-click / Shift remains a direct command along the current mouse aim.
+      // Right-click / Shift remains direct, but Overlord commands cannot exceed
+      // the tether's safe attack radius.
       attackRun = true;
-      goalX = owner.x + Math.cos(aimAngle) * 560;
-      goalY = owner.y + Math.sin(aimAngle) * 560;
+      const commandDistance = isOverlord ? OVERLORD_DRONE_RECALL_RADIUS - 40 : 560;
+      goalX = owner.x + Math.cos(aimAngle) * commandDistance;
+      goalY = owner.y + Math.sin(aimAngle) * commandDistance;
     } else if (Math.hypot(drone.x - owner.x, drone.y - owner.y) > 650) {
       // Regroup distant drones behind the tank before they get stranded.
       goalX = owner.x + Math.cos(slotAngle) * (owner.r + 28 + ring * 30);

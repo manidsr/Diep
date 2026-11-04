@@ -45,7 +45,7 @@ export function drawFrame(
   ctx.stroke();
 
   for (const shape of view.shapes) drawShape(ctx, shape);
-  for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId);
+  for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
   for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true);
   ctx.restore();
@@ -57,10 +57,37 @@ function circle(ctx: CanvasRenderingContext2D, x: number, y: number, radius: num
   ctx.lineWidth = lineWidth; ctx.strokeStyle = stroke; ctx.stroke();
 }
 
-function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][number], mine: boolean) {
+function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][number], mine: boolean, players: PlayerSnap[]) {
   const [, x, y, radius, , kind, angle] = bullet;
   const palette = mine ? ME : FOE;
   if (kind === 1) {
+    // Overlord drones have a visible signal tether. It fades nearby and turns
+    // amber/red as the drone stretches toward its recall boundary.
+    const ownerId = bullet[4];
+    const owner = players.find((player) => player.id === ownerId);
+    if (owner && CLASSES[owner.cls]?.id === 'overlord') {
+      const dx = x - owner.x, dy = y - owner.y;
+      const distance = Math.hypot(dx, dy);
+      const tension = Math.max(0, Math.min(1, (distance - 260) / 220));
+      if (tension > 0.03 && distance > 0.001) {
+        const nx = dx / distance, ny = dy / distance;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(owner.x + nx * owner.r * 0.72, owner.y + ny * owner.r * 0.72);
+        ctx.lineTo(x - nx * radius * 0.8, y - ny * radius * 0.8);
+        ctx.setLineDash([9, 9]);
+        ctx.lineDashOffset = -performance.now() / 90;
+        ctx.lineWidth = 1.5 + tension * 1.5;
+        ctx.strokeStyle = tension > 0.72
+          ? `rgba(255, 91, 76, ${0.35 + tension * 0.55})`
+          : `rgba(91, 207, 244, ${0.18 + tension * 0.42})`;
+        ctx.shadowColor = tension > 0.72 ? '#ff6a55' : '#5bcff4';
+        ctx.shadowBlur = 2 + tension * 7;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
     // Drone: diamond-shaped body with a visible centre.
     ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
     ctx.beginPath(); ctx.moveTo(radius * 1.35, 0); ctx.lineTo(0, radius * 0.95);

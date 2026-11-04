@@ -260,6 +260,39 @@ test('overseer drones attack a mouse-prioritised shape instead of orbiting outsi
   assert.ok(drones.some((drone) => drone.hit.has(hex.id)), 'at least one drone should register a successful hit');
 });
 
+
+test('Overlord drones stay inside their tether and recall when overextended', () => {
+  const game = fresh();
+  const player = place(game, game.addPlayer('leashed-overlord')!.id, 1000, 1000);
+  assert.ok(game.debugSetClass(player.id, 'overlord'));
+
+  const distantShape = {
+    id: 9910, kind: 2, x: 1700, y: 1000, vx: 0, vy: 0, kvx: 0, kvy: 0,
+    r: 44, hp: 10000, maxHp: 10000, rot: 0, rotSpeed: 0, lastHitBy: null,
+  };
+  game.shapes.push(distantShape);
+  game.setInput(player.id, { mx: 0, my: 0, a: 0, f: false });
+  run(game, 4);
+
+  assert.equal(distantShape.hp, distantShape.maxHp, 'drones must not chase targets beyond command range');
+  const drones = game.bullets.filter((bullet) => bullet.owner === player.id && bullet.kind === 'drone');
+  assert.equal(drones.length, 8);
+
+  const overextended = drones[0];
+  overextended.x = player.x + 470;
+  overextended.y = player.y;
+  overextended.vx = 260;
+  overextended.vy = 0;
+  overextended.angle = 0;
+  run(game, 2);
+
+  const recalledDistance = Math.hypot(overextended.x - player.x, overextended.y - player.y);
+  assert.ok(recalledDistance < 400, `overextended drone should regroup near its owner: ${recalledDistance}`);
+  assert.ok(drones.every((drone) =>
+    Math.hypot(drone.x - player.x, drone.y - player.y) <= 480.5
+  ), 'no drone should escape the visible tether boundary');
+});
+
 test('a drone can damage the same object again after its contact cooldown', () => {
   const game = fresh();
   const player = place(game, game.addPlayer('repeat-hit')!.id, 1000, 1000);
