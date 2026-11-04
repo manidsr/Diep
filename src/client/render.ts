@@ -1,5 +1,5 @@
 import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
-import type { DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, ZombieSnap } from '../shared/protocol';
+import type { DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
 import { STICK_RADIUS, type Input } from './input';
 
 export interface View {
@@ -9,6 +9,8 @@ export interface View {
   zombies: ZombieSnap[];
   downed: DownedPlayerSnap[];
   healthDrops: HealthDropSnap[];
+  xpDrops: XpDropSnap[];
+  pools: DamagePoolSnap[];
   mode: GameMode;
 }
 
@@ -56,6 +58,8 @@ export function drawFrame(
 
   if (view.mode === 'teams') drawTeamBases(ctx);
   for (const shape of view.shapes) drawShape(ctx, shape);
+  for (const pool of view.pools) drawDamagePool(ctx, pool);
+  for (const drop of view.xpDrops) drawXpDrop(ctx, drop);
   for (const drop of view.healthDrops) drawHealthDrop(ctx, drop);
   for (const zombie of view.zombies) drawZombie(ctx, zombie);
   for (const downed of view.downed) drawDownedPlayer(ctx, downed);
@@ -192,6 +196,11 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     breaker: { fill: '#a84a43', stroke: '#59272a', accent: '#ffc17a' },
     spitter: { fill: '#6c964f', stroke: '#304c2d', accent: '#d4f47a' },
     summoner: { fill: '#66518d', stroke: '#352653', accent: '#d2aaff' },
+    colossus: { fill: '#77706a', stroke: '#38312d', accent: '#ffd49b' },
+    nestMother: { fill: '#766044', stroke: '#3f2c22', accent: '#f4c87b' },
+    lich: { fill: '#6855a4', stroke: '#2e2356', accent: '#c8aaff' },
+    devourer: { fill: '#773d3d', stroke: '#3d2027', accent: '#ff9a6b' },
+    abomination: { fill: '#8e4b62', stroke: '#492337', accent: '#ffb0c7' },
   } as const;
   const mobPalettes: Record<ZombieSnap['kind'], { fill: string; stroke: string; accent: string }> = {
     shambler: { fill: '#4f854b', stroke: '#254b2b', accent: '#a8d66b' },
@@ -201,12 +210,19 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     guardian: { fill: '#338f8a', stroke: '#15534f', accent: '#8fffee' },
     bomber: { fill: '#b34e32', stroke: '#692b22', accent: '#ffbd71' },
     leaper: { fill: '#955a87', stroke: '#512e55', accent: '#ffb2ea' },
+    armoured: { fill: '#777d83', stroke: '#323b43', accent: '#d9e0e7' },
+    medic: { fill: '#609b75', stroke: '#27583e', accent: '#b6ffd0' },
+    exploder: { fill: '#b34e32', stroke: '#692b22', accent: '#ffbd71' },
+    splitter: { fill: '#a16c42', stroke: '#5f3a25', accent: '#ffd09a' },
+    stalker: { fill: '#434b69', stroke: '#1b203a', accent: '#9eacff' },
+    commander: { fill: '#94733a', stroke: '#563d1c', accent: '#ffe08a' },
   };
   const palette = zombie.bossKind ? bossPalettes[zombie.bossKind] : mobPalettes[zombie.kind];
   const facingX = Math.cos(zombie.angle);
   const facingY = Math.sin(zombie.angle);
 
   ctx.save();
+  ctx.globalAlpha *= Math.max(0.04, Math.min(1, zombie.visibility));
   ctx.translate(x, y);
 
   if (boss) {
@@ -248,6 +264,24 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     }
   }
 
+  if (!boss && zombie.kind === 'armoured') {
+    ctx.beginPath(); ctx.arc(0, 0, r * 1.36, 0, Math.PI * 2);
+    ctx.strokeStyle = '#dce4ea'; ctx.lineWidth = Math.max(4, r * 0.2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, r * 1.06, 0, Math.PI * 2); ctx.strokeStyle = '#49535d'; ctx.lineWidth = 2; ctx.stroke();
+  } else if (!boss && zombie.kind === 'medic') {
+    ctx.fillStyle = '#d8ffe4'; ctx.fillRect(-r * 0.16, -r * 0.78, r * 0.32, r * 1.56);
+    ctx.fillRect(-r * 0.78, -r * 0.16, r * 1.56, r * 0.32);
+  } else if (!boss && zombie.kind === 'splitter') {
+    ctx.strokeStyle = palette.accent; ctx.lineWidth = 3; ctx.beginPath();
+    ctx.arc(-r * 0.25, 0, r * 0.82, -1.1, 1.1); ctx.arc(r * 0.25, 0, r * 0.82, Math.PI - 1.1, Math.PI + 1.1); ctx.stroke();
+  } else if (!boss && zombie.kind === 'stalker') {
+    ctx.shadowColor = palette.accent; ctx.shadowBlur = 14; ctx.strokeStyle = palette.accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, r * 1.4, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0;
+  } else if (!boss && zombie.kind === 'commander') {
+    ctx.fillStyle = palette.accent; ctx.strokeStyle = palette.stroke; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-r * 0.7, -r * 0.65); ctx.lineTo(-r * 0.42, -r * 1.5);
+    ctx.lineTo(0, -r * 0.92); ctx.lineTo(r * 0.42, -r * 1.5); ctx.lineTo(r * 0.7, -r * 0.65); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
   if (!boss && zombie.kind === 'guardian') {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
     ctx.beginPath(); ctx.arc(0, 0, r * (1.62 + pulse * 0.08), 0, Math.PI * 2);
@@ -269,7 +303,24 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     }
   }
   // Silhouette details identify each boss before its attack starts.
-  if (zombie.bossKind === 'breaker') {
+  if (zombie.bossKind === 'colossus') {
+    ctx.strokeStyle = palette.accent; ctx.lineWidth = r * 0.2; ctx.beginPath();
+    ctx.moveTo(-r * 0.5, -r * 0.9); ctx.lineTo(-r * 0.8, -r * 1.55);
+    ctx.moveTo(r * 0.5, -r * 0.9); ctx.lineTo(r * 0.8, -r * 1.55); ctx.stroke();
+  } else if (zombie.bossKind === 'nestMother') {
+    ctx.strokeStyle = palette.accent; ctx.lineWidth = 4;
+    for (const side of [-1, 1]) { ctx.beginPath(); ctx.arc(side * r * 0.95, r * 0.55, r * 0.32, 0, Math.PI * 2); ctx.stroke(); }
+  } else if (zombie.bossKind === 'lich') {
+    ctx.fillStyle = palette.accent; ctx.beginPath(); ctx.moveTo(-r * 0.75, -r * 0.55);
+    ctx.lineTo(-r * 0.45, -r * 1.65); ctx.lineTo(0, -r * 1.05); ctx.lineTo(r * 0.45, -r * 1.65);
+    ctx.lineTo(r * 0.75, -r * 0.55); ctx.closePath(); ctx.fill();
+  } else if (zombie.bossKind === 'devourer') {
+    ctx.fillStyle = '#351b20'; ctx.beginPath(); ctx.ellipse(0, r * 0.35, r * 0.55, r * 0.23, 0, 0, Math.PI * 2); ctx.fill();
+  } else if (zombie.bossKind === 'abomination') {
+    ctx.strokeStyle = palette.accent; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(-r * 0.75, -r * 0.4); ctx.lineTo(-r * 1.35, -r * 1.15);
+    ctx.moveTo(r * 0.75, -r * 0.4); ctx.lineTo(r * 1.35, -r * 1.15); ctx.stroke();
+  } else if (zombie.bossKind === 'breaker') {
     ctx.fillStyle = '#6f292b';
     ctx.strokeStyle = palette.stroke;
     ctx.lineWidth = 4;
@@ -302,7 +353,11 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     ctx.closePath(); ctx.fill(); ctx.stroke();
   }
 
-  if (!boss && zombie.kind === 'tank') {
+  if (!boss && zombie.kind === 'exploder') {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 90);
+    ctx.beginPath(); ctx.arc(0, 0, r * (0.55 + pulse * 0.12), 0, Math.PI * 2);
+    ctx.fillStyle = '#ff7546'; ctx.globalAlpha = 0.5 + pulse * 0.45; ctx.fill(); ctx.globalAlpha = 1;
+  } else if (!boss && zombie.kind === 'tank') {
     ctx.beginPath(); ctx.arc(0, 0, r * 1.32, 0, Math.PI * 2);
     ctx.strokeStyle = '#d0d5dc'; ctx.lineWidth = Math.max(4, r * 0.12); ctx.stroke();
   } else if (!boss && zombie.kind === 'runner') {
@@ -392,7 +447,7 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   }
 
   if (boss) {
-    const names = { breaker: 'THE BREAKER', spitter: 'ROTBLOOM', summoner: 'GRAVEHEART' } as const;
+    const names = { breaker: 'THE BREAKER', spitter: 'ROTBLOOM', summoner: 'GRAVEHEART', colossus: 'THE COLOSSUS', nestMother: 'NEST MOTHER', lich: 'THE LICH', devourer: 'THE DEVOURER', abomination: 'ABOMINATION' } as const;
     ctx.save();
     ctx.font = '900 14px system-ui, sans-serif';
     ctx.textAlign = 'center';
@@ -407,6 +462,20 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   } else {
     hpBar(ctx, x, y + r + 9, r * 2.1, zombie.hp / Math.max(1, zombie.mhp));
   }
+}
+
+function drawXpDrop(ctx: CanvasRenderingContext2D, drop: XpDropSnap) {
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 150 + drop.id);
+  ctx.save(); ctx.translate(drop.x, drop.y); ctx.rotate(performance.now() / 500 + drop.id);
+  ctx.shadowColor = '#ffe56f'; ctx.shadowBlur = 6 + pulse * 10;
+  ctx.fillStyle = '#fff2a1'; ctx.strokeStyle = '#b27a21'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, -drop.r * (1 + pulse * 0.12)); ctx.lineTo(drop.r * 0.8, 0);
+  ctx.lineTo(0, drop.r * (1 + pulse * 0.12)); ctx.lineTo(-drop.r * 0.8, 0); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+}
+function drawDamagePool(ctx: CanvasRenderingContext2D, pool: DamagePoolSnap) {
+  ctx.save(); ctx.globalAlpha = Math.min(0.52, pool.life / 8); ctx.fillStyle = '#e35b32'; ctx.strokeStyle = '#ffae65'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(pool.x, pool.y, pool.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.globalAlpha *= 0.5; ctx.beginPath(); ctx.arc(pool.x, pool.y, pool.r * 0.62, 0, Math.PI * 2); ctx.fillStyle = '#7f251e'; ctx.fill(); ctx.restore();
 }
 
 function drawHealthDrop(ctx: CanvasRenderingContext2D, drop: HealthDropSnap) {
@@ -610,13 +679,17 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, W: number, H: number,
   for (const drop of view.healthDrops) {
     ctx.fillStyle = '#77ff9a'; ctx.beginPath(); ctx.arc(px(drop.x), py(drop.y), 2.8, 0, Math.PI * 2); ctx.fill();
   }
+  for (const drop of view.xpDrops) {
+    ctx.fillStyle = '#ffe27a'; ctx.beginPath(); ctx.arc(px(drop.x), py(drop.y), 2.4, 0, Math.PI * 2); ctx.fill();
+  }
   for (const enemy of view.zombies) {
     const x = px(enemy.x), y = py(enemy.y);
     if (enemy.bossKind) {
       ctx.fillStyle = '#ff4a42'; ctx.strokeStyle = '#ffd0b2'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(x, y, 5.8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     } else {
-      ctx.fillStyle = enemy.kind === 'guardian' ? '#85f4e8' : '#ff625b';
+      if (enemy.visibility < 0.25) continue;
+      ctx.fillStyle = enemy.kind === 'guardian' ? '#85f4e8' : enemy.kind === 'medic' ? '#b6ffd0' : enemy.kind === 'commander' ? '#ffe08a' : '#ff625b';
       ctx.beginPath(); ctx.arc(x, y, enemy.kind === 'tank' ? 3.5 : 2.3, 0, Math.PI * 2); ctx.fill();
     }
   }
@@ -636,7 +709,7 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, W: number, H: number,
   ctx.restore();
   ctx.fillStyle = '#d8e9ec'; ctx.font = '800 9px system-ui, sans-serif'; ctx.textAlign = 'left';
   ctx.fillText('ALLIES', 10, H - 8); ctx.fillStyle = '#ff665d'; ctx.fillText('HORDE', 56, H - 8);
-  ctx.fillStyle = '#77ff9a'; ctx.fillText('HEALS', 104, H - 8); ctx.restore();
+  ctx.fillStyle = '#77ff9a'; ctx.fillText('HEALS', 104, H - 8); ctx.fillStyle = '#ffe27a'; ctx.fillText('XP', 148, H - 8); ctx.restore();
 }
 
 /** Minimal touch hints; active sticks become visible only while a thumb is down. */
