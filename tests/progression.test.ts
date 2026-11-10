@@ -57,8 +57,11 @@ test('tank specialties give distinct classes meaningful stat advantages', () => 
   const trapper = deriveStats(level, 'trapper');
   const drone = deriveStats(level, 'overseer');
   const mobile = deriveStats(level, 'triAngle');
+  const scatter = deriveStats(level, 'spread');
 
   assert.ok(sniper.bulletDamage > balanced.bulletDamage);
+  assert.ok(scatter.bulletDamage > balanced.bulletDamage * 1.25);
+  assert.ok(scatter.maxHp > balanced.maxHp);
   assert.ok(sniper.bulletSpeed > balanced.bulletSpeed);
   assert.ok(sniper.bulletHp > balanced.bulletHp);
   assert.ok(rapid.reload < balanced.reload);
