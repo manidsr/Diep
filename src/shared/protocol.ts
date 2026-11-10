@@ -1,4 +1,4 @@
-import { CLASS_IDS, MAX_NAME_LEN, STAT_KEYS } from './config';
+import { CLASS_IDS, MAX_NAME_LEN } from './config';
 
 export const MAX_MESSAGE_BYTES = 256;
 
@@ -9,7 +9,6 @@ export type GameMode = 'ffa' | 'teams' | 'survival';
 export type ClientMessage =
   | { t: 'join'; name: string; mode?: GameMode; resumeToken?: string }
   | { t: 'input'; mx: number; my: number; a: number; f: boolean; secondary?: boolean; spin?: boolean }
-  | { t: 'upgrade'; stat: number }
   | { t: 'reward'; id: string }
   | { t: 'class'; id: string }
   | { t: 'devClass'; id: string };
@@ -53,9 +52,6 @@ export function parseClientMessage(raw: string): ClientMessage | null {
         secondary: bool(message.secondary),
         spin: bool(message.spin),
       };
-    case 'upgrade':
-      if (!Number.isInteger(message.stat) || (message.stat as number) < 0 || (message.stat as number) >= STAT_KEYS.length) return null;
-      return { t: 'upgrade', stat: message.stat as number };
     case 'reward':
       if (typeof message.id !== 'string' || !/^[a-zA-Z][a-zA-Z0-9]{1,31}$/.test(message.id)) return null;
       return { t: 'reward', id: message.id };
@@ -99,8 +95,8 @@ export type RewardRarity = 'common' | 'rare' | 'epic' | 'legendary';
 export interface RewardCardSnap { id: string; title: string; description: string; rarity: RewardRarity; }
 export interface SelfSnap {
   alive: boolean; downed: boolean; reviveProgress: number; hp: number; mhp: number; lv: number;
-  xp: number; xpCur: number; xpNext: number; pts: number;
-  stats: number[]; cls: string; opts: string[]; fov: number; team: TeamId | null;
+  xp: number; xpCur: number; xpNext: number;
+  cls: string; opts: string[]; fov: number; team: TeamId | null;
   rewards: RewardCardSnap[]; rewardTimer: number;
 }
 export interface Snapshot {

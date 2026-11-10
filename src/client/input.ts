@@ -10,14 +10,12 @@ export class Input {
   private keys = new Set<string>();
   private mouse = { x: 0, y: 0, down: false, rightDown: false, seen: false };
   private everAimed = false;
-  onUpgrade: (idx: number) => void = () => {};
 
   constructor(private canvas: HTMLCanvasElement) {
     const typing = (event: Event) => (event.target as HTMLElement | null)?.tagName === 'INPUT';
     window.addEventListener('keydown', (event) => {
       if (typing(event)) return;
       const key = event.key.toLowerCase();
-      if (event.key >= '1' && event.key <= '8' && !event.repeat) this.onUpgrade(Number(event.key) - 1);
       if (key === 'c' && !event.repeat) this.spin = !this.spin;
       this.keys.add(key);
       if (event.key === ' ' || event.key.startsWith('Arrow')) event.preventDefault();

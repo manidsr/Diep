@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classOptions, deriveStats, levelFromXp, statPointsEarned, totalXpForLevel } from '../src/shared/progression';
-import { CLASSES, MAX_LEVEL, STAT_KEYS } from '../src/shared/config';
+import { automaticStatLevel, classOptions, deriveStats, levelFromXp, totalXpForLevel } from '../src/shared/progression';
+import { CLASSES, MAX_LEVEL, TANK_SPECIALTIES } from '../src/shared/config';
 
 test('xp thresholds are strictly increasing and invert via levelFromXp', () => {
   for (let level = 2; level <= MAX_LEVEL; level++) {
@@ -12,13 +12,24 @@ test('xp thresholds are strictly increasing and invert via levelFromXp', () => {
   assert.equal(levelFromXp(1e9), MAX_LEVEL);
 });
 
-test('stat points: 1 per level to 28, then every 3rd level => 33 at level 45', () => {
-  assert.equal(statPointsEarned(1), 0);
-  assert.equal(statPointsEarned(2), 1);
-  assert.equal(statPointsEarned(28), 27);
-  assert.equal(statPointsEarned(29), 27);
-  assert.equal(statPointsEarned(30), 28);
-  assert.equal(statPointsEarned(45), 33);
+test('automatic stat growth advances every stat on every level and caps at level 45', () => {
+  assert.equal(automaticStatLevel(1), 0);
+  assert.equal(automaticStatLevel(2), 0.09375);
+  assert.equal(automaticStatLevel(45), 4.125);
+  assert.equal(automaticStatLevel(100), 4.125);
+
+  for (let level = 1; level < MAX_LEVEL; level++) {
+    const current = deriveStats(level, 'basic');
+    const next = deriveStats(level + 1, 'basic');
+    assert.ok(next.maxHp > current.maxHp, `max health at level ${level + 1}`);
+    assert.ok(next.regenFrac > current.regenFrac, `regeneration at level ${level + 1}`);
+    assert.ok(next.bodyDps > current.bodyDps, `body damage at level ${level + 1}`);
+    assert.ok(next.bulletSpeed > current.bulletSpeed, `bullet speed at level ${level + 1}`);
+    assert.ok(next.bulletHp > current.bulletHp, `bullet penetration at level ${level + 1}`);
+    assert.ok(next.bulletDamage > current.bulletDamage, `bullet damage at level ${level + 1}`);
+    assert.ok(next.reload < current.reload, `reload gets faster at level ${level + 1}`);
+    assert.ok(next.moveSpeed > current.moveSpeed, `movement speed at level ${level + 1}`);
+  }
 });
 
 test('class tree has the expected initial paths and all parent references resolve', () => {
@@ -31,20 +42,32 @@ test('class tree has the expected initial paths and all parent references resolv
     for (const parentId of cls.alternateParents ?? []) {
       assert.ok(CLASSES.some((parent) => parent.id === parentId), cls.id);
     }
+    assert.ok(TANK_SPECIALTIES[cls.specialty], `${cls.id} has a valid stat specialty`);
   }
   assert.ok(classOptions('auto3', 45).includes('auto5'));
   assert.ok(classOptions('overseer', 45).includes('overtrapper'));
 });
 
-test('each stat point improves its derived value in the right direction', () => {
-  const base = deriveStats(10, STAT_KEYS.map(() => 0), 'basic');
-  const upgraded = (key: string) => deriveStats(10, STAT_KEYS.map((stat) => (stat === key ? 5 : 0)), 'basic');
-  assert.ok(upgraded('regen').regenFrac > base.regenFrac);
-  assert.ok(upgraded('maxHealth').maxHp > base.maxHp);
-  assert.ok(upgraded('bodyDamage').bodyDps > base.bodyDps);
-  assert.ok(upgraded('bulletSpeed').bulletSpeed > base.bulletSpeed);
-  assert.ok(upgraded('bulletPenetration').bulletHp > base.bulletHp);
-  assert.ok(upgraded('bulletDamage').bulletDamage > base.bulletDamage);
-  assert.ok(upgraded('reload').reload < base.reload);
-  assert.ok(upgraded('moveSpeed').moveSpeed > base.moveSpeed);
+test('tank specialties give distinct classes meaningful stat advantages', () => {
+  const level = 30;
+  const balanced = deriveStats(level, 'basic');
+  const sniper = deriveStats(level, 'sniper');
+  const rapid = deriveStats(level, 'machine');
+  const rammer = deriveStats(level, 'smasher');
+  const trapper = deriveStats(level, 'trapper');
+  const drone = deriveStats(level, 'overseer');
+  const mobile = deriveStats(level, 'triAngle');
+
+  assert.ok(sniper.bulletDamage > balanced.bulletDamage);
+  assert.ok(sniper.bulletSpeed > balanced.bulletSpeed);
+  assert.ok(sniper.bulletHp > balanced.bulletHp);
+  assert.ok(rapid.reload < balanced.reload);
+  assert.ok(rapid.bulletSpeed > balanced.bulletSpeed);
+  assert.ok(rammer.maxHp > balanced.maxHp);
+  assert.ok(rammer.bodyDps > balanced.bodyDps);
+  assert.ok(rammer.moveSpeed > balanced.moveSpeed);
+  assert.ok(trapper.maxHp > balanced.maxHp);
+  assert.ok(trapper.regenFrac > balanced.regenFrac);
+  assert.ok(drone.bulletDamage > balanced.bulletDamage);
+  assert.ok(mobile.moveSpeed > balanced.moveSpeed);
 });

@@ -1,4 +1,4 @@
-import { CLASS_BY_ID, CLASS_IDS, STAT_COLORS, STAT_KEYS, STAT_LABELS, MAX_STAT_LEVEL } from '../shared/config';
+import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES } from '../shared/config';
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
 import { drawFrame, drawMinimap, drawSticks, tankPreviewDataUrl, type View } from './render';
@@ -57,11 +57,12 @@ const deathPanel = $('deathpanel');
 const killFeedEl = $('killfeed');
 const recentFeed: string[] = [];
 
-interface ClassProfile { role: string; strength: string; tradeoff: string }
+interface ClassProfile { role: string; strength: string; tradeoff: string; bonuses: string }
 
 function classProfile(classId: string): ClassProfile {
   const cls = CLASS_BY_ID[classId];
-  if (!cls) return { role: 'Unknown', strength: 'Specialised weapon pattern', tradeoff: 'Learn its firing pattern' };
+  if (!cls) return { role: 'Unknown', strength: 'Specialised weapon pattern', tradeoff: 'Learn its firing pattern', bonuses: 'Automatic stat growth' };
+  const specialty = TANK_SPECIALTIES[cls.specialty] ?? TANK_SPECIALTIES.balanced;
   const kinds = cls.barrels.map((barrel) => barrel.projectile ?? 'bullet');
   const allTraps = kinds.length > 0 && kinds.every((kind) => kind === 'trap');
   const wideSpread = cls.barrels.some((barrel) => (barrel.spread ?? 0) >= 0.12) ||
@@ -98,7 +99,7 @@ function classProfile(classId: string): ClassProfile {
   else if (cls.bulletSpeedMul <= 0.9) tradeoff = 'Slower shots are easier to dodge at range';
   else if (cls.barrels.length <= 1 && !(cls.turretCount ?? 0)) tradeoff = 'Limited firing lanes reward precise aim';
 
-  return { role, strength, tradeoff };
+  return { role, strength, tradeoff, bonuses: specialty.summary };
 }
 
 function formatFeedLine(item: {
@@ -363,16 +364,18 @@ for (const id of CLASS_IDS) {
   const strength = document.createElement('p');
   strength.className = 'guide-strength';
   strength.textContent = '+ Best at: ' + profile.strength;
+  const bonus = document.createElement('p');
+  bonus.className = 'guide-bonus';
+  bonus.textContent = 'CLASS BONUS: ' + profile.bonuses;
   const tradeoff = document.createElement('p');
   tradeoff.className = 'guide-tradeoff';
   tradeoff.textContent = '− Trade-off: ' + profile.tradeoff;
-  article.append(heading, description, strength, tradeoff);
+  article.append(heading, description, bonus, strength, tradeoff);
   classGuide.append(article);
 }
 
 // ---------- HUD ----------
-const statsEl = $('stats'), rowsEl = $('rows'), ptsEl = $('pts'), classesEl = $('classes');
-const statsToggle = $<HTMLButtonElement>('stats-toggle');
+const classesEl = $('classes');
 const leaderboardEl = $('lb');
 const leaderboardToggle = $<HTMLButtonElement>('lbtitle');
 const xpEl = $('xp'), toastEl = $('toast');
@@ -386,12 +389,6 @@ if (!isCompactHud()) {
   leaderboardEl.classList.remove('mobile-collapsed');
   leaderboardToggle.setAttribute('aria-expanded', 'true');
 }
-statsToggle.addEventListener('click', () => {
-  if (!isCompactHud()) return;
-  const open = statsEl.classList.toggle('open');
-  document.body.classList.toggle('upgrades-open', open);
-  statsToggle.setAttribute('aria-expanded', String(open));
-});
 leaderboardToggle.addEventListener('click', () => {
   if (!isCompactHud()) return;
   const collapsed = leaderboardEl.classList.toggle('mobile-collapsed');
@@ -416,29 +413,6 @@ window.addEventListener('keydown', (e) => {
     devTools.classList.toggle('open');
   }
 });
-const pipEls: HTMLElement[][] = [];
-const btnEls: HTMLButtonElement[] = [];
-const rowEls: HTMLElement[] = [];
-const MOBILE_STAT_LABELS: Record<(typeof STAT_KEYS)[number], string> = {
-  regen: 'Regen', maxHealth: 'Health', bodyDamage: 'Body',
-  bulletSpeed: 'Speed', bulletPenetration: 'Penetration',
-  bulletDamage: 'Damage', reload: 'Reload', moveSpeed: 'Move',
-};
-STAT_KEYS.forEach((k, i) => {
-  const row = document.createElement('div'); row.className = 'row';
-  const lbl = document.createElement('span'); lbl.className = 'lbl';
-  lbl.textContent = `${i + 1}. ${STAT_LABELS[k]}`;
-  lbl.dataset.mobileLabel = MOBILE_STAT_LABELS[k];
-  const pips = document.createElement('div'); pips.className = 'pips';
-  pipEls[i] = [];
-  for (let j = 0; j < MAX_STAT_LEVEL; j++) { const p = document.createElement('span'); p.className = 'pip'; pips.append(p); pipEls[i].push(p); }
-  const btn = document.createElement('button'); btn.textContent = '+'; btn.style.background = STAT_COLORS[i];
-  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); upgrade(i); });
-  btnEls[i] = btn; rowEls[i] = row;
-  row.append(lbl, pips, btn); rowsEl.append(row);
-});
-function upgrade(i: number) { if (playing) send({ t: 'upgrade', stat: i }); }
-input.onUpgrade = upgrade;
 
 /** Restart a CSS animation class on an element. */
 function retrigger(el: HTMLElement, cls: string) {
@@ -457,7 +431,7 @@ function showToast(big: string, sub: string) {
 }
 
 let hudKey = '', optKey = '', rewardKey = '';
-let lastLv = 0, lastPts = 0, lastStats: number[] = [];
+let lastLv = 0, lastHudClass = '';
 let wasDowned = false;
 function updateSurvivalRewards(m: SelfSnap) {
   rewardPanel.hidden = m.rewards.length === 0;
@@ -492,38 +466,24 @@ function updateHud(m: SelfSnap) {
   // Level-up celebration (only while alive and after the first snapshot of a life).
   if (m.downed && !wasDowned) showToast('DOWNED', 'Stay close to an ally — you can be revived any time');
   wasDowned = m.downed;
-  if (!m.alive && !m.downed) { lastLv = 0; lastPts = 0; lastStats = []; }
+  if (!m.alive && !m.downed) { lastLv = 0; lastHudClass = ''; }
   else {
     if (lastLv > 0 && m.lv > lastLv) {
       retrigger(xpEl, 'lvl');
-      showToast(`LEVEL ${m.lv}`, m.pts > 0 ? `+${m.pts} upgrade point${m.pts > 1 ? 's' : ''} available` : '');
+      showToast(`LEVEL ${m.lv}`, 'All stats increased automatically');
+    }
+    if (lastHudClass && m.cls !== lastHudClass) {
+      const profile = classProfile(m.cls);
+      showToast((CLASS_BY_ID[m.cls]?.name ?? 'NEW TANK').toUpperCase(), `${profile.role} bonus: ${profile.bonuses}`);
     }
     lastLv = m.lv;
+    lastHudClass = m.cls;
   }
 
-  const key = `${m.lv}|${m.xp}|${m.pts}|${m.stats.join(',')}|${m.cls}|${m.downed}`;
+  const key = `${m.lv}|${m.xp}|${m.cls}|${m.downed}`;
   if (key !== hudKey) {
     hudKey = key;
     $('xptxt').textContent = m.downed ? 'DOWNED · stay close to an ally to be revived' : `Lv ${m.lv} ${CLASS_BY_ID[m.cls]?.name ?? ''} — ${m.xp} xp`;
-    statsEl.classList.toggle('show', !m.downed && m.alive && m.pts > 0);
-    if (m.pts <= 0 || m.downed || !m.alive) {
-      statsEl.classList.remove('open');
-      document.body.classList.remove('upgrades-open');
-      statsToggle.setAttribute('aria-expanded', 'false');
-    }
-    ptsEl.textContent = m.pts > 0 ? `(x${m.pts})` : '';
-    if (m.pts !== lastPts && m.pts > 0) retrigger(ptsEl, 'bump');
-    lastPts = m.pts;
-    m.stats.forEach((v, i) => {
-      const prev = lastStats[i] ?? v;
-      pipEls[i].forEach((p, j) => {
-        p.style.background = j < v ? STAT_COLORS[i] : '';
-        if (j === v - 1 && v > prev) retrigger(p, 'pop');
-      });
-      if (v > prev) retrigger(rowEls[i], 'flash');
-      btnEls[i].disabled = m.downed || !m.alive || m.pts <= 0 || v >= MAX_STAT_LEVEL || (!!CLASS_BY_ID[m.cls]?.smasher && i >= 3 && i <= 6);
-    });
-    lastStats = m.stats.slice();
   }
 
   const ok = m.opts.join(',');
@@ -547,8 +507,9 @@ function updateHud(m: SelfSnap) {
       const name = document.createElement('span'); name.className = 'evo-name'; name.textContent = cls?.name ?? id;
       const role = document.createElement('span'); role.className = 'evo-role'; role.textContent = profile.role;
       const strength = document.createElement('span'); strength.className = 'evo-strength'; strength.textContent = '+ ' + profile.strength;
+      const bonus = document.createElement('span'); bonus.className = 'evo-bonus'; bonus.textContent = profile.bonuses;
       const tradeoff = document.createElement('span'); tradeoff.className = 'evo-tradeoff'; tradeoff.textContent = '− ' + profile.tradeoff;
-      b.append(preview, name, role, strength, tradeoff);
+      b.append(preview, name, role, bonus, strength, tradeoff);
       b.style.animationDelay = `${n * 0.08}s, ${0.5 + n * 0.08}s`;
       b.type = 'button';
       b.addEventListener('click', () => {

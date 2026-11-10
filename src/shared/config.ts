@@ -6,7 +6,6 @@ export const SURVIVAL_ARENA_SIZE = 2400;
 export const TEAM_BASE_DEPTH = 520;
 export const VIEW_HALF = 1000;
 export const MAX_LEVEL = 45;
-export const MAX_STAT_LEVEL = 7;
 export const MAX_NAME_LEN = 16;
 export const MAX_PLAYERS = 24;
 export const MAX_BULLETS = 1500;
@@ -17,18 +16,72 @@ export const BULLET_LIFE_S = 2.0;
 export const RESPAWN_PROTECTION_S = 3;
 export const REGEN_DELAY_S = 3;
 
-export const STAT_KEYS = [
-  'regen', 'maxHealth', 'bodyDamage', 'bulletSpeed',
-  'bulletPenetration', 'bulletDamage', 'reload', 'moveSpeed',
-] as const;
-export type StatKey = (typeof STAT_KEYS)[number];
+export type StatKey =
+  | 'regen' | 'maxHealth' | 'bodyDamage' | 'bulletSpeed'
+  | 'bulletPenetration' | 'bulletDamage' | 'reload' | 'moveSpeed';
 
-export const STAT_LABELS: Record<StatKey, string> = {
-  regen: 'Health Regen', maxHealth: 'Max Health', bodyDamage: 'Body Damage',
-  bulletSpeed: 'Bullet Speed', bulletPenetration: 'Bullet Penetration',
-  bulletDamage: 'Bullet Damage', reload: 'Reload', moveSpeed: 'Movement Speed',
+export const TANK_SPECIALTIES = {
+  balanced: {
+    label: 'Balanced', summary: 'All stats +6%',
+    bonuses: { regen: 0.06, maxHealth: 0.06, bodyDamage: 0.06, bulletSpeed: 0.06,
+      bulletPenetration: 0.06, bulletDamage: 0.06, reload: 0.06, moveSpeed: 0.06 },
+  },
+  sniper: {
+    label: 'Sharpshooter', summary: 'Bullet damage +18% · speed +22% · penetration +14%',
+    bonuses: { bulletDamage: 0.18, bulletSpeed: 0.22, bulletPenetration: 0.14 },
+  },
+  rapidFire: {
+    label: 'Rapid Fire', summary: 'Reload speed +22% · bullet speed +12% · penetration +12%',
+    bonuses: { reload: 0.22, bulletSpeed: 0.12, bulletPenetration: 0.12 },
+  },
+  heavyArtillery: {
+    label: 'Heavy Artillery', summary: 'Bullet damage +22% · penetration +18% · health +8%',
+    bonuses: { bulletDamage: 0.22, bulletPenetration: 0.18, maxHealth: 0.08 },
+  },
+  droneController: {
+    label: 'Drone Controller', summary: 'Drone/projectile damage +20% · health +10% · regen +8%',
+    bonuses: { bulletDamage: 0.2, maxHealth: 0.1, regen: 0.08 },
+  },
+  areaControl: {
+    label: 'Area Control', summary: 'Trap/projectile damage +12% · health +18% · regen +15%',
+    bonuses: { bulletDamage: 0.12, maxHealth: 0.18, regen: 0.15 },
+  },
+  rammer: {
+    label: 'Rammer', summary: 'Body damage +28% · health +30% · speed +12% · regen +16%',
+    bonuses: { bodyDamage: 0.28, maxHealth: 0.3, moveSpeed: 0.12, regen: 0.16 },
+  },
+  mobility: {
+    label: 'Skirmisher', summary: 'Movement speed +22% · reload speed +10%',
+    bonuses: { moveSpeed: 0.22, reload: 0.1 },
+  },
+  autoDefense: {
+    label: 'Auto Defense', summary: 'Turret/projectile damage +14% · reload speed +12% · health +8%',
+    bonuses: { bulletDamage: 0.14, reload: 0.12, maxHealth: 0.08 },
+  },
+  closeQuarters: {
+    label: 'Close Quarters', summary: 'Bullet damage +18% · health +12% · body damage +8%',
+    bonuses: { bulletDamage: 0.18, maxHealth: 0.12, bodyDamage: 0.08 },
+  },
+} satisfies Record<string, { label: string; summary: string; bonuses: Partial<Record<StatKey, number>> }>;
+export type TankSpecialtyId = keyof typeof TANK_SPECIALTIES;
+
+const CLASS_SPECIALTY: Record<string, TankSpecialtyId> = {
+  basic: 'balanced', twin: 'balanced', flank: 'balanced', triple: 'balanced', quad: 'balanced',
+  twinFlank: 'balanced', triplet: 'balanced', penta: 'balanced', spread: 'balanced', octo: 'balanced',
+  tripleTwin: 'balanced',
+  sniper: 'sniper', assassin: 'sniper', hunter: 'sniper', ranger: 'sniper', stalker: 'sniper', predator: 'sniper',
+  machine: 'rapidFire', gunner: 'rapidFire', streamliner: 'rapidFire', sprayer: 'rapidFire', autoGunner: 'rapidFire',
+  destroyer: 'heavyArtillery', hybrid: 'heavyArtillery', annihilator: 'heavyArtillery',
+  skimmer: 'heavyArtillery', rocketeer: 'heavyArtillery', glider: 'heavyArtillery', firework: 'heavyArtillery',
+  overseer: 'droneController', battleship: 'droneController', overlord: 'droneController',
+  necromancer: 'droneController', manager: 'droneController', factory: 'droneController',
+  trapper: 'areaControl', triTrapper: 'areaControl', gunnerTrapper: 'areaControl',
+  megaTrapper: 'areaControl', autoTrapper: 'areaControl', overtrapper: 'areaControl',
+  smasher: 'rammer', landmine: 'rammer', autoSmasher: 'rammer', spike: 'rammer',
+  triAngle: 'mobility', booster: 'mobility', fighter: 'mobility',
+  auto3: 'autoDefense', auto5: 'autoDefense', autoTank: 'autoDefense',
+  shotgun: 'closeQuarters', pelletShot: 'closeQuarters', dualBarrel: 'closeQuarters',
 };
-export const STAT_COLORS = ['#e6b37c', '#e666e6', '#9966e6', '#6690e6', '#e6e666', '#e66666', '#66e666', '#66e6e6'];
 
 // ---- Shapes ----
 export interface ShapeDef {
@@ -68,6 +121,7 @@ export interface TankClassDef {
   alternateParents?: string[];
   minLevel: number;
   barrels: BarrelDef[];
+  specialty: TankSpecialtyId;
   reloadMul: number;
   damageMul: number;
   bulletSpeedMul: number;
@@ -106,6 +160,7 @@ const T = (
   minLevel: number, barrels: BarrelDef[], mods: Partial<TankClassDef> = {},
 ): TankClassDef => ({
   id, name, description, parent, minLevel, barrels,
+  specialty: CLASS_SPECIALTY[id] ?? 'balanced',
   reloadMul: 1, damageMul: 1, bulletSpeedMul: 1, ...mods,
 });
 

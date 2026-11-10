@@ -21,8 +21,8 @@ test('clamps movement and normalizes primary, secondary and spin flags', () => {
   );
 });
 
-test('accepts valid upgrade/class and sanitizes names', () => {
-  assert.deepEqual(parseClientMessage('{"t":"upgrade","stat":7}'), { t: 'upgrade', stat: 7 });
+test('rejects removed stat-upgrade messages and accepts class messages', () => {
+  assert.equal(parseClientMessage('{"t":"upgrade","stat":7}'), null);
   assert.deepEqual(parseClientMessage('{"t":"class","id":"twin"}'), { t: 'class', id: 'twin' });
   assert.deepEqual(parseClientMessage('{"t":"devClass","id":"octo"}'), { t: 'devClass', id: 'octo' });
   assert.equal(parseClientMessage('{"t":"devClass","id":"OCTO"}'), null);

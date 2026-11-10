@@ -1,5 +1,5 @@
 import {
-  CLASSES, CLASS_BY_ID, MAX_LEVEL, PLAYER_BASE_RADIUS, STAT_KEYS, type StatKey,
+  CLASSES, CLASS_BY_ID, MAX_LEVEL, PLAYER_BASE_RADIUS, TANK_SPECIALTIES, type StatKey,
 } from './config';
 
 /** Cumulative XP needed to reach level (level 1 = 0). */
@@ -14,13 +14,10 @@ export function levelFromXp(xp: number): number {
   return level;
 }
 
-/** One point per level 2..28, then every third level from 30 onward. */
-export function statPointsEarned(level: number): number {
-  let total = 0;
-  for (let current = 2; current <= Math.min(level, MAX_LEVEL); current++) {
-    if (current <= 28 || (current >= 30 && (current - 30) % 3 === 0)) total++;
-  }
-  return total;
+/** Every level improves all eight stats; level 45 equals 4.125 average old points per stat. */
+export function automaticStatLevel(level: number): number {
+  const cappedLevel = Math.min(MAX_LEVEL, Math.max(1, Math.floor(level)));
+  return (cappedLevel - 1) * 0.09375;
 }
 
 /** Returns all classes reachable from the current class, including alternate evolution paths. */
@@ -43,19 +40,21 @@ export interface DerivedStats {
   fovMul: number;
 }
 
-export function deriveStats(level: number, stats: readonly number[], classId: string): DerivedStats {
+export function deriveStats(level: number, classId: string): DerivedStats {
   const cls = CLASS_BY_ID[classId] ?? CLASS_BY_ID.basic;
-  const stat = (key: StatKey) => stats[STAT_KEYS.indexOf(key)] ?? 0;
+  const statLevel = automaticStatLevel(level);
+  const bonuses = TANK_SPECIALTIES[cls.specialty]?.bonuses ?? {};
+  const applyBonus = (key: StatKey, value: number) => value * (1 + (bonuses[key] ?? 0));
   return {
     radius: PLAYER_BASE_RADIUS * Math.pow(1.01, level - 1) * (cls.sizeMul ?? 1),
-    maxHp: (50 + 2 * (level - 1) + 20 * stat('maxHealth')) * (cls.maxHpMul ?? 1),
-    regenFrac: (0.015 + 0.0125 * stat('regen')),
-    bodyDps: (18 + 6 * stat('bodyDamage')) * (cls.bodyDamageMul ?? 1),
-    bulletSpeed: 520 * (1 + 0.12 * stat('bulletSpeed')) * cls.bulletSpeedMul,
-    bulletDamage: (7 + 3 * stat('bulletDamage')) * cls.damageMul,
-    bulletHp: 2 + 2 * stat('bulletPenetration'),
-    reload: 0.6 * Math.pow(0.9, stat('reload')) * cls.reloadMul,
-    moveSpeed: 260 * (1 + 0.06 * stat('moveSpeed')) * Math.pow(0.99, level - 1) * (cls.moveSpeedMul ?? 1),
+    maxHp: applyBonus('maxHealth', 50 + 2 * (level - 1) + 20 * statLevel) * (cls.maxHpMul ?? 1),
+    regenFrac: applyBonus('regen', 0.015 + 0.0125 * statLevel),
+    bodyDps: applyBonus('bodyDamage', 18 + 6 * statLevel) * (cls.bodyDamageMul ?? 1),
+    bulletSpeed: applyBonus('bulletSpeed', 520 * (1 + 0.12 * statLevel)) * cls.bulletSpeedMul,
+    bulletDamage: applyBonus('bulletDamage', 7 + 3 * statLevel) * cls.damageMul,
+    bulletHp: applyBonus('bulletPenetration', 2 + 2 * statLevel),
+    reload: 0.6 * Math.pow(0.9, statLevel) * cls.reloadMul / (1 + (bonuses.reload ?? 0)),
+    moveSpeed: applyBonus('moveSpeed', 260 * (1 + 0.06 * statLevel)) * (cls.moveSpeedMul ?? 1),
     fovMul: cls.fovMul ?? 1,
   };
 }

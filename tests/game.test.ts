@@ -54,21 +54,25 @@ test('shooting a shape kills it, awards XP and levels up', () => {
   assert.ok(!g.shapes.some((s) => s.id === 9999));
   assert.equal(p.xp, SHAPES.square.xp);
   assert.equal(p.level, 2);
-  assert.equal(p.pts, 1);
+  assert.ok(p.d.maxHp > 50, 'level-up automatically increases maximum health');
+  assert.ok(p.d.bulletDamage > 7, 'level-up automatically increases bullet damage');
+  assert.ok(p.d.moveSpeed > 260, 'level-up automatically increases movement speed');
 });
 
-test('upgrade spends points only when available and caps at 7', () => {
-  const g = fresh();
-  const p = g.addPlayer('a')!;
-  assert.equal(g.upgradeStat(p.id, 0), false);
-  g.addXp(p, totalXpForLevel(10));
-  assert.equal(p.pts, 9);
-  const mhp = p.maxHp;
-  for (let i = 0; i < 7; i++) assert.ok(g.upgradeStat(p.id, 1));
-  assert.equal(g.upgradeStat(p.id, 1), false);
-  assert.equal(p.pts, 2);
-  assert.ok(p.maxHp > mhp);
-  assert.equal(g.upgradeStat(p.id, 99), false);
+test('leveling automatically improves every stat without manual point allocation', () => {
+  const game = fresh();
+  const player = game.addPlayer('automatic growth')!;
+  const base = { ...player.d };
+  game.addXp(player, totalXpForLevel(10));
+  assert.equal(player.level, 10);
+  assert.ok(player.maxHp > 50);
+  assert.ok(player.d.regenFrac > base.regenFrac);
+  assert.ok(player.d.bodyDps > base.bodyDps);
+  assert.ok(player.d.bulletSpeed > base.bulletSpeed);
+  assert.ok(player.d.bulletHp > base.bulletHp);
+  assert.ok(player.d.bulletDamage > base.bulletDamage);
+  assert.ok(player.d.reload < base.reload);
+  assert.ok(player.d.moveSpeed > base.moveSpeed);
 });
 
 test('class evolution requires level and valid parent', () => {
@@ -218,18 +222,15 @@ test('room cap and shape respawn', () => {
 });
 
 
-test('Smasher branches refund projectile stats and only allow body-focused upgrades', () => {
+test('Smasher classes receive automatic rammer-focused stat bonuses', () => {
   const game = fresh();
   const player = game.addPlayer('rammer')!;
   game.addXp(player, totalXpForLevel(28));
-  for (const index of [3, 4, 5, 6]) assert.ok(game.upgradeStat(player.id, index));
-  const spentPoints = player.pts;
+  const before = { ...player.d, maxHp: player.maxHp };
   assert.ok(game.debugSetClass(player.id, 'smasher'));
-  assert.deepEqual(player.stats.slice(3, 7), [0, 0, 0, 0]);
-  assert.ok(player.pts > spentPoints);
-  assert.equal(game.upgradeStat(player.id, 3), false);
-  assert.equal(game.upgradeStat(player.id, 6), false);
-  assert.ok(player.d.bodyDps > 18);
+  assert.ok(player.d.bodyDps > before.bodyDps, 'rammer specialty boosts body damage');
+  assert.ok(player.maxHp > before.maxHp, 'rammer specialty boosts health');
+  assert.ok(player.d.moveSpeed > before.moveSpeed, 'rammer specialty boosts movement');
   assert.equal(player.cd.length, 0);
 });
 

@@ -1,11 +1,11 @@
 import {
-  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_STAT_LEVEL, MAX_ZOMBIES, SURVIVAL_ARENA_SIZE, TEAM_BASE_DEPTH,
+  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_ZOMBIES, SURVIVAL_ARENA_SIZE, TEAM_BASE_DEPTH,
   PLAYER_PIERCE_COST, PROJECTILE_KIND_IDS, REGEN_DELAY_S, RESPAWN_PROTECTION_S, SHAPES,
-  SHAPE_KINDS, SHAPE_TARGET_COUNT, SERVER_TICK_HZ, STAT_KEYS, VIEW_HALF,
+  SHAPE_KINDS, SHAPE_TARGET_COUNT, SERVER_TICK_HZ, VIEW_HALF,
   type BarrelDef, type ProjectileKind,
 } from '../shared/config';
 import {
-  classOptions, deriveStats, levelFromXp, statPointsEarned, totalXpForLevel, type DerivedStats,
+  classOptions, deriveStats, levelFromXp, totalXpForLevel, type DerivedStats,
 } from '../shared/progression';
 import type { GameMode, RewardCardSnap, RewardRarity, Snapshot, TeamId, ZombieBossKind, ZombieBossPhase, ZombieKind, ZombieSnap, ZombieSpecialPhase } from '../shared/protocol';
 import { SpatialGrid } from './grid';
@@ -53,7 +53,7 @@ export interface Player {
   id: number; name: string;
   x: number; y: number; vx: number; vy: number; kvx: number; kvy: number; rvx: number; rvy: number;
   r: number; angle: number; hp: number; maxHp: number;
-  level: number; xp: number; pts: number; stats: number[]; cls: string;
+  level: number; xp: number; cls: string;
   team: TeamId | null; matchKills: number;
   alive: boolean; connected: boolean; downed: boolean; bleedoutT: number; reviveProgress: number; protT: number; lastDamageT: number;
   lastHit: { id: number | null; name: string; classId: string | null } | null;
@@ -164,17 +164,16 @@ export class Game {
 
   addPlayer(name: string): Player | null {
     if (this.players.size >= MAX_PLAYERS) return null;
-    const stats = STAT_KEYS.map(() => 0);
     const p: Player = {
       id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
-      r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, pts: 0, stats, cls: 'basic',
+      r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, cls: 'basic',
       team: this.mode === 'teams' ? this.assignTeam() : null, matchKills: 0,
       alive: true, connected: true, downed: false, bleedoutT: 0, reviveProgress: 0,
       protT: 0, lastDamageT: -99, lastHit: null,
       kills: 0, damageDealt: 0, damageTaken: 0, lifeStartedAt: 0,
       input: { mx: 0, my: 0, a: 0, f: false, secondary: false, spin: false },
       wasFiring: false, wasSecondary: false, cd: [0], autoCd: [], droneSpawnCd: 0,
-      stealthT: 0, visibility: 1, d: deriveStats(1, stats, 'basic'),
+      stealthT: 0, visibility: 1, d: deriveStats(1, 'basic'),
       survivalPerks: {}, rewardOffers: [], shotsFired: 0, emergencyShieldCd: 0,
     };
     this.players.set(p.id, p);
@@ -229,7 +228,7 @@ export class Game {
     p.connected = true;
     if (this.mode === 'survival' && this.survivalGameOver) this.resetSurvivalRun();
     if (name) p.name = name;
-    p.level = 1; p.xp = 0; p.stats = STAT_KEYS.map(() => 0); p.cls = 'basic'; p.maxHp = 0;
+    p.level = 1; p.xp = 0; p.cls = 'basic'; p.maxHp = 0;
     const spawn = this.findSafeSpawn(p.r, p.team);
     p.x = spawn.x;
     p.y = spawn.y;
@@ -303,18 +302,6 @@ export class Game {
     };
   }
 
-  upgradeStat(id: number, idx: number): boolean {
-    const p = this.players.get(id);
-    if (!p || !p.alive || p.downed || !Number.isInteger(idx) || idx < 0 || idx >= STAT_KEYS.length) return false;
-    const cls = CLASS_BY_ID[p.cls];
-    // Smasher branches refund and lock all projectile-only stats.
-    if (cls.smasher && idx >= 3 && idx <= 6) return false;
-    if (p.pts <= 0 || p.stats[idx] >= MAX_STAT_LEVEL) return false;
-    p.stats[idx]++;
-    this.refresh(p);
-    return true;
-  }
-
   chooseClass(id: number, classId: string): boolean {
     const p = this.players.get(id);
     if (!p || !p.alive || p.downed || !classOptions(p.cls, p.level).includes(classId)) return false;
@@ -332,10 +319,6 @@ export class Game {
 
   private switchClass(p: Player, classId: string) {
     p.cls = classId;
-    if (CLASS_BY_ID[classId].smasher) {
-      // Return invested projectile points to the player when entering the Smasher branch.
-      for (let i = 3; i <= 6; i++) p.stats[i] = 0;
-    }
     // Remove owned special weapons so class changes cannot leave stale drones, traps or missiles.
     this.bullets = this.bullets.filter((b) => b.owner !== p.id || b.kind === 'bullet');
     p.droneSpawnCd = 0;
@@ -1998,12 +1981,11 @@ export class Game {
 
   private refresh(p: Player) {
     const previousMax = p.maxHp;
-    p.d = deriveStats(p.level, p.stats, p.cls);
+    p.d = deriveStats(p.level, p.cls);
     const vitality = this.mode === 'survival' ? 1 + this.perkCount(p, 'vitalCore') * 0.08 : 1;
     p.maxHp = p.d.maxHp * vitality;
     p.r = p.d.radius;
     if (previousMax > 0) p.hp = Math.min(p.maxHp, p.hp * (p.maxHp / previousMax));
-    p.pts = statPointsEarned(p.level) - p.stats.reduce((sum, value) => sum + value, 0);
     const cls = CLASS_BY_ID[p.cls];
     if (p.cd.length !== cls.barrels.length) p.cd = new Array(cls.barrels.length).fill(0);
     if (p.autoCd.length !== (cls.turretCount ?? 0)) p.autoCd = new Array(cls.turretCount ?? 0).fill(0);
@@ -2069,7 +2051,7 @@ export class Game {
       me: {
         alive: me.alive && !me.downed, downed: me.downed, reviveProgress: r2(me.reviveProgress / REVIVE_SECONDS),
         hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
-        xpCur: currentXp, xpNext: nextXp, pts: me.pts, stats: me.stats.slice(),
+        xpCur: currentXp, xpNext: nextXp,
         cls: me.cls, opts: me.alive && !me.downed ? classOptions(me.cls, me.level) : [], fov: me.d.fovMul * focus,
         team: me.team, rewards: me.rewardOffers[0]?.cards ?? [], rewardTimer: r1(me.rewardOffers[0]?.timeRemaining ?? 0),
       },

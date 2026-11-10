@@ -106,7 +106,7 @@
   #toast { left: 50%; top: 24%; transform: translateX(-50%); text-align: center; opacity: 0; white-space: nowrap; }
   #toast .big { font-size: clamp(26px, 6vw, 44px); font-weight: 900; letter-spacing: .06em; color: #fff3a8;
     text-shadow: 0 0 18px #ffb300cc, 0 3px 0 #a86a00, 0 5px 10px #000a; }
-  #toast .sub { font-size: 14px; margin-top: 2px; text-shadow: 0 1px 3px #000; color: #fff; }
+  #toast .sub { max-width: 88vw; white-space: normal; font-size: 14px; line-height: 1.25; margin: 2px auto 0; text-shadow: 0 1px 3px #000; color: #fff; }
   #toast.go { animation: toast 2s ease-out forwards; }
   @keyframes toast {
     0% { opacity: 0; transform: translateX(-50%) scale(.3); }
@@ -147,31 +147,6 @@
 
   button { font: inherit; color: var(--fg); background: var(--ui2); border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; touch-action: manipulation; }
   button:disabled { opacity: .5; cursor: default; }
-
-  /* ---------- Upgrade panel ---------- */
-  #stats { left: max(8px, env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom)); width: 210px;
-    background: linear-gradient(160deg, #14141bcc, #1f1f2acc); border: 1px solid #ffffff22; border-radius: 10px; padding: 6px;
-    transform: translateX(-130%); opacity: 0; visibility: hidden;
-    transition: transform .45s cubic-bezier(.2,1.3,.4,1), opacity .3s, visibility 0s .45s; }
-  #stats.show { transform: none; opacity: 1; visibility: visible; transition-delay: 0s; animation: panelglow 1.8s ease-in-out infinite; }
-  @keyframes panelglow { 0%, 100% { box-shadow: 0 0 0 0 #ffe36a00; } 50% { box-shadow: 0 0 16px 1px #ffe36a88; } }
-  #stats .hdr { font-size: 12px; margin: 0 0 4px 2px; font-weight: 700; letter-spacing: .05em; }
-  #pts { display: inline-block; color: #ffe36a; }
-  #pts.bump { animation: bump .45s ease-out; }
-  @keyframes bump { 40% { transform: scale(1.7); } }
-  .row { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 12px; pointer-events: auto; border-radius: 6px; padding: 0 2px; }
-  .row.flash { animation: rowflash .5s ease-out; }
-  @keyframes rowflash { from { background: #ffffff55; } to { background: transparent; } }
-  .row .lbl { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pips { display: flex; gap: 1px; }
-  .pip { width: 7px; height: 12px; background: #0008; transition: background .2s; }
-  .pip.pop { animation: pip .45s ease-out; }
-  @keyframes pip { 0% { transform: scaleY(2) scaleX(1.5); filter: brightness(2.5); } 100% { transform: none; filter: none; } }
-  .row button { padding: 2px 9px; min-width: 30px; min-height: 26px; font-weight: 700; color: #111; transition: transform .1s; }
-  .row button:not(:disabled) { animation: btnpulse 1.2s ease-in-out infinite; }
-  .row button:active { transform: scale(.85); }
-  @keyframes btnpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
-  @media (max-height: 520px) { #stats { width: 190px; bottom: 36px; } .row { margin: 1px 0; } #lb { width: 150px; } .lrow .lv { display: none; } }
 
   /* ---------- Menu ---------- */
   #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #000a; padding: 12px; }
@@ -234,6 +209,7 @@
   .guide-heading span { color: #9edbff; font-size: 9px; text-align: right; }
   .guide-class p { margin: 4px 0 0; font-size: 10px; color: #c7c7d0; line-height: 1.3; }
   .guide-class p.guide-strength { color: #91e2a8; }
+  .guide-class p.guide-bonus { color: #8fdcff; font-weight: 800; }
   .guide-class p.guide-tradeoff { color: #ffc28e; }
   /* ---------- Evolution cards: readable strengths and trade-offs ---------- */
   #classes button.evo-card { width: 124px; min-height: 144px; padding: 4px 6px 6px; gap: 2px; }
@@ -241,6 +217,7 @@
   #classes .evo-role { color: #17608b; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; }
   #classes .evo-strength, #classes .evo-tradeoff { width: 100%; font-size: 9px; line-height: 1.15; text-align: left; font-weight: 650; }
   #classes .evo-strength { color: #16733a; }
+  #classes .evo-bonus { width: 100%; color: #07577f; font-size: 9px; line-height: 1.15; text-align: left; font-weight: 900; }
   #classes .evo-tradeoff { color: #9b4f16; }
   @media (max-width: 600px) {
     #killfeed { width: min(230px, 56vw); bottom: 54px; }
@@ -253,7 +230,7 @@
 
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
-  #lb h4 button, #stats .hdr button {
+  #lb h4 button {
     width: 100%; padding: 0; border: 0; background: transparent; color: inherit;
     font: inherit; letter-spacing: inherit; text-align: inherit; pointer-events: none;
   }
@@ -279,44 +256,6 @@
     .survival-summary span { font-size: 8px; }
 
     #minimap { left: max(7px, env(safe-area-inset-left)); width: 104px; height: 104px; border-radius: 9px; }
-    #stats {
-      top: max(8px, env(safe-area-inset-top)); bottom: auto; left: max(8px, env(safe-area-inset-left));
-      width: auto; min-width: 126px; max-width: calc(100vw - 16px);
-      padding: 4px 7px; border-radius: 9px; z-index: 8;
-    }
-    #stats.show { animation: none; }
-    #stats .hdr { margin: 0; }
-    #stats .hdr button {
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      min-height: 30px; padding: 2px 4px; border-radius: 6px; color: var(--fg);
-      font: inherit; font-size: 12px; font-weight: 850; text-align: left; pointer-events: auto;
-    }
-    #stats .hdr button::after { content: "+"; color: #a9dcff; font-size: 19px; line-height: 1; }
-    #stats.open { width: min(324px, calc(100vw - 16px)); }
-    #stats.open .hdr button::after { content: "−"; }
-    #stats:not(.open) #rows { display: none; }
-    #stats.open #rows {
-      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px; max-height: min(42dvh, 230px); overflow-y: auto; padding-top: 7px;
-    }
-    .row {
-      display: grid; grid-template-columns: minmax(0, 1fr) 38px; align-items: center;
-      gap: 4px; min-width: 0; min-height: 42px; margin: 0; padding: 3px 4px;
-      border: 1px solid #ffffff1c; border-radius: 8px; background: #ffffff0b;
-      font-size: 11px;
-    }
-    .row .lbl { max-width: none; overflow: hidden; font-size: 0; line-height: 1.1; white-space: normal; }
-    .row .lbl::after { content: attr(data-mobile-label); display: block; color: #edf5fa; font-size: 11px; font-weight: 700; }
-    .pips { display: none; }
-    .row button {
-      grid-column: 2; grid-row: 1; min-width: 38px; min-height: 38px;
-      padding: 0; border-radius: 9px; font-size: 20px; font-weight: 900;
-      box-shadow: inset 0 1px 0 #ffffff55; animation: none !important;
-    }
-    .row button:active { transform: scale(.92); }
-    body.upgrades-open #minimap { opacity: 0; visibility: hidden; }
-    #minimap { transition: opacity .16s ease, visibility .16s ease; }
-    body.choosing-class #stats { display: none !important; }
     #fullscreen-btn {
       display: block; margin-top: 7px; padding: 8px 10px;
       border: 1px solid #ffffff28; background: #151d28; color: #c4d9e8;
@@ -344,6 +283,7 @@
     #classes .evo-name { font-size: 9px; line-height: 1.1; }
     #classes .evo-role { font-size: 7px; }
     #classes .evo-strength, #classes .evo-tradeoff { display: none; }
+    #classes .evo-bonus { font-size: 7px; line-height: 1.1; }
     body.choosing-class #lb { top: calc(env(safe-area-inset-top) + 108px); }
     #classes { display: none; }
     body.choosing-class #classes { display: flex; }
@@ -385,7 +325,6 @@
 
   @media (max-height: 620px) and (pointer: coarse) {
     #lb { max-height: 42dvh; }
-    #stats.open #rows { max-height: 42dvh; }
     #classes { max-height: 92px; }
     #classes button.evo-card { height: 76px; min-height: 76px; }
     .card { padding: 10px; }
@@ -411,10 +350,9 @@
     <label for="devclass">Switch to any tank</label>
     <select id="devclass" aria-label="Tank class"></select>
     <button id="devapply" type="button">Switch tank now</button>
-    <small>Ignores level and evolution requirements. Your level, XP and skill points stay unchanged.</small>
+    <small>Ignores evolution requirements. Your level and XP stay unchanged.</small>
   </div>
 </div>
-<div id="stats" class="hud"><div class="hdr"><button id="stats-toggle" type="button" aria-expanded="false">Upgrades <b id="pts"></b></button></div><div id="rows"></div></div>
 <div id="xp" class="hud"><div class="bar"><div class="fill" id="xpfill"></div></div><div class="txt" id="xptxt"></div></div>
 <div id="toast" class="hud"><div class="big" id="toastbig"></div><div class="sub" id="toastsub"></div></div>
 <div id="menu">
@@ -444,7 +382,7 @@
     <b>Phone:</b> left thumb moves, right thumb aims and fires (landscape recommended).</p>
     <p id="lan" class="small"></p>
     <details id="classguide-details">
-      <summary>Tank guide · strengths and trade-offs for all 54 classes</summary>
+      <summary>Tank guide · specialties and class stat bonuses for all 54 classes</summary>
       <div id="classguide"></div>
     </details>
   </div>
