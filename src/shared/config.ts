@@ -71,8 +71,8 @@ export type TankSpecialtyId = keyof typeof TANK_SPECIALTIES;
 
 const CLASS_SPECIALTY: Record<string, TankSpecialtyId> = {
   basic: 'balanced', twin: 'balanced', flank: 'balanced', triple: 'balanced', quad: 'balanced',
-  twinFlank: 'balanced', triplet: 'balanced', penta: 'balanced', octo: 'balanced',
-  tripleTwin: 'balanced', spread: 'scatter',
+  twinFlank: 'balanced', triplet: 'balanced', penta: 'balanced',
+  tripleTwin: 'balanced', spread: 'scatter', octo: 'rapidFire',
   sniper: 'sniper', assassin: 'sniper', hunter: 'sniper', ranger: 'sniper', stalker: 'sniper', predator: 'sniper',
   machine: 'rapidFire', gunner: 'rapidFire', streamliner: 'rapidFire', sprayer: 'rapidFire', autoGunner: 'rapidFire',
   destroyer: 'heavyArtillery', hybrid: 'heavyArtillery', annihilator: 'heavyArtillery',
