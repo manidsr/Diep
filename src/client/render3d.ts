@@ -152,16 +152,16 @@ export class Arena3D {
     if (!ctx) return null;
     const rand = seeded(24891);
     const base = ctx.createLinearGradient(0, 0, 1024, 1024);
-    base.addColorStop(0, '#718b4e');
-    base.addColorStop(0.48, '#587b43');
-    base.addColorStop(1, '#8a8750');
+    base.addColorStop(0, '#617c46');
+    base.addColorStop(0.48, '#496b3a');
+    base.addColorStop(1, '#71804b');
     ctx.fillStyle = base;
     ctx.fillRect(0, 0, 1024, 1024);
 
     for (let i = 0; i < 820; i++) {
       const x = rand() * 1024, y = rand() * 1024;
       const r = 8 + rand() * 52;
-      const colours = ['#87965a', '#9c985f', '#526f43', '#496a4a', '#a18c5e', '#6d8950'];
+      const colours = ['#71894e', '#829456', '#4f6f3c', '#45663e', '#8a8650', '#637d43'];
       ctx.globalAlpha = 0.07 + rand() * 0.13;
       ctx.fillStyle = colours[Math.floor(rand() * colours.length)];
       ctx.beginPath();
@@ -342,77 +342,44 @@ export class Arena3D {
     this.createTerrain(size);
     this.createWall(size);
 
-    // A circular trade road and the central runestone seal give the field a sense of place.
-    const roadMat = this.material('#937e5a', { roughness: 1 });
-    const road = this.mesh(this.scene, new THREE.RingGeometry(size * 0.34, size * 0.355, 128),
-      roadMat, size / 2, -3.1, size / 2);
-    road.rotation.x = -Math.PI / 2;
-    const innerRune = this.mesh(this.scene, new THREE.RingGeometry(size * 0.18, size * 0.184, 128),
-      this.glow('#4d83bb', 0.55), size / 2, -3.2, size / 2);
-    innerRune.rotation.x = -Math.PI / 2;
-
+    // The battlefield is a clear grassland surrounded by an intentional forest border.
+    // Repeated spacing and alternating tree variants create a coherent silhouette instead of scatter.
     const rand = seeded(91273);
-    for (let i = 0; i < 56; i++) {
-      let x = 0, z = 0;
-      for (let tries = 0; tries < 30; tries++) {
-        x = (rand() - 0.5) * (size + 1250) + size / 2;
-        z = (rand() - 0.5) * (size + 1250) + size / 2;
-        const inside = x > 150 && x < size - 150 && z > 150 && z < size - 150;
-        const nearRoad = Math.abs(Math.hypot(x - size / 2, z - size / 2) - size * 0.35) < 110;
-        if (!inside && !nearRoad) break;
+    const treeRows = 12;
+    for (let i = 0; i < treeRows; i++) {
+      const offset = (i + 0.5) * size / treeRows;
+      const variant = i % 3;
+      this.createTree(-175, offset, variant, rand);
+      this.createTree(size + 175, offset, (variant + 1) % 3, rand);
+      this.createTree(offset, -175, (variant + 2) % 3, rand);
+      this.createTree(offset, size + 175, variant, rand);
+      if (i % 2 === 0) {
+        const stagger = offset + size / treeRows * 0.45;
+        this.createTree(-405, stagger, (variant + 1) % 3, rand);
+        this.createTree(size + 405, stagger, (variant + 2) % 3, rand);
+        this.createTree(stagger, -405, variant, rand);
+        this.createTree(stagger, size + 405, (variant + 1) % 3, rand);
       }
-      this.createTree(x, z, Math.floor(rand() * 6), rand);
-    }
-    for (let i = 0; i < 72; i++) {
-      const x = (rand() - 0.5) * (size + 1200) + size / 2;
-      const z = (rand() - 0.5) * (size + 1200) + size / 2;
-      const outside = x < -80 || x > size + 80 || z < -80 || z > size + 80;
-      if (outside && rand() > 0.28) this.createRock(x, z, 0.55 + rand() * 1.3, rand);
     }
 
+    // Four matching corner keeps frame the arena. No isolated towers, floating shrines or
+    // random interior rocks compete with the players and combat.
     const corners: [number, number][] = [
-      [70, 70], [size - 70, 70], [70, size - 70], [size - 70, size - 70],
-      [size / 2, 70], [size / 2, size - 70], [70, size / 2], [size - 70, size / 2],
+      [95, 95], [size - 95, 95], [95, size - 95], [size - 95, size - 95],
     ];
     for (const [x, z] of corners) this.createTower(x, z, rand);
 
-    // Scattered flower patches around the edge of the playable field.
-    const flowers = new THREE.Group();
-    const flowerMat = this.material('#e7d07b');
-    const flowerBlue = this.material('#b5c5ec');
-    const stemMat = this.material('#477342');
-    for (let i = 0; i < 160; i++) {
-      const x = rand() * size, z = rand() * size;
-      const nearCenter = Math.hypot(x - size / 2, z - size / 2) < size * 0.2;
-      if (nearCenter) continue;
-      const stem = this.mesh(flowers, new THREE.CylinderGeometry(0.7, 1.1, 8, 4), stemMat, x, this.groundHeight(x,z) + 4, z);
-      this.mesh(flowers, new THREE.IcosahedronGeometry(3.3, 0), rand() > 0.5 ? flowerMat : flowerBlue,
-        x, this.groundHeight(x,z) + 9, z);
-    }
-    this.scene.add(flowers);
-
-    // A little high-fantasy landmark sits in the centre without blocking movement.
-    const shrine = new THREE.Group();
-    shrine.position.set(size / 2, this.groundHeight(size / 2, size / 2), size / 2);
-    this.mesh(shrine, new THREE.CylinderGeometry(78, 92, 16, 12), this.material('#555870'), 0, 8, 0);
-    this.mesh(shrine, new THREE.TorusGeometry(66, 3, 8, 48), this.glow('#78b9eb', 1.6), 0, 27, 0).rotation.x = Math.PI / 2;
-    this.mesh(shrine, new THREE.OctahedronGeometry(24, 1), this.glow('#71c6ef', 2.5), 0, 82, 0);
-    const shrineLight = new THREE.PointLight('#71c6ef', 2.2, 520);
-    shrineLight.position.set(0, 90, 0);
-    shrine.add(shrineLight);
-    this.scene.add(shrine);
-
-    // Low hills and distant pines form a visible horizon beyond the stone boundary.
-    for (let i = 0; i < 28; i++) {
-      const side = i % 4;
-      const n = Math.floor(i / 4);
-      const d = size * (0.5 + rand() * 0.42);
-      const offset = (n - 3) * 520;
-      const x = side < 2 ? offset + size / 2 : (side === 2 ? -d : size + d);
-      const z = side < 2 ? (side === 0 ? -d : size + d) : offset + size / 2;
-      const mountain = this.mesh(this.scene, new THREE.ConeGeometry(280 + rand() * 240, 260 + rand() * 300, 7),
-        this.material(rand() > 0.5 ? '#64765a' : '#77735e'), x, -20, z);
-      mountain.rotation.z = (rand() - 0.5) * 0.18;
+    // Low, continuous-looking foothills sit beyond the tree line and fade into distance fog.
+    const hillMat = this.material('#718269', { roughness: 1 });
+    for (let i = 0; i < 8; i++) {
+      const t = (i + 0.5) / 8;
+      const x = t * size;
+      const hillNorth = this.mesh(this.scene, new THREE.SphereGeometry(1, 12, 8), hillMat,
+        x, -5, -size * 0.72);
+      hillNorth.scale.set(size / 11, 170 + (i % 3) * 35, 310);
+      const hillSouth = this.mesh(this.scene, new THREE.SphereGeometry(1, 12, 8), hillMat,
+        x, -5, size * 1.72);
+      hillSouth.scale.set(size / 11, 170 + ((i + 1) % 3) * 35, 310);
     }
 
     this.createFireflies(size);
@@ -853,73 +820,232 @@ export class Arena3D {
 
   private createZombie(zombie: any): Visual {
     const boss = zombie.bossKind !== null;
+    const kind = zombie.kind;
     const baseColor = boss ? (BOSS_PALETTE[zombie.bossKind] || '#864c68') :
-      (ZOMBIE_PALETTE[zombie.kind] || '#688e4d');
+      (ZOMBIE_PALETTE[kind] || '#688e4d');
     const root = new THREE.Group();
-    const skin = this.material(baseColor, { roughness: 0.95 });
-    const dark = this.material('#303b37');
-    const glow = this.glow(boss ? '#e0a7ff' : '#c7f58d', boss ? 2.5 : 1.45);
-    const scale = boss ? 1.55 : 1;
-    this.mesh(root, new THREE.IcosahedronGeometry(1, 1), skin, 0, 29, 0).scale.set(28 * scale, 37 * scale, 24 * scale);
-    this.mesh(root, new THREE.IcosahedronGeometry(1, 1), skin, 0, 67 * scale, 0).scale.set(22 * scale, 22 * scale, 21 * scale);
+    const skin = this.material(baseColor, { roughness: 0.94 });
+    const hide = this.material('#303b37', { roughness: 0.96 });
+    const bone = this.material('#c4b99b', { roughness: 0.8 });
+    const glowColor = boss ? '#dcb0ff' : kind === 'bomber' || kind === 'exploder' ? '#ff9b62' :
+      kind === 'medic' ? '#a7ffd2' : '#c7f58d';
+    const glow = this.glow(glowColor, boss ? 2.2 : 1.25);
+    const heavy = kind === 'tank' || kind === 'armoured' || kind === 'guardian' ||
+      zombie.bossKind === 'colossus' || zombie.bossKind === 'breaker';
+    const slim = kind === 'runner' || kind === 'leaper' || kind === 'stalker';
+    const scale = boss ? 1.62 : 1;
+    const torsoWidth = (heavy ? 39 : slim ? 22 : 29) * scale;
+    const torsoHeight = (heavy ? 50 : slim ? 43 : 47) * scale;
+
+    // A readable creature anatomy: feet, hunched torso, shoulders and a forward-facing head.
     for (const side of [-1, 1]) {
-      this.mesh(root, new THREE.ConeGeometry(7 * scale, 24 * scale, 5), dark,
-        side * 15 * scale, 89 * scale, 2).rotation.z = side * 0.26;
-      this.mesh(root, new THREE.SphereGeometry(4.6 * scale, 8, 6), glow,
-        side * 8 * scale, 72 * scale, 18 * scale);
-      const arm = this.mesh(root, new THREE.CylinderGeometry(5 * scale, 8 * scale, 34 * scale, 6),
-        skin, side * 30 * scale, 29 * scale, 0);
-      arm.rotation.z = side * 0.62;
-      this.mesh(root, new THREE.IcosahedronGeometry(1, 0), dark,
-        side * 36 * scale, 8 * scale, 5).scale.setScalar(11 * scale);
+      const leg = this.mesh(root, new THREE.CylinderGeometry(7 * scale, 9 * scale, 32 * scale, 7),
+        hide, side * torsoWidth * 0.43, 17 * scale, -2);
+      leg.rotation.z = side * 0.12;
+      this.mesh(root, new THREE.IcosahedronGeometry(1, 0), hide,
+        side * torsoWidth * 0.48, 4 * scale, 6).scale.set(10 * scale, 7 * scale, 14 * scale);
     }
-    if (boss) {
-      for (let i = 0; i < 6; i++) {
-        const a = i / 6 * Math.PI * 2;
-        this.mesh(root, new THREE.ConeGeometry(10, 34, 5), glow,
-          Math.cos(a) * 32, 53, Math.sin(a) * 32).rotation.z = Math.cos(a) * 0.65;
+    this.mesh(root, new THREE.IcosahedronGeometry(1, 1), skin, 0, 38 * scale, 0)
+      .scale.set(torsoWidth, torsoHeight * 0.58, 24 * scale);
+    this.mesh(root, new THREE.IcosahedronGeometry(1, 1), skin, 0, 75 * scale, 3)
+      .scale.set(22 * scale, 21 * scale, 20 * scale);
+    for (const side of [-1, 1]) {
+      const shoulder = this.mesh(root, new THREE.SphereGeometry(13 * scale, 8, 7),
+        heavy ? hide : skin, side * torsoWidth * 0.9, 57 * scale, 0);
+      shoulder.scale.set(1.05, 1, 1.15);
+      const arm = this.mesh(root, new THREE.CylinderGeometry(5.5 * scale, 8 * scale, 34 * scale, 7),
+        skin, side * torsoWidth * 1.08, 35 * scale, 8 * scale);
+      arm.rotation.z = side * 0.62;
+      this.mesh(root, new THREE.ConeGeometry(7 * scale, 17 * scale, 5),
+        hide, side * torsoWidth * 1.28, 13 * scale, 25 * scale).rotation.x = Math.PI / 2;
+      this.mesh(root, new THREE.SphereGeometry(4.3 * scale, 7, 5), glow,
+        side * 8 * scale, 78 * scale, 19 * scale);
+    }
+
+    // Heavy enemies carry plates, agile enemies lean forward, and support units carry a clear emblem.
+    if (heavy) {
+      for (const side of [-1, 1]) {
+        this.mesh(root, new THREE.BoxGeometry(22 * scale, 18 * scale, 13 * scale), hide,
+          side * 31 * scale, 59 * scale, 3);
       }
-      const aura = this.mesh(root, new THREE.TorusGeometry(49, 3, 8, 40), glow, 0, 2, 0);
+      this.mesh(root, new THREE.BoxGeometry(39 * scale, 7 * scale, 8 * scale), bone, 0, 44 * scale, 22 * scale);
+    }
+    if (kind === 'runner' || kind === 'leaper') {
+      const forwardLean = this.mesh(root, new THREE.ConeGeometry(10 * scale, 24 * scale, 5),
+        hide, 0, 62 * scale, 22 * scale);
+      forwardLean.rotation.x = Math.PI / 2;
+      for (const side of [-1, 1]) {
+        this.mesh(root, new THREE.ConeGeometry(5 * scale, 28 * scale, 5), bone,
+          side * 12 * scale, 94 * scale, 3).rotation.z = side * 0.3;
+      }
+    }
+    if (kind === 'ranger') {
+      const spear = this.mesh(root, new THREE.CylinderGeometry(2.8 * scale, 3.8 * scale, 76 * scale, 6),
+        hide, 42 * scale, 42 * scale, 6);
+      spear.rotation.z = -0.18;
+      this.mesh(root, new THREE.ConeGeometry(7 * scale, 21 * scale, 6), bone,
+        49 * scale, 83 * scale, 6).rotation.z = -0.18;
+    }
+    if (kind === 'guardian') {
+      const shield = this.mesh(root, new THREE.DodecahedronGeometry(1, 0), hide,
+        -43 * scale, 38 * scale, 18 * scale);
+      shield.scale.set(19 * scale, 28 * scale, 7 * scale);
+      const crest = this.mesh(root, new THREE.BoxGeometry(4 * scale, 24 * scale, 3 * scale), glow,
+        -43 * scale, 38 * scale, 25 * scale);
+    }
+    if (kind === 'medic') {
+      this.mesh(root, new THREE.BoxGeometry(7 * scale, 25 * scale, 5 * scale), bone,
+        0, 41 * scale, 25 * scale);
+      this.mesh(root, new THREE.BoxGeometry(23 * scale, 7 * scale, 5 * scale), bone,
+        0, 41 * scale, 25 * scale);
+    }
+    if (kind === 'bomber' || kind === 'exploder') {
+      this.mesh(root, new THREE.SphereGeometry(15 * scale, 10, 8), glow, 0, 41 * scale, 24 * scale);
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4;
+        this.mesh(root, new THREE.ConeGeometry(5 * scale, 15 * scale, 5), bone,
+          Math.cos(a) * 27 * scale, 43 * scale, Math.sin(a) * 24 * scale);
+      }
+    }
+    if (kind === 'stalker') {
+      const hood = this.mesh(root, new THREE.ConeGeometry(26 * scale, 46 * scale, 7),
+        hide, 0, 77 * scale, 0);
+      hood.rotation.x = Math.PI / 2;
+      this.mesh(root, new THREE.SphereGeometry(7 * scale, 8, 6), glow, 0, 76 * scale, 21 * scale);
+    }
+    if (kind === 'commander' || boss) {
+      for (let i = 0; i < 3; i++) {
+        const side = i - 1;
+        this.mesh(root, new THREE.ConeGeometry(7 * scale, 24 * scale, 5), bone,
+          side * 12 * scale, 101 * scale, 0);
+      }
+    }
+
+    // Boss identity is visible at a glance rather than being only a larger regular zombie.
+    if (boss) {
+      const bossKind = zombie.bossKind;
+      if (bossKind === 'colossus' || bossKind === 'breaker') {
+        for (const side of [-1, 1]) {
+          const pauldron = this.mesh(root, new THREE.DodecahedronGeometry(1, 1), hide,
+            side * 43 * scale, 62 * scale, 0);
+          pauldron.scale.set(24 * scale, 18 * scale, 22 * scale);
+          this.mesh(root, new THREE.ConeGeometry(9 * scale, 31 * scale, 5), bone,
+            side * 47 * scale, 81 * scale, 0).rotation.z = side * 0.3;
+        }
+      } else if (bossKind === 'spitter' || bossKind === 'devourer') {
+        this.mesh(root, new THREE.SphereGeometry(26 * scale, 10, 8), glow, 0, 42 * scale, 23 * scale);
+        this.mesh(root, new THREE.ConeGeometry(12 * scale, 28 * scale, 6), bone,
+          0, 81 * scale, 22 * scale).rotation.x = Math.PI / 2;
+      } else if (bossKind === 'lich' || bossKind === 'summoner') {
+        const halo = this.mesh(root, new THREE.TorusGeometry(36 * scale, 3 * scale, 8, 32),
+          glow, 0, 92 * scale, 0);
+        halo.rotation.x = Math.PI / 2;
+        for (let i = 0; i < 4; i++) {
+          const a = i * Math.PI / 2;
+          this.mesh(root, new THREE.OctahedronGeometry(8 * scale, 0), glow,
+            Math.cos(a) * 49 * scale, 76 * scale, Math.sin(a) * 49 * scale);
+        }
+      } else if (bossKind === 'nestMother') {
+        for (let i = 0; i < 6; i++) {
+          const a = i / 6 * Math.PI * 2;
+          const leg = this.mesh(root, new THREE.CylinderGeometry(4 * scale, 7 * scale, 58 * scale, 6),
+            hide, Math.cos(a) * 44 * scale, 19 * scale, Math.sin(a) * 44 * scale);
+          leg.rotation.z = Math.cos(a) * 0.6;
+          leg.rotation.x = Math.sin(a) * 0.6;
+        }
+      } else if (bossKind === 'abomination') {
+        for (const side of [-1, 1]) {
+          this.mesh(root, new THREE.ConeGeometry(12 * scale, 38 * scale, 5), glow,
+            side * 37 * scale, 49 * scale, 17 * scale).rotation.z = side * 0.9;
+        }
+      }
+      const aura = this.mesh(root, new THREE.TorusGeometry(52 * scale, 3 * scale, 8, 48),
+        glow, 0, 3, 0);
       aura.rotation.x = Math.PI / 2;
     }
+
     this.scene.add(root);
-    return { group: root, boss, hp: null };
+    return { group: root, boss, kind, hp: null };
   }
 
   private createShape(shape: any): Visual {
     const def = Object.values(SHAPES)[shape[4]] as any;
+    const sides = Math.max(3, def?.sides || 4);
+    const radius = def?.radius || 34;
     const group = new THREE.Group();
-    const color = def?.color || '#b7b9bd';
-    const stone = this.material(color, { roughness: 0.95 });
-    const edge = this.material(def?.stroke || '#e1d8bb');
-    this.mesh(group, new THREE.CylinderGeometry((def?.radius || 40) * 0.9,
-      (def?.radius || 40), 13, 10), this.material('#4a5362'), 0, 7, 0);
-    const crystal = this.mesh(group, new THREE.IcosahedronGeometry(def?.radius || 40, 0), stone,
-      0, 22 + (def?.radius || 40) * 0.18, 0);
-    crystal.rotation.y = 0.3;
-    this.mesh(group, new THREE.TorusGeometry((def?.radius || 40) * 0.78, 2, 6, 20),
-      edge, 0, 15, 0).rotation.x = Math.PI / 2;
+    const face = this.material(def?.color || '#b7b9bd', { roughness: 0.72, metalness: 0.08 });
+    const edge = this.material(def?.stroke || '#e1d8bb', { metalness: 0.3, roughness: 0.55 });
+    const base = this.material('#3c4850', { metalness: 0.3, roughness: 0.85 });
+    this.mesh(group, new THREE.CylinderGeometry(radius * 0.92, radius, 9, sides), base, 0, 5, 0);
+    this.mesh(group, new THREE.CylinderGeometry(radius * 0.84, radius * 0.9, 23, sides), face, 0, 20, 0);
+    const rim = this.mesh(group, new THREE.CylinderGeometry(radius * 0.89, radius * 0.89, 3, sides, 1, true),
+      edge, 0, 20, 0);
+    this.mesh(group, new THREE.CircleGeometry(radius * 0.48, sides), edge, 0, 32, 0).rotation.x = -Math.PI / 2;
+    const jewel = this.mesh(group, new THREE.OctahedronGeometry(radius * 0.13, 0),
+      this.glow(def?.color || '#d8d8d8', 0.35), 0, 35, 0);
+    jewel.rotation.y = Math.PI / 4;
     this.scene.add(group);
-    return { group, crystal };
+    return { group, crystal: jewel, sides };
   }
 
   private createBullet(bullet: any, players: Map<number, any>): Visual {
     const owner = players.get(bullet[4]);
-    const tint = owner?.team === 'blue' ? '#75d9ff' : owner?.team === 'red' ? '#ff8190' :
-      bullet[4] === this.currentSelfId ? '#7bedff' : '#ff858b';
+    const tint = owner?.team === 'blue' ? '#74c8e2' : owner?.team === 'red' ? '#e58b84' :
+      bullet[4] === this.currentSelfId ? '#70d8c7' : '#d98783';
+    const kind = bullet[5];
+    const radius = Math.max(5, bullet[3]);
     const group = new THREE.Group();
-    if (bullet[5] === 3 || bullet[5] === 4) {
-      this.mesh(group, new THREE.ConeGeometry(7, 30, 7), this.glow('#ffc277', 2), 0, 0, 0).rotation.x = Math.PI / 2;
-    } else if (bullet[5] === 2) {
-      this.mesh(group, new THREE.OctahedronGeometry(9, 0), this.glow('#f4cd77', 2.1));
+    const metal = this.material('#8c9698', { metalness: 0.7, roughness: 0.42 });
+    const glow = this.glow(tint, 1.8);
+    if (kind === 1) {
+      // Drones are compact flying constructs with a core and four fins.
+      const hull = this.mesh(group, new THREE.OctahedronGeometry(radius * 1.15, 1), metal);
+      hull.rotation.y = Math.PI / 4;
+      this.mesh(group, new THREE.SphereGeometry(radius * 0.43, 8, 6), glow, 0, 0, 0);
+      for (let i = 0; i < 4; i++) {
+        const angle = i * Math.PI / 2;
+        const fin = this.mesh(group, new THREE.BoxGeometry(radius * 0.48, 2.5, radius * 1.15),
+          metal, Math.cos(angle) * radius * 1.1, 0, Math.sin(angle) * radius * 1.1);
+        fin.rotation.y = -angle;
+      }
+    } else if (kind === 2) {
+      // Traps are low, spiked mines with a clear danger ring.
+      this.mesh(group, new THREE.CylinderGeometry(radius * 0.9, radius * 1.05, 8, 8), metal, 0, 0, 0);
+      this.mesh(group, new THREE.TorusGeometry(radius * 0.88, 2.2, 6, 24), glow, 0, 5, 0).rotation.x = Math.PI / 2;
+      for (let i = 0; i < 6; i++) {
+        const angle = i * Math.PI / 3;
+        const spike = this.mesh(group, new THREE.ConeGeometry(4.5, 13, 5), metal,
+          Math.cos(angle) * radius * 0.78, 7, Math.sin(angle) * radius * 0.78);
+        spike.rotation.z = Math.cos(angle) * 0.8;
+        spike.rotation.x = Math.sin(angle) * 0.8;
+      }
+      this.mesh(group, new THREE.SphereGeometry(radius * 0.25, 8, 6), glow, 0, 7, 0);
+    } else if (kind === 3 || kind === 4) {
+      // Guided rockets and firework rounds have a recognisable nose, casing and stabilisers.
+      const casing = this.mesh(group,
+        new THREE.CylinderGeometry(radius * 0.48, radius * 0.64, radius * 3.0, 9),
+        kind === 4 ? glow : metal, 0, 0, radius * 1.25);
+      casing.rotation.x = Math.PI / 2;
+      const nose = this.mesh(group, new THREE.ConeGeometry(radius * 0.62, radius * 1.25, 9),
+        kind === 4 ? this.glow('#ffd69a', 1.7) : metal, 0, 0, radius * 3.35);
+      nose.rotation.x = Math.PI / 2;
+      for (const side of [-1, 1]) {
+        const fin = this.mesh(group, new THREE.BoxGeometry(radius * 0.18, 3, radius * 1.1),
+          this.material('#b5a27c'), side * radius * 0.58, 0, -radius * 0.55);
+        fin.rotation.y = side * 0.35;
+      }
+      this.mesh(group, new THREE.SphereGeometry(radius * 0.22, 7, 5), glow, 0, 0, -radius * 0.5);
     } else {
-      this.mesh(group, new THREE.SphereGeometry(Math.max(4, bullet[3] * 0.8), 9, 7),
-        this.glow(tint, 1.8));
-      this.mesh(group, new THREE.SphereGeometry(Math.max(2, bullet[3] * 0.35), 7, 5),
-        this.material('#ffffff', { emissive: '#ffffff', emissiveIntensity: 0.45 }));
+      // Standard bullets are small forged slugs with a luminous tip.
+      const casing = this.mesh(group, new THREE.CylinderGeometry(radius * 0.55, radius * 0.68, radius * 1.9, 9),
+        metal, 0, 0, 0);
+      casing.rotation.x = Math.PI / 2;
+      const tip = this.mesh(group, new THREE.ConeGeometry(radius * 0.62, radius * 0.9, 9),
+        glow, 0, 0, radius * 1.28);
+      tip.rotation.x = Math.PI / 2;
     }
     this.scene.add(group);
-    return { group };
+    return { group, kind };
   }
 
   private createDrop(drop: any, health: boolean): Visual {
