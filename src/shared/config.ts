@@ -63,8 +63,8 @@ export const TANK_SPECIALTIES = {
     bonuses: { bulletDamage: 0.18, maxHealth: 0.12, bodyDamage: 0.08 },
   },
   scatter: {
-    label: 'Scatter', summary: 'Pellet damage +36% · health +12% · body damage +8%',
-    bonuses: { bulletDamage: 0.36, maxHealth: 0.12, bodyDamage: 0.08 },
+    label: 'Scatter', summary: 'Pellet damage +44% · health +12% · body damage +8%',
+    bonuses: { bulletDamage: 0.44, maxHealth: 0.12, bodyDamage: 0.08 },
   },
 } satisfies Record<string, { label: string; summary: string; bonuses: Partial<Record<StatKey, number>> }>;
 export type TankSpecialtyId = keyof typeof TANK_SPECIALTIES;
