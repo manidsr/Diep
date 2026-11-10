@@ -148,6 +148,22 @@ class Geometry {
       this.quad(bottom[i], bottom[j], top[j], top[i], tint);
     }
   }
+  flatRing(cx: number, cz: number, radius: number, width: number, y: number, tint: RGB, segments = 64) {
+    const outer = radius + width / 2, inner = Math.max(0, radius - width / 2);
+    for (let i = 0; i < segments; i++) {
+      const a0 = (i / segments) * Math.PI * 2;
+      const a1 = ((i + 1) / segments) * Math.PI * 2;
+      const point = (r: number, a: number): V3 => [cx + Math.cos(a) * r, y, cz + Math.sin(a) * r];
+      this.quad(point(outer, a0), point(inner, a0), point(inner, a1), point(outer, a1), tint);
+    }
+  }
+  flatBar(cx: number, cz: number, angle: number, length: number, width: number, y: number, tint: RGB) {
+    const fx = Math.cos(angle), fz = Math.sin(angle), sx = -fz, sz = fx;
+    const point = (forward: number, side: number): V3 =>
+      [cx + fx * forward + sx * side, y, cz + fz * forward + sz * side];
+    this.quad(point(-length / 2, -width / 2), point(-length / 2, width / 2),
+      point(length / 2, width / 2), point(length / 2, -width / 2), tint);
+  }
   ring(cx: number, cz: number, radius: number, width: number, y: number, tint: RGB, segments = 24) {
     for (let i = 0; i < segments; i++) {
       const a = (i / segments) * Math.PI * 2;
@@ -162,26 +178,65 @@ class Geometry {
   }
 }
 
-const vertexShader = `
+const vertexShader = \`
 attribute vec3 aPosition;
 attribute vec3 aNormal;
 attribute vec3 aColor;
 uniform mat4 uMvp;
 varying vec3 vColor;
+varying vec3 vWorld;
+varying vec3 vNormal;
 varying float vLight;
 void main() {
   gl_Position = uMvp * vec4(aPosition, 1.0);
-  vec3 lightDir = normalize(vec3(-0.45, 0.88, 0.32));
-  vLight = 0.48 + max(dot(normalize(aNormal), lightDir), 0.0) * 0.58;
+  vec3 n = normalize(aNormal);
+  vec3 key = normalize(vec3(-0.48, 0.86, 0.28));
+  vec3 fill = normalize(vec3(0.62, 0.28, -0.54));
+  vLight = 0.34 + max(dot(n, key), 0.0) * 0.72 + max(dot(n, fill), 0.0) * 0.16;
   vColor = aColor;
-}`;
-const fragmentShader = `
+  vWorld = aPosition;
+  vNormal = n;
+}\`;
+const fragmentShader = \`
 precision mediump float;
+uniform vec3 uEye;
+uniform vec2 uArenaCenter;
+uniform float uTime;
 varying vec3 vColor;
+varying vec3 vWorld;
+varying vec3 vNormal;
 varying float vLight;
 void main() {
-  gl_FragColor = vec4(vColor * vLight, 1.0);
-}`;
+  vec3 n = normalize(vNormal);
+  vec3 viewDir = normalize(uEye - vWorld);
+  vec3 lightDir = normalize(vec3(-0.48, 0.86, 0.28));
+  vec3 halfDir = normalize(lightDir + viewDir);
+  float specular = pow(max(dot(n, halfDir), 0.0), 26.0) * 0.28;
+  float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.6) * 0.16;
+  vec3 base = vColor;
+
+  // Engraved slate tiles, repeating summoning rings and subtle ley lines.
+  if (n.y > 0.92 && vWorld.y < -4.5) {
+    vec2 tile = mod(vWorld.xz + vec2(90.0), 180.0) - 90.0;
+    float seamDist = min(abs(abs(tile.x) - 87.0), abs(abs(tile.y) - 87.0));
+    float seams = 1.0 - smoothstep(0.8, 2.1, seamDist);
+    float circleDist = abs(length(tile) - 50.0);
+    float rune = 1.0 - smoothstep(1.0, 2.8, circleDist);
+    float crossMark = 1.0 - smoothstep(1.0, 2.3, min(abs(tile.x), abs(tile.y)));
+    vec2 fromHeart = vWorld.xz - uArenaCenter;
+    float radial = exp(-dot(fromHeart, fromHeart) / 1700000.0);
+    float pulse = 0.5 + 0.5 * sin(uTime * 0.75 + length(fromHeart) * 0.012);
+    vec3 slate = base * vec3(0.58, 0.66, 1.10);
+    slate += vec3(0.035, 0.09, 0.15) * seams;
+    slate += vec3(0.08, 0.045, 0.16) * rune;
+    slate += vec3(0.018, 0.055, 0.09) * crossMark;
+    slate += vec3(0.045, 0.025, 0.12) * radial * pulse;
+    base = slate;
+  }
+
+  vec3 lit = base * vLight + vec3(specular + rim) + max(base - vec3(0.72), 0.0) * 0.12;
+  gl_FragColor = vec4(lit, 1.0);
+}\`;
 
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
   const shader = gl.createShader(type);
@@ -228,9 +283,12 @@ export class Arena3D {
   private readonly positionLocation: number;
   private readonly normalLocation: number;
   private readonly colourLocation: number;
+  private readonly eyeLocation: WebGLUniformLocation;
+  private readonly arenaCenterLocation: WebGLUniformLocation;
+  private readonly timeLocation: WebGLUniformLocation;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
-    const gl = canvas.getContext('webgl', { antialias: true, alpha: false, powerPreference: 'high-performance' });
+    const gl = canvas.getContext('webgl', { antialias: true, alpha: true, powerPreference: 'high-performance' });
     if (!gl) throw new Error('WebGL is unavailable in this browser');
     this.gl = gl;
     const vs = compile(gl, gl.VERTEX_SHADER, vertexShader);
@@ -248,11 +306,14 @@ export class Arena3D {
     this.positionLocation = gl.getAttribLocation(program, 'aPosition');
     this.normalLocation = gl.getAttribLocation(program, 'aNormal');
     this.colourLocation = gl.getAttribLocation(program, 'aColor');
+    this.eyeLocation = gl.getUniformLocation(program, 'uEye')!;
+    this.arenaCenterLocation = gl.getUniformLocation(program, 'uArenaCenter')!;
+    this.timeLocation = gl.getUniformLocation(program, 'uTime')!;
     gl.useProgram(program);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE);
-    gl.clearColor(0.055, 0.075, 0.095, 1);
+    gl.clearColor(0, 0, 0, 0);
   }
 
   resize(width: number, height: number) {
@@ -449,6 +510,9 @@ export class Arena3D {
     gl.enableVertexAttribArray(this.colourLocation);
     gl.vertexAttribPointer(this.colourLocation, 3, gl.FLOAT, false, stride, 6 * Float32Array.BYTES_PER_ELEMENT);
     gl.uniformMatrix4fv(this.mvpLocation, false, mvp);
+    gl.uniform3f(this.eyeLocation, eye[0], eye[1], eye[2]);
+    gl.uniform2f(this.arenaCenterLocation, size / 2, size / 2);
+    gl.uniform1f(this.timeLocation, now);
     gl.drawArrays(gl.TRIANGLES, 0, geometry.data.length / 9);
   }
 }
