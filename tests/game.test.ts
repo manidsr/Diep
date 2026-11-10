@@ -1104,6 +1104,29 @@ test('A solo squad wipe freezes the results and can restart the whole run', () =
   assert.equal(game.restartSurvivalRun(), false, 'a second restart cannot reset an active run');
 });
 
+test('a late Survival joiner catches up and can rescue the squad after Game Over', () => {
+  const game = new Game(seeded(1001), 0, 'survival');
+  const downed = place(game, game.addPlayer('waiting survivor')!.id, 1000, 1000);
+  game.addXp(downed, totalXpForLevel(18));
+  downed.hp = 0; downed.lastDamageT = game.time;
+  const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number };
+  state.waveSpawnRemaining = 0; state.waveSpawned = 12;
+  game.step(DT);
+  assert.equal(game.survivalGameOver, true);
+  assert.equal(downed.downed, true);
+
+  const late = place(game, game.addPlayer('late rescuer')!.id, 1040, 1000);
+  late.protT = 20;
+  assert.equal(game.survivalGameOver, false, 'a fresh teammate restarts the rescue opportunity');
+  assert.equal(late.level, 18, 'the late arrival inherits the downed squad member average XP');
+  assert.equal(late.xp, totalXpForLevel(18));
+  state.waveSpawnRemaining = 0; state.waveSpawned = 12;
+  game.zombies = [];
+  run(game, 2.7);
+  assert.equal(downed.downed, false, 'the late arrival can still revive the original survivor');
+  assert.equal(downed.level, 18);
+});
+
 test('Boss kills guarantee a health pickup that heals a wounded survivor', () => {
   const game = new Game(seeded(100), 0, 'survival');
   const player = place(game, game.addPlayer('loot tester')!.id, 1000, 1000);

@@ -164,8 +164,6 @@ export class Game {
 
   addPlayer(name: string): Player | null {
     if (this.players.size >= MAX_PLAYERS) return null;
-    // A fresh arrival after a squad wipe starts a new run for the whole connected squad.
-    if (this.mode === 'survival' && this.survivalGameOver) this.restartSurvivalRun();
     const p: Player = {
       id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
       r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, cls: 'basic',
