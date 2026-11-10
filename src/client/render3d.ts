@@ -1,5 +1,5 @@
 import {
-  ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, SHAPES, TEAM_BASE_DEPTH,
+  ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, SHAPES,
 } from '../shared/config';
 import type { View } from './render';
 
@@ -39,7 +39,6 @@ export class Arena3D {
   private readonly healthDrops = new Map<number, Visual>();
   private readonly pools = new Map<number, Visual>();
   private readonly downed = new Map<number, Visual>();
-  private readonly playerLabels = new Map<number, any>();
   private readonly clock = new THREE.Clock();
   private width = 1;
   private height = 1;
@@ -212,7 +211,6 @@ export class Arena3D {
     const ground = this.mesh(this.scene, geometry,
       new THREE.MeshStandardMaterial({ map: texture, color: '#ffffff', roughness: 1, metalness: 0 }));
     ground.receiveShadow = true;
-    this.groundTexture = texture;
   }
 
   private createTree(x: number, z: number, variant: number, rand: () => number) {
@@ -640,7 +638,6 @@ export class Arena3D {
 
   private currentSelfId = -1;
   private fireflies: any = null;
-  private groundTexture: any = null;
 
   resize(width: number, height: number) {
     this.width = Math.max(1, width);
@@ -691,7 +688,7 @@ export class Arena3D {
         this.position(v.group, s[1], s[2], 0);
         v.group.rotation.y = s[3];
         v.crystal.rotation.y += 0.004;
-        v.group.scale.setScalar(0.8 + (Object.values(SHAPES)[s[4]] as any)?.radius / 80 || 1);
+        v.group.scale.setScalar(1);
       });
 
     this.reconcile(this.bullets, view.bullets, b => b[0],
@@ -716,7 +713,7 @@ export class Arena3D {
         v.group.rotation.y = -now * 0.6 + d.id;
       });
 
-    this.reconcile(this.pools, view.pools, (p, i) => i,
+    this.reconcile(this.pools, view.pools, p => p.id,
       p => this.createPool(p),
       (v, p) => {
         this.position(v.group, p.x, p.y, 0.5);
