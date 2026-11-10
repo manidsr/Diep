@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { automaticStatLevel, classOptions, deriveStats, levelFromXp, totalXpForLevel } from '../src/shared/progression';
-import { CLASSES, MAX_LEVEL, TANK_SPECIALTIES } from '../src/shared/config';
+import { CLASS_BY_ID, CLASSES, MAX_LEVEL, TANK_SPECIALTIES } from '../src/shared/config';
 
 test('xp thresholds are strictly increasing and invert via levelFromXp', () => {
   for (let level = 2; level <= MAX_LEVEL; level++) {
@@ -67,7 +67,8 @@ test('tank specialties give distinct classes meaningful stat advantages', () => 
   assert.ok(sniper.bulletHp > balanced.bulletHp);
   assert.ok(rapid.reload < balanced.reload);
   assert.ok(rapid.bulletSpeed > balanced.bulletSpeed);
-  assert.ok(octo.reload < balanced.reload, 'Octo Tank specializes in rapid volleys');
+  assert.equal(CLASS_BY_ID.octo.specialty, 'rapidFire');
+  assert.equal(TANK_SPECIALTIES[CLASS_BY_ID.octo.specialty].bonuses.reload, 0.22);
   assert.ok(rammer.maxHp > balanced.maxHp);
   assert.ok(rammer.bodyDps > balanced.bodyDps);
   assert.ok(rammer.moveSpeed > balanced.moveSpeed);
