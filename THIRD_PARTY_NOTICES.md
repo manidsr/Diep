@@ -26,3 +26,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
+
+
+## Quaternius Stylized Nature MegaKit
+
+The files under `src/client/assets/nature/` (`tree1.glb`, `tree2.glb`, `tree3.glb`, and `bush.glb`) are from Quaternius's Stylized Nature MegaKit: CommonTree 1/2/4 and Bush_Common. The source repository identifies these models as CC0 1.0. Pack page: https://quaternius.itch.io/stylized-nature-megakit

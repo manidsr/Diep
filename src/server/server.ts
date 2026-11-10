@@ -15,6 +15,10 @@ const STATIC: Record<string, [string, string]> = {
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/client.js': ['client.js', 'text/javascript; charset=utf-8'],
   '/three.min.js': ['three.min.js', 'text/javascript; charset=utf-8'],
+  '/assets/nature/tree1.glb': ['assets/nature/tree1.glb', 'model/gltf-binary'],
+  '/assets/nature/tree2.glb': ['assets/nature/tree2.glb', 'model/gltf-binary'],
+  '/assets/nature/tree3.glb': ['assets/nature/tree3.glb', 'model/gltf-binary'],
+  '/assets/nature/bush.glb': ['assets/nature/bush.glb', 'model/gltf-binary'],
 };
 const MAX_MSGS_PER_SEC = 90;
 const KILL_MSGS_PER_SEC = 600;

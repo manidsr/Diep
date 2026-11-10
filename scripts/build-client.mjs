@@ -13,3 +13,7 @@ await build({
 });
 copyFileSync('src/client/index.html', 'dist/public/index.html');
 copyFileSync('src/client/vendor/three.min.js', 'dist/public/three.min.js');
+mkdirSync('dist/public/assets/nature', { recursive: true });
+for (const asset of ['tree1.glb', 'tree2.glb', 'tree3.glb', 'bush.glb']) {
+  copyFileSync('src/client/assets/nature/' + asset, 'dist/public/assets/nature/' + asset);
+}

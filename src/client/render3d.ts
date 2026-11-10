@@ -40,6 +40,9 @@ export class Arena3D {
   private readonly pools = new Map<number, Visual>();
   private readonly downed = new Map<number, Visual>();
   private readonly clock = new THREE.Clock();
+  private forestGroups: any[] = [];
+  private natureModels: any[] = [];
+  private natureLoad: Promise<void> | null = null;
   private width = 1;
   private height = 1;
   private arenaSize = ARENA_SIZE;
@@ -215,6 +218,7 @@ export class Arena3D {
 
   private createTree(x: number, z: number, variant: number, rand: () => number) {
     const group = new THREE.Group();
+    this.forestGroups.push(group);
     group.position.set(x, this.groundHeight(x, z), z);
     group.rotation.y = rand() * Math.PI * 2;
     const scale = 0.72 + rand() * 0.68;
@@ -319,6 +323,7 @@ export class Arena3D {
 
   private createEnvironment(size: number) {
     this.arenaSize = size;
+    this.forestGroups = [];
     this.createTerrain(size);
     this.createWall(size);
 
@@ -332,7 +337,7 @@ export class Arena3D {
     innerRune.rotation.x = -Math.PI / 2;
 
     const rand = seeded(91273);
-    for (let i = 0; i < 82; i++) {
+    for (let i = 0; i < 56; i++) {
       let x = 0, z = 0;
       for (let tries = 0; tries < 30; tries++) {
         x = (rand() - 0.5) * (size + 1250) + size / 2;
@@ -396,6 +401,208 @@ export class Arena3D {
     }
 
     this.createFireflies(size);
+    this.loadNatureModels();
+  }
+
+  private async parseGlb(url: string): Promise<any> {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Could not load model ' + url + ' (' + response.status + ')');
+    const data = await response.arrayBuffer();
+    const header = new DataView(data);
+    if (header.getUint32(0, true) !== 0x46546c67) throw new Error('Invalid GLB model: ' + url);
+    let offset = 12;
+    let documentData: any = null;
+    let binary: ArrayBuffer | null = null;
+    while (offset + 8 <= data.byteLength) {
+      const length = header.getUint32(offset, true);
+      const type = header.getUint32(offset + 4, true);
+      offset += 8;
+      if (type === 0x4e4f534a) documentData = JSON.parse(new TextDecoder().decode(new Uint8Array(data, offset, length)));
+      else if (type === 0x004e4942) binary = data.slice(offset, offset + length);
+      offset += length;
+    }
+    if (!documentData || !binary) throw new Error('GLB is missing its scene data: ' + url);
+
+    const componentBytes: Record<number, number> = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
+    const componentCounts: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
+    const readNumber = (view: DataView, position: number, type: number): number => {
+      switch (type) {
+        case 5120: return view.getInt8(position);
+        case 5121: return view.getUint8(position);
+        case 5122: return view.getInt16(position, true);
+        case 5123: return view.getUint16(position, true);
+        case 5125: return view.getUint32(position, true);
+        case 5126: return view.getFloat32(position, true);
+        default: throw new Error('Unsupported GLB component type: ' + type);
+      }
+    };
+    const readAccessor = (index: number, asIndices = false): any => {
+      const accessor = documentData.accessors[index];
+      const bufferView = documentData.bufferViews[accessor.bufferView];
+      const count = componentCounts[accessor.type];
+      const bytes = componentBytes[accessor.componentType];
+      const stride = bufferView.byteStride || count * bytes;
+      const start = (bufferView.byteOffset || 0) + (accessor.byteOffset || 0);
+      const view = new DataView(binary!);
+      if (asIndices) {
+        const IndexArray = accessor.componentType === 5125 ? Uint32Array
+          : accessor.componentType === 5121 ? Uint8Array : Uint16Array;
+        const values = new IndexArray(accessor.count);
+        for (let i = 0; i < accessor.count; i++) values[i] = readNumber(view, start + i * stride, accessor.componentType);
+        return values;
+      }
+      const values = new Float32Array(accessor.count * count);
+      for (let i = 0; i < accessor.count; i++) for (let c = 0; c < count; c++) {
+        let value = readNumber(view, start + i * stride + c * bytes, accessor.componentType);
+        if (accessor.normalized && accessor.componentType !== 5126) {
+          if (accessor.componentType === 5120) value = Math.max(value / 127, -1);
+          else if (accessor.componentType === 5121) value /= 255;
+          else if (accessor.componentType === 5122) value = Math.max(value / 32767, -1);
+          else if (accessor.componentType === 5123) value /= 65535;
+        }
+        values[i * count + c] = value;
+      }
+      return values;
+    };
+
+    const textures: any[] = [];
+    for (const image of documentData.images || []) {
+      let imageBytes: ArrayBuffer;
+      let mime = image.mimeType || 'image/png';
+      if (image.bufferView != null) {
+        const view = documentData.bufferViews[image.bufferView];
+        const begin = view.byteOffset || 0;
+        imageBytes = binary.slice(begin, begin + view.byteLength);
+      } else if (image.uri && image.uri.startsWith('data:')) {
+        const comma = image.uri.indexOf(',');
+        const encoded = image.uri.slice(comma + 1);
+        const decoded = atob(encoded);
+        const bytes = new Uint8Array(decoded.length);
+        for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
+        imageBytes = bytes.buffer;
+        mime = image.uri.slice(5, image.uri.indexOf(';')) || mime;
+      } else {
+        const external = await fetch(new URL(image.uri, url).toString());
+        if (!external.ok) throw new Error('Could not load GLB texture');
+        imageBytes = await external.arrayBuffer();
+      }
+      const objectUrl = URL.createObjectURL(new Blob([imageBytes], { type: mime }));
+      const texture = await new Promise<any>((resolve, reject) => {
+        new THREE.TextureLoader().load(objectUrl, (loaded: any) => resolve(loaded), undefined, reject);
+      });
+      URL.revokeObjectURL(objectUrl);
+      texture.flipY = false;
+      texture.colorSpace = THREE.SRGBColorSpace;
+      textures.push(texture);
+    }
+
+    const materials = (documentData.materials || []).map((entry: any) => {
+      const pbr = entry.pbrMetallicRoughness || {};
+      const rgba = pbr.baseColorFactor || [1, 1, 1, 1];
+      let map: any = null;
+      if (pbr.baseColorTexture) {
+        const textureInfo = documentData.textures[pbr.baseColorTexture.index];
+        if (textureInfo && textures[textureInfo.source] != null) map = textures[textureInfo.source];
+      }
+      const emissive = entry.emissiveFactor || [0, 0, 0];
+      return new THREE.MeshStandardMaterial({
+        color: new THREE.Color(rgba[0], rgba[1], rgba[2]),
+        map,
+        metalness: pbr.metallicFactor ?? 0,
+        roughness: pbr.roughnessFactor ?? 1,
+        emissive: new THREE.Color(emissive[0], emissive[1], emissive[2]),
+        transparent: rgba[3] < 0.999 || entry.alphaMode === 'BLEND',
+        opacity: rgba[3],
+        alphaTest: entry.alphaMode === 'MASK' ? (entry.alphaCutoff ?? 0.5) : 0,
+        side: entry.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+      });
+    });
+    if (!materials.length) materials.push(this.material('#698950'));
+
+    const buildNode = (index: number): any => {
+      const node = documentData.nodes[index];
+      const group = new THREE.Group();
+      if (node.matrix) {
+        group.matrix.fromArray(node.matrix);
+        group.matrixAutoUpdate = false;
+      } else {
+        if (node.translation) group.position.fromArray(node.translation);
+        if (node.rotation) group.quaternion.fromArray(node.rotation);
+        if (node.scale) group.scale.fromArray(node.scale);
+      }
+      if (node.mesh != null) {
+        const meshDef = documentData.meshes[node.mesh];
+        for (const primitive of meshDef.primitives || []) {
+          if (primitive.mode != null && primitive.mode !== 4) continue;
+          const geometry = new THREE.BufferGeometry();
+          const attributeNames: Record<string, string> = {
+            POSITION: 'position', NORMAL: 'normal', TEXCOORD_0: 'uv', COLOR_0: 'color',
+          };
+          for (const [semantic, accessorId] of Object.entries(primitive.attributes || {})) {
+            const name = attributeNames[semantic];
+            if (!name) continue;
+            const accessor = documentData.accessors[accessorId as number];
+            geometry.setAttribute(name, new THREE.BufferAttribute(readAccessor(accessorId as number), componentCounts[accessor.type]));
+          }
+          if (primitive.indices != null) geometry.setIndex(new THREE.BufferAttribute(readAccessor(primitive.indices, true), 1));
+          if (!geometry.attributes.normal) geometry.computeVertexNormals();
+          geometry.computeBoundingSphere();
+          const material = materials[primitive.material ?? 0] || materials[0];
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          group.add(mesh);
+        }
+      }
+      for (const child of node.children || []) group.add(buildNode(child));
+      return group;
+    };
+
+    const root = new THREE.Group();
+    const sceneDef = documentData.scenes?.[documentData.scene || 0];
+    for (const node of sceneDef?.nodes || []) root.add(buildNode(node));
+    root.updateMatrixWorld(true);
+    return root;
+  }
+
+  private loadNatureModels() {
+    if (this.natureModels.length) {
+      this.applyNatureModels();
+      return;
+    }
+    if (!this.natureLoad) {
+      const urls = [
+        '/assets/nature/tree1.glb', '/assets/nature/tree2.glb',
+        '/assets/nature/tree3.glb', '/assets/nature/bush.glb',
+      ];
+      this.natureLoad = Promise.all(urls.map(url => this.parseGlb(url)))
+        .then(models => { this.natureModels = models; })
+        .catch(error => { console.warn('Nature models unavailable; keeping procedural foliage.', error); });
+    }
+    void this.natureLoad.then(() => this.applyNatureModels());
+  }
+
+  private applyNatureModels() {
+    if (!this.natureModels.length) return;
+    for (let i = 0; i < this.forestGroups.length; i++) {
+      const group = this.forestGroups[i];
+      const bush = i % 5 === 4;
+      const source = this.natureModels[bush ? 3 : i % 3];
+      if (!source) continue;
+      group.clear();
+      const model = source.clone(true);
+      const initialBounds = new THREE.Box3().setFromObject(model);
+      const rawHeight = Math.max(0.01, initialBounds.max.y - initialBounds.min.y);
+      model.scale.setScalar((bush ? 74 : 224) / rawHeight);
+      const bounds = new THREE.Box3().setFromObject(model);
+      model.position.x -= (bounds.min.x + bounds.max.x) / 2;
+      model.position.z -= (bounds.min.z + bounds.max.z) / 2;
+      model.position.y -= bounds.min.y;
+      model.traverse((object: any) => {
+        if (object.isMesh) { object.castShadow = true; object.receiveShadow = true; }
+      });
+      group.add(model);
+    }
   }
 
   private createFireflies(size: number) {
