@@ -250,14 +250,14 @@ function compile(gl: WebGLRenderingContext, type: number, source: string): WebGL
 }
 
 const zombieColours: Record<string, { body: string; trim: string }> = {
-  shambler: { body: '#5b984f', trim: '#b4d77a' },
-  runner: { body: '#c19348', trim: '#ffe092' },
-  tank: { body: '#7c858d', trim: '#d0d7dc' },
-  ranger: { body: '#4c92aa', trim: '#a9eaff' },
-  guardian: { body: '#26958d', trim: '#8effe9' },
-  bomber: { body: '#c55a3b', trim: '#ffbf78' },
+  shambler: { body: '#456c48', trim: '#b9dd85' },
+  runner: { body: '#a96f3c', trim: '#ffe09a' },
+  tank: { body: '#4d566c', trim: '#bac5de' },
+  ranger: { body: '#356b91', trim: '#8fe7ff' },
+  guardian: { body: '#287f80', trim: '#9cfff0' },
+  bomber: { body: '#9d3c42', trim: '#ffc080' },
   leaper: { body: '#a35a94', trim: '#ffc2ed' },
-  armoured: { body: '#7d8991', trim: '#e0e8ef' },
+  armoured: { body: '#51546c', trim: '#e4d5ff' },
   medic: { body: '#61a77b', trim: '#d7ffe4' },
   exploder: { body: '#c65a3a', trim: '#ff9a5b' },
   splitter: { body: '#ad7446', trim: '#ffd09a' },
@@ -325,16 +325,37 @@ export class Arena3D {
     const gl = this.gl;
     const size = view.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE;
     const geometry = new Geometry();
-    const floor = colour('#263744'), grid = colour('#354958'), edge = colour('#8aa7b7');
+    const floor = colour('#171a31'), grid = colour('#35405f'), edge = colour('#9477aa');
     const now = performance.now() / 1000;
 
     geometry.floorRect(size / 2, size / 2, size, size, -5, floor);
-    for (let x = 0; x <= size; x += 100) geometry.floorRect(x, size / 2, 1.2, size, -4, grid);
-    for (let z = 0; z <= size; z += 100) geometry.floorRect(size / 2, z, size, 1.2, -4, grid);
-    geometry.box(size / 2, 0, 0, size + 24, 20, -1, 36, edge);
-    geometry.box(size / 2, size, 0, size + 24, 20, -1, 36, edge);
-    geometry.box(0, size / 2, Math.PI / 2, size + 24, 20, -1, 36, edge);
-    geometry.box(size, size / 2, Math.PI / 2, size + 24, 20, -1, 36, edge);
+    for (let x = 0; x <= size; x += 180) geometry.floorRect(x, size / 2, 1.4, size, -4, grid);
+    for (let z = 0; z <= size; z += 180) geometry.floorRect(size / 2, z, size, 1.4, -4, grid);
+    const wall = colour('#40365c'), gold = colour('#e6bd79'), violet = colour('#8764ce');
+    geometry.box(size / 2, 0, 0, size + 28, 24, -1, 46, wall);
+    geometry.box(size / 2, size, 0, size + 28, 24, -1, 46, wall);
+    geometry.box(0, size / 2, Math.PI / 2, size + 28, 24, -1, 46, wall);
+    geometry.box(size, size / 2, Math.PI / 2, size + 28, 24, -1, 46, wall);
+    geometry.flatRing(size / 2, size / 2, size * 0.486, 8, -2.7, gold, 128);
+    geometry.flatRing(size / 2, size / 2, size * 0.468, 2.2, -2.6, violet, 128);
+    geometry.flatRing(camera.x, camera.y, 236, 2.4, -2.8, colour('#8062c8'), 72);
+    geometry.flatRing(camera.x, camera.y, 252, 1.1, -2.7, colour('#c9a56e'), 72);
+    geometry.flatRing(camera.x, camera.y, 174, 1.1, -2.9, colour('#465eaa'), 64);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + now * 0.012;
+      const markX = camera.x + Math.cos(a) * 244;
+      const markZ = camera.y + Math.sin(a) * 244;
+      geometry.flatBar(markX, markZ, a, 18, 3, -2.65, gold);
+      geometry.prism(camera.x + Math.cos(a) * 174, camera.y + Math.sin(a) * 174,
+        5.5, 4, a + now * 0.08, 12, violet);
+    }
+    for (let x = 360; x < size; x += 640) for (let z = 360; z < size; z += 640) {
+      if (Math.hypot(x - camera.x, z - camera.y) < 370) continue;
+      geometry.cylinder(x, z, 15, -4, 7, 8, colour('#51456d'));
+      geometry.flatRing(x, z, 18, 2.2, 3.2, gold, 24);
+      geometry.prism(x, z, 10, 6, now * 0.09 + (x + z) * 0.001, 54, violet);
+      geometry.sphere(x, 59, z, 4.2, colour('#d8b7ff'), 6, 4);
+    }
 
     if (view.mode === 'teams') {
       geometry.floorRect(TEAM_BASE_DEPTH / 2, size / 2, TEAM_BASE_DEPTH, size, -3, colour('#174967'));
@@ -348,8 +369,11 @@ export class Arena3D {
     for (const shape of view.shapes) {
       const def = Object.values(SHAPES)[shape[4]] ?? Object.values(SHAPES)[0];
       const tint = colour(def.color);
+      geometry.cylinder(shape[1], shape[2], def.radius * 0.88, -2, 4, Math.max(8, def.sides * 2), colour('#34314e'));
+      geometry.flatRing(shape[1], shape[2], def.radius * 0.98, 2.8, 2.1, colour('#b89a69'), def.sides * 4);
       geometry.prism(shape[1], shape[2], def.radius, def.sides, shape[3], 15 + def.radius * 0.22, tint);
       geometry.ring(shape[1], shape[2], def.radius * 0.96, 2, 0.8, colour(def.stroke), def.sides * 2);
+      geometry.sphere(shape[1], 17 + def.radius * 0.22, shape[2], Math.max(4, def.radius * 0.12), colour('#f5d99b'), 6, 4);
       geometry.bar(shape[1], shape[2], 28 + def.radius * 0.22, def.radius * 1.9, Math.max(0, Math.min(1, shape[5])), colour('#a9ed79'));
     }
 
@@ -358,13 +382,19 @@ export class Arena3D {
       geometry.ring(pool.x, pool.y, pool.r * 0.9, 3, 0, colour('#ff8a56'));
     }
     for (const drop of view.xpDrops) {
-      geometry.sphere(drop.x, 10 + Math.sin(now * 3 + drop.id) * 2, drop.y, Math.max(5, drop.r), colour('#ffe06a'), 7, 4);
-      geometry.ring(drop.x, drop.y, drop.r * 1.45, 1.8, 1, colour('#a78435'), 12);
+      const bob = 14 + Math.sin(now * 3 + drop.id) * 3;
+      geometry.flatRing(drop.x, drop.y, drop.r * 1.7, 1.6, -2.5, colour('#c99b48'), 20);
+      geometry.prism(drop.x, drop.y, Math.max(6, drop.r * 0.88), 6, now * 0.65 + drop.id, bob + 10, colour('#f2c96c'));
+      geometry.prism(drop.x, drop.y, Math.max(3, drop.r * 0.42), 4, -now * 0.8, bob + 19, colour('#fff0b1'));
+      geometry.sphere(drop.x, bob + 18, drop.y, Math.max(2, drop.r * 0.2), colour('#fff6ce'), 6, 4);
     }
     for (const drop of view.healthDrops) {
-      geometry.sphere(drop.x, 12 + Math.sin(now * 3 + drop.id) * 2, drop.y, Math.max(8, drop.r), colour('#5ce18a'), 8, 5);
-      geometry.box(drop.x, drop.y, 0, drop.r * 1.15, drop.r * 0.3, 10, 5, colour('#ecfff1'));
-      geometry.box(drop.x, drop.y, Math.PI / 2, drop.r * 1.15, drop.r * 0.3, 10, 5, colour('#ecfff1'));
+      const bob = 12 + Math.sin(now * 3 + drop.id) * 2.5;
+      geometry.flatRing(drop.x, drop.y, drop.r * 1.8, 2, -2.4, colour('#4dba89'), 24);
+      geometry.prism(drop.x, drop.y, Math.max(7, drop.r * 0.92), 5, Math.PI / 4, bob + 8, colour('#42b985'));
+      geometry.sphere(drop.x, bob + 10, drop.y, Math.max(4, drop.r * 0.55), colour('#c8ffe1'), 7, 4);
+      geometry.box(drop.x, drop.y, 0, drop.r * 1.05, drop.r * 0.22, bob + 9, 3, colour('#effff4'));
+      geometry.box(drop.x, drop.y, Math.PI / 2, drop.r * 1.05, drop.r * 0.22, bob + 9, 3, colour('#effff4'));
     }
 
     // Zombie silhouettes and boss scale make threats readable at a glance.
@@ -375,13 +405,21 @@ export class Arena3D {
         ? bossColours[zombie.bossKind!] ?? bossColours.breaker
         : zombieColours[zombie.kind] ?? zombieColours.shambler;
       const r = zombie.r * (boss ? 1.12 : 1);
+      geometry.flatRing(zombie.x, zombie.y, r * (boss ? 1.62 : 1.18), boss ? 5 : 2.2, -2.8,
+        colour(boss ? '#9c69dc' : '#597d64'), boss ? 48 : 28);
       geometry.cylinder(zombie.x, zombie.y, r * 0.82, 0, r * 0.66, boss ? 14 : 10, colour(palette.body));
-      geometry.sphere(zombie.x, r * 0.62, zombie.y, r * 0.78, colour(palette.body), boss ? 10 : 7, 5);
+      geometry.sphere(zombie.x, r * 0.62, zombie.y, r * 0.78, colour(palette.body), boss ? 12 : 8, 6);
+      geometry.sphere(zombie.x, r * 1.12, zombie.y, r * 0.18, colour(palette.trim), 7, 4);
       geometry.sphere(zombie.x + Math.cos(zombie.angle) * r * 0.58, r * 0.76, zombie.y + Math.sin(zombie.angle) * r * 0.58,
         Math.max(3, r * 0.18), colour(palette.trim), 6, 4);
       if (boss) {
         geometry.ring(zombie.x, zombie.y, r * 1.38, 4, 1, colour(palette.trim));
         geometry.prism(zombie.x, zombie.y, r * 0.32, 5, now * 0.3, r * 1.9, colour(palette.trim));
+        for (let spike = 0; spike < 6; spike++) {
+          const a = (spike / 6) * Math.PI * 2 + now * 0.12;
+          geometry.prism(zombie.x + Math.cos(a) * r * 0.72, zombie.y + Math.sin(a) * r * 0.72,
+            r * 0.16, 4, a, r * 0.92, colour(palette.trim));
+        }
       } else if (zombie.kind === 'armoured' || zombie.kind === 'guardian') {
         geometry.ring(zombie.x, zombie.y, r * 1.35, 4, 1, colour(palette.trim));
       } else if (zombie.kind === 'medic') {
@@ -445,24 +483,40 @@ export class Arena3D {
     for (const player of tanks) {
       if (downedIds.has(player.id)) continue;
       const mine = player.id === selfId;
-      const body = player.team === 'blue' ? '#278fc4'
-        : player.team === 'red' ? '#c94251'
-          : mine ? '#13a7cb' : '#cb4650';
-      const trim = player.team === 'blue' ? '#8be0ff'
-        : player.team === 'red' ? '#ffc0c6'
-          : mine ? '#9cf0ff' : '#ffc2c6';
-      const dark = player.team === 'blue' ? '#155471'
-        : player.team === 'red' ? '#642a35'
-          : mine ? '#07536a' : '#612a32';
+      const body = player.team === 'blue' ? '#257fae'
+        : player.team === 'red' ? '#a93e59'
+          : mine ? '#168ea9' : '#a94361';
+      const trim = player.team === 'blue' ? '#9cecff'
+        : player.team === 'red' ? '#ffd0a3'
+          : mine ? '#a4f7ff' : '#ffb7d0';
+      const dark = player.team === 'blue' ? '#173951'
+        : player.team === 'red' ? '#49243c'
+          : mine ? '#123d50' : '#48243b';
       const radius = player.r;
       const cls = CLASSES[player.cls];
       const angle = player.a;
-      geometry.ring(player.x, player.y, radius * 0.98, 2, 0.8, colour(dark), 20);
-      geometry.box(player.x, player.y, angle + Math.PI / 2, radius * 1.75, radius * 0.32, 0, 9, colour(dark));
-      geometry.box(player.x, player.y, angle - Math.PI / 2, radius * 1.75, radius * 0.32, 0, 9, colour(dark));
+      const aura = player.team === 'red' ? '#d36a9a' : player.team === 'blue' ? '#62d8ff' : mine ? '#65edff' : '#e987af';
+      geometry.flatRing(player.x, player.y, radius * 1.28, 2.2, -2.7, colour(aura), 32);
+      geometry.flatRing(player.x, player.y, radius * 0.78, 1, -2.65, colour('#c7a46c'), 28);
+      geometry.ring(player.x, player.y, radius * 0.98, 2, 0.8, colour(dark), 24);
+      geometry.box(player.x, player.y, angle + Math.PI / 2, radius * 1.82, radius * 0.4, 0, 10, colour(dark));
+      geometry.box(player.x, player.y, angle - Math.PI / 2, radius * 1.82, radius * 0.4, 0, 10, colour(dark));
+      for (let tread = -2; tread <= 2; tread++) {
+        const forward = tread * radius * 0.29;
+        for (const side of [-radius * 0.73, radius * 0.73]) {
+          const tx = player.x + Math.cos(angle) * forward - Math.sin(angle) * side;
+          const tz = player.y + Math.sin(angle) * forward + Math.cos(angle) * side;
+          geometry.box(tx, tz, angle, radius * 0.22, radius * 0.31, 2, 3, colour('#8f9aaa'));
+        }
+      }
       geometry.cylinder(player.x, player.y, radius * 0.88, 3, 15, 16, colour(dark));
       geometry.cylinder(player.x, player.y, radius * 0.78, 14, 11, 16, colour(body));
+      geometry.flatRing(player.x, player.y, radius * 0.48, 2.3, 25, colour('#d9b879'), 24);
       geometry.cylinder(player.x, player.y, radius * 0.42, 24, 6, 12, colour(trim));
+      geometry.sphere(player.x, 31 + Math.sin(now * 2.4 + player.id) * 1.2, player.y,
+        radius * 0.2, colour(aura), 8, 5);
+      geometry.sphere(player.x, 32 + Math.sin(now * 2.4 + player.id) * 1.2, player.y,
+        radius * 0.085, colour('#fff1c7'), 7, 4);
       if (cls?.barrels.length) for (const barrel of cls.barrels) {
         const direction = angle + barrel.angle;
         const side = barrel.offset;
@@ -474,6 +528,10 @@ export class Arena3D {
           direction, length, Math.max(7, barrel.width), 17, 13, colour('#aebdc7'));
         geometry.box(barrelX + Math.cos(direction) * centerDistance, barrelZ + Math.sin(direction) * centerDistance,
           direction, length * 0.82, Math.max(3, barrel.width * 0.45), 27, 2.5, colour('#e2edf2'));
+        const muzzleX = barrelX + Math.cos(direction) * (centerDistance + length * 0.48);
+        const muzzleZ = barrelZ + Math.sin(direction) * (centerDistance + length * 0.48);
+        geometry.box(muzzleX, muzzleZ, direction, Math.max(5, barrel.width * 0.22), Math.max(9, barrel.width * 1.12),
+          17, 13, colour('#d8b879'));
       }
       const turretCount = cls?.turretCount ?? 0;
       for (let i = 0; i < turretCount; i++) {
