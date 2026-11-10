@@ -12,3 +12,4 @@ await build({
   logLevel: 'info',
 });
 copyFileSync('src/client/index.html', 'dist/public/index.html');
+copyFileSync('src/client/vendor/three.min.js', 'dist/public/three.min.js');

@@ -14,6 +14,7 @@ const STATIC: Record<string, [string, string]> = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/client.js': ['client.js', 'text/javascript; charset=utf-8'],
+  '/three.min.js': ['three.min.js', 'text/javascript; charset=utf-8'],
 };
 const MAX_MSGS_PER_SEC = 90;
 const KILL_MSGS_PER_SEC = 600;
