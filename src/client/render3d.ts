@@ -26,6 +26,21 @@ function seeded(seed: number): () => number {
   };
 }
 
+function tankArchetype(cls: any): 'rammer' | 'drone' | 'trapper' | 'artillery' | 'scout' | 'sniper' | 'auto' | 'heavy' | 'rapid' | 'standard' {
+  const id = cls?.id || 'basic';
+  const barrels = cls?.barrels || [];
+  if (cls?.smasher) return 'rammer';
+  if (cls?.droneBehavior) return 'drone';
+  if (barrels.some((barrel: any) => barrel.projectile === 'trap')) return 'trapper';
+  if (barrels.some((barrel: any) => barrel.projectile === 'missile' || barrel.projectile === 'firework')) return 'artillery';
+  if (['triAngle', 'booster', 'fighter'].includes(id)) return 'scout';
+  if (cls?.specialty === 'sniper' || barrels.some((barrel: any) => barrel.length >= 58)) return 'sniper';
+  if ((cls?.turretCount || 0) > 0) return 'auto';
+  if (cls?.specialty === 'heavyArtillery' || (cls?.damageMul || 1) >= 1.7 || barrels.some((barrel: any) => barrel.width >= 30)) return 'heavy';
+  if (['rapidFire', 'scatter', 'closeQuarters'].includes(cls?.specialty) || barrels.length >= 4) return 'rapid';
+  return 'standard';
+}
+
 export class Arena3D {
   private readonly renderer: any;
   private readonly scene: any;
@@ -625,61 +640,215 @@ export class Arena3D {
 
   private createTank(player: any): Visual {
     const root = new THREE.Group();
+    const cls = CLASSES[player.cls] || CLASSES[0];
+    const family = tankArchetype(cls);
     const blue = player.team === 'blue';
     const red = player.team === 'red';
     const own = !player.team && player.id === this.currentSelfId;
-    const bodyColor = blue ? '#3488b3' : red ? '#a84f57' : own ? '#268da9' : '#a84c5d';
-    const trimColor = blue ? '#b5e9f6' : red ? '#ffd1a7' : own ? '#b2f5ff' : '#ffc5c9';
-    const darkColor = blue ? '#25495d' : red ? '#532e3e' : own ? '#17485a' : '#552b3b';
-    const body = this.material(bodyColor, { metalness: 0.35, roughness: 0.5 });
-    const trim = this.material(trimColor, { metalness: 0.52, roughness: 0.34 });
-    const dark = this.material(darkColor, { metalness: 0.42, roughness: 0.68 });
-    const gold = this.material('#c9a56c', { metalness: 0.72, roughness: 0.38 });
-    const core = this.glow(blue ? '#69d9ff' : red ? '#ff9e86' : own ? '#7beeff' : '#ff94a9', 2.0);
+    const bodyColor = blue ? '#3d7898' : red ? '#984957' : own ? '#347e88' : '#95515b';
+    const trimColor = blue ? '#a6d9e8' : red ? '#efb5a6' : own ? '#a9e7dd' : '#e8b5aa';
+    const darkColor = blue ? '#233f50' : red ? '#492d39' : own ? '#1e4c50' : '#4b3039';
+    const body = this.material(bodyColor, { metalness: 0.34, roughness: 0.58 });
+    const trim = this.material(trimColor, { metalness: 0.5, roughness: 0.4 });
+    const dark = this.material(darkColor, { metalness: 0.28, roughness: 0.76 });
+    const steel = this.material('#65717b', { metalness: 0.72, roughness: 0.42 });
+    const gold = this.material('#c4a16a', { metalness: 0.68, roughness: 0.4 });
+    const accentColor = blue ? '#67c8e2' : red ? '#e78b83' : own ? '#73d8c6' : '#df928d';
+    const accent = this.glow(accentColor, 1.15);
+    const core = this.glow(accentColor, 1.8);
 
-    // Heavy tracked chassis with raised armour plates.
-    this.mesh(root, new THREE.BoxGeometry(82, 26, 104), dark, 0, 13, 0);
-    for (const side of [-1, 1]) {
-      this.mesh(root, new THREE.BoxGeometry(22, 32, 112), dark, side * 49, 16, 0);
-      for (let i = -2; i <= 2; i++) {
-        const wheel = this.mesh(root, new THREE.CylinderGeometry(9, 9, 9, 10), trim,
-          side * 50, 10, i * 19);
-        wheel.rotation.z = Math.PI / 2;
-        this.mesh(root, new THREE.BoxGeometry(12, 5, 11), gold, side * 50, 22, i * 19);
+    const hullWidth = family === 'heavy' || family === 'rammer' ? 104
+      : family === 'sniper' || family === 'scout' ? 66
+      : family === 'drone' ? 86 : family === 'trapper' ? 98 : 82;
+    const hullLength = family === 'sniper' || family === 'artillery' ? 112
+      : family === 'scout' ? 96 : family === 'rammer' ? 108 : 88;
+    const trackFamily = ['standard', 'sniper', 'heavy', 'rapid', 'trapper', 'auto', 'artillery'].includes(family);
+
+    // Lower chassis: a shared construction language, with a different footprint for each role.
+    this.mesh(root, new THREE.BoxGeometry(hullWidth * 0.78, 17, hullLength * 0.92), dark, 0, 12, -1);
+    if (trackFamily) {
+      const trackWidth = family === 'heavy' || family === 'rammer' ? 18 : 13;
+      for (const side of [-1, 1]) {
+        const sx = side * (hullWidth * 0.43);
+        this.mesh(root, new THREE.BoxGeometry(trackWidth, 27, hullLength + 8), dark, sx, 14, 0);
+        this.mesh(root, new THREE.BoxGeometry(trackWidth + 2, 4, hullLength - 8), steel, sx, 24, 0);
+        const wheels = family === 'heavy' ? 5 : 4;
+        for (let i = 0; i < wheels; i++) {
+          const z = -hullLength * 0.37 + i * (hullLength * 0.74 / Math.max(1, wheels - 1));
+          const wheel = this.mesh(root, new THREE.CylinderGeometry(7, 7, trackWidth + 3, 10),
+            steel, sx, 11, z);
+          wheel.rotation.z = Math.PI / 2;
+          this.mesh(root, new THREE.CylinderGeometry(2.1, 2.1, trackWidth + 4, 8),
+            gold, sx, 11, z);
+        }
+      }
+    } else if (family === 'scout') {
+      // Hover skids and rear thrusters replace tracks on fast mobile classes.
+      for (const side of [-1, 1]) {
+        const skid = this.mesh(root, new THREE.BoxGeometry(10, 7, 82), steel, side * 39, 8, -1);
+        skid.rotation.y = side * 0.08;
+        this.mesh(root, new THREE.CylinderGeometry(5, 7, 6, 8), accent, side * 39, 8, -42);
+        this.mesh(root, new THREE.CylinderGeometry(5, 7, 6, 8), accent, side * 39, 8, 39);
+      }
+      for (const side of [-1, 1]) {
+        this.mesh(root, new THREE.CylinderGeometry(9, 13, 8, 8), dark, side * 25, 20, -39);
+        this.mesh(root, new THREE.SphereGeometry(7, 8, 6), core, side * 25, 20, -44);
+      }
+    } else if (family === 'drone') {
+      const hover = this.mesh(root, new THREE.TorusGeometry(48, 5, 8, 40), accent, 0, 8, 0);
+      hover.rotation.x = Math.PI / 2;
+      for (let i = 0; i < 4; i++) {
+        const angle = i * Math.PI / 2 + Math.PI / 4;
+        const x = Math.cos(angle) * 43, z = Math.sin(angle) * 43;
+        this.mesh(root, new THREE.CylinderGeometry(8, 10, 9, 8), steel, x, 11, z);
+        this.mesh(root, new THREE.SphereGeometry(6, 8, 6), core, x, 20, z);
       }
     }
-    this.mesh(root, new THREE.CylinderGeometry(43, 47, 26, 10), body, 0, 29, 0);
-    this.mesh(root, new THREE.BoxGeometry(58, 13, 61), body, 0, 45, -2);
-    this.mesh(root, new THREE.TorusGeometry(35, 3.5, 8, 24), gold, 0, 45, 0).rotation.x = Math.PI / 2;
-    this.mesh(root, new THREE.CylinderGeometry(27, 31, 15, 12), trim, 0, 52, 0);
-    this.mesh(root, new THREE.SphereGeometry(10, 10, 8), core, 0, 62, -3);
 
-    const cls = CLASSES[player.cls];
-    if (cls?.barrels?.length) {
-      for (const barrel of cls.barrels) {
-        const turret = new THREE.Group();
-        turret.position.set(-barrel.offset, 51, -2);
-        turret.rotation.y = barrel.angle;
-        this.mesh(turret, new THREE.BoxGeometry(Math.max(8, barrel.width), 10, barrel.length + 34),
-          trim, 0, 0, (barrel.length + 34) / 2 - 2);
-        this.mesh(turret, new THREE.BoxGeometry(Math.max(4, barrel.width * 0.55), 4, barrel.length + 20),
-          gold, 0, 6, (barrel.length + 20) / 2 - 4);
-        this.mesh(turret, new THREE.CylinderGeometry(Math.max(5, barrel.width * 0.46),
-          Math.max(5, barrel.width * 0.46), 5, 10), dark, 0, 0, barrel.length + 27).rotation.x = Math.PI / 2;
-        root.add(turret);
+    // Upper hull and armor plates. Heavy, scout, command and rammer frames are intentionally distinct.
+    if (family === 'heavy' || family === 'artillery') {
+      this.mesh(root, new THREE.BoxGeometry(92, 25, 82), body, 0, 30, -2);
+      this.mesh(root, new THREE.BoxGeometry(76, 9, 64), trim, 0, 46, -5);
+      for (const side of [-1, 1]) {
+        const plate = this.mesh(root, new THREE.BoxGeometry(15, 23, 49), steel, side * 45, 30, -9);
+        plate.rotation.z = side * -0.12;
+        this.mesh(root, new THREE.BoxGeometry(14, 6, 30), gold, side * 48, 42, 8);
       }
+      this.mesh(root, new THREE.BoxGeometry(72, 8, 18), gold, 0, 22, 47);
+    } else if (family === 'sniper') {
+      this.mesh(root, new THREE.BoxGeometry(58, 18, 104), body, 0, 29, -1);
+      this.mesh(root, new THREE.BoxGeometry(42, 9, 68), trim, 0, 41, -13);
+      for (const side of [-1, 1]) {
+        const fin = this.mesh(root, new THREE.BoxGeometry(4, 4, 48), gold, side * 34, 21, -31);
+        fin.rotation.y = side * -0.08;
+        this.mesh(root, new THREE.ConeGeometry(8, 17, 5), steel, side * 31, 31, -50).rotation.x = Math.PI / 2;
+      }
+    } else if (family === 'scout') {
+      this.mesh(root, new THREE.BoxGeometry(58, 17, 76), body, 0, 25, 0);
+      this.mesh(root, new THREE.ConeGeometry(35, 55, 5), trim, 0, 28, 36).rotation.x = Math.PI / 2;
+      for (const side of [-1, 1]) {
+        const wing = this.mesh(root, new THREE.BoxGeometry(34, 7, 26), body, side * 39, 22, -6);
+        wing.rotation.y = side * -0.22;
+        this.mesh(root, new THREE.BoxGeometry(22, 3, 7), gold, side * 42, 27, -7);
+      }
+    } else if (family === 'drone') {
+      this.mesh(root, new THREE.CylinderGeometry(39, 45, 19, 10), body, 0, 26, 0);
+      this.mesh(root, new THREE.CylinderGeometry(31, 35, 8, 10), trim, 0, 39, 0);
+      const commandRing = this.mesh(root, new THREE.TorusGeometry(34, 3, 8, 32), gold, 0, 45, 0);
+      commandRing.rotation.x = Math.PI / 2;
+      this.mesh(root, new THREE.SphereGeometry(13, 12, 10), core, 0, 51, 0);
+    } else if (family === 'rammer') {
+      this.mesh(root, new THREE.BoxGeometry(92, 24, 72), body, 0, 27, -13);
+      this.mesh(root, new THREE.BoxGeometry(82, 11, 56), trim, 0, 43, -17);
+      // A wedge-shaped battering nose makes rammer classes read instantly without a cannon.
+      const nose = this.mesh(root, new THREE.ConeGeometry(48, 62, 4), steel, 0, 24, 38);
+      nose.rotation.x = Math.PI / 2;
+      this.mesh(root, new THREE.BoxGeometry(90, 12, 13), gold, 0, 16, 64);
+      for (const side of [-1, 1]) {
+        this.mesh(root, new THREE.ConeGeometry(9, 27, 5), trim, side * 36, 34, 19).rotation.x = Math.PI / 2;
+      }
+    } else if (family === 'trapper') {
+      this.mesh(root, new THREE.CylinderGeometry(48, 52, 23, 8), body, 0, 28, 0);
+      this.mesh(root, new THREE.BoxGeometry(88, 13, 54), trim, 0, 43, -4);
+      for (const side of [-1, 1]) {
+        this.mesh(root, new THREE.CylinderGeometry(12, 15, 10, 8), steel, side * 35, 50, 7);
+        this.mesh(root, new THREE.TorusGeometry(10, 2, 6, 16), gold, side * 35, 56, 7);
+      }
+    } else if (family === 'auto') {
+      this.mesh(root, new THREE.CylinderGeometry(43, 48, 23, 12), body, 0, 28, 0);
+      this.mesh(root, new THREE.BoxGeometry(64, 13, 61), trim, 0, 43, -2);
+      const ring = this.mesh(root, new THREE.TorusGeometry(36, 3.2, 8, 28), gold, 0, 51, 0);
+      ring.rotation.x = Math.PI / 2;
+    } else if (family === 'rapid') {
+      this.mesh(root, new THREE.CylinderGeometry(38, 44, 22, 10), body, 0, 27, 0);
+      this.mesh(root, new THREE.BoxGeometry(68, 12, 64), trim, 0, 42, -2);
+      for (const side of [-1, 1]) {
+        this.mesh(root, new THREE.BoxGeometry(10, 9, 42), steel, side * 32, 28, -2);
+      }
+    } else {
+      this.mesh(root, new THREE.CylinderGeometry(39, 45, 22, 12), body, 0, 28, 0);
+      this.mesh(root, new THREE.BoxGeometry(64, 13, 58), trim, 0, 42, -2);
     }
-    const count = cls?.turretCount ?? 0;
-    for (let i = 0; i < count; i++) {
-      const angle = i / count * Math.PI * 2;
+
+    // Every faction uses the same restrained metal language and one readable reactor accent.
+    const topRing = this.mesh(root, new THREE.TorusGeometry(family === 'heavy' ? 32 : 28, 2.8, 8, 28),
+      gold, 0, family === 'rammer' ? 48 : 49, -5);
+    topRing.rotation.x = Math.PI / 2;
+    this.mesh(root, new THREE.SphereGeometry(family === 'heavy' ? 11 : 9, 10, 8),
+      core, 0, 54, family === 'rammer' ? -24 : -14);
+
+    // Draw the real class barrels. Very high-count volleys are represented by a clean,
+    // readable bank of sampled barrels; the server still fires every configured projectile.
+    const barrelDefs = cls?.barrels || [];
+    const visibleBarrels = barrelDefs.length > 8
+      ? Array.from({ length: 7 }, (_, i) => barrelDefs[Math.round(i * (barrelDefs.length - 1) / 6)])
+      : barrelDefs;
+    for (const barrel of visibleBarrels) {
+      if (barrel.projectile === 'drone') {
+        const port = new THREE.Group();
+        port.position.set(-barrel.offset, 48, 19);
+        port.rotation.y = -barrel.angle;
+        this.mesh(port, new THREE.CylinderGeometry(8, 11, 10, 8), dark, 0, 0, 0);
+        this.mesh(port, new THREE.TorusGeometry(8, 2, 6, 18), gold, 0, 6, 0);
+        this.mesh(port, new THREE.SphereGeometry(5, 8, 6), core, 0, 9, 0);
+        root.add(port);
+        continue;
+      }
+      const mount = new THREE.Group();
+      mount.position.set(-barrel.offset, family === 'sniper' ? 45 : 47, 1);
+      mount.rotation.y = -barrel.angle;
+      const isTrap = barrel.projectile === 'trap';
+      const isRocket = barrel.projectile === 'missile' || barrel.projectile === 'firework';
+      const barrelLength = Math.max(25, barrel.length + (isTrap ? 12 : 22));
+      const barrelWidth = Math.max(7, barrel.width);
+      const metal = isTrap ? dark : isRocket ? steel : trim;
+      const tube = this.mesh(mount,
+        new THREE.CylinderGeometry(barrelWidth * 0.43, barrelWidth * 0.58, barrelLength, 10),
+        metal, 0, 0, barrelLength * 0.5 + 9);
+      tube.rotation.x = Math.PI / 2;
+      const band = this.mesh(mount,
+        new THREE.CylinderGeometry(barrelWidth * 0.54, barrelWidth * 0.54, 5, 10),
+        gold, 0, 0, barrelLength + 8);
+      band.rotation.x = Math.PI / 2;
+      this.mesh(mount, new THREE.TorusGeometry(barrelWidth * 0.46, 2, 6, 14),
+        gold, 0, 0, barrelLength + 11);
+      this.mesh(mount, new THREE.CircleGeometry(barrelWidth * 0.31, 12),
+        dark, 0, 0, barrelLength + 11.4);
+      if (isTrap) {
+        this.mesh(mount, new THREE.CylinderGeometry(barrelWidth * 0.65, barrelWidth * 0.75, 8, 8),
+          dark, 0, 0, barrelLength * 0.3 + 6);
+        for (let i = 0; i < 4; i++) {
+          const a = i * Math.PI / 2;
+          this.mesh(mount, new THREE.BoxGeometry(3, 7, 14), steel,
+            Math.cos(a) * barrelWidth * 0.62, Math.sin(a) * barrelWidth * 0.62, 15);
+        }
+      } else if (isRocket) {
+        this.mesh(mount, new THREE.ConeGeometry(barrelWidth * 0.46, 16, 8),
+          gold, 0, 0, barrelLength + 20).rotation.x = Math.PI / 2;
+      }
+      root.add(mount);
+    }
+
+    // Defensive auto-turrets are mounted on true radial hardpoints around the hull.
+    const turretCount = cls?.turretCount ?? 0;
+    for (let i = 0; i < turretCount; i++) {
+      const angle = i / turretCount * Math.PI * 2;
       const turret = new THREE.Group();
-      turret.position.set(Math.cos(angle) * 28, 54, Math.sin(angle) * 28);
-      this.mesh(turret, new THREE.CylinderGeometry(10, 13, 14, 8), dark, 0, 0, 0);
-      this.mesh(turret, new THREE.BoxGeometry(13, 9, 34), trim, 0, 2, 17);
+      const radius = family === 'heavy' ? 48 : 39;
+      turret.position.set(-Math.sin(angle) * radius, 48, Math.cos(angle) * radius);
+      turret.rotation.y = -angle;
+      this.mesh(turret, new THREE.CylinderGeometry(11, 14, 13, 10), dark, 0, 0, 0);
+      const gun = this.mesh(turret, new THREE.CylinderGeometry(4.5, 5.5, 24, 8), steel, 0, 0, 17);
+      gun.rotation.x = Math.PI / 2;
+      this.mesh(turret, new THREE.TorusGeometry(5, 1.5, 5, 12), gold, 0, 0, 29);
       root.add(turret);
     }
+
+    // Compact health strip and the nameplate share one baseline across every class.
+    const hpBack = this.mesh(root, new THREE.BoxGeometry(56, 3, 3), dark, 0, 82, 0);
+    const hpFill = this.mesh(root, new THREE.BoxGeometry(54, 2.5, 3.4), this.glow('#8ccf75', 0.75), 0, 82, 0.5);
     this.scene.add(root);
-    return { group: root, label: null };
+    return { group: root, label: null, classId: player.cls, team: player.team, hpFill, hpBack, family };
   }
 
   private createZombie(zombie: any): Visual {
@@ -872,9 +1041,20 @@ export class Arena3D {
     this.reconcile(this.players, view.players, p => p.id,
       p => this.createTank(p),
       (v, p) => {
+        if (v.classId !== p.cls || v.team !== p.team) {
+          this.scene.remove(v.group);
+          Object.assign(v, this.createTank(p));
+        }
         this.position(v.group, p.x, p.y, 1);
-        v.group.rotation.y = p.a + Math.PI / 2;
+        v.group.rotation.y = Math.PI / 2 - p.a;
         v.group.scale.setScalar(Math.max(0.75, p.r / 40));
+        const health = Math.max(0, Math.min(1, p.hp / Math.max(1, p.mhp)));
+        if (v.hpFill) {
+          v.hpFill.scale.x = health;
+          v.hpFill.position.x = -(1 - health) * 27;
+          v.hpFill.visible = health > 0 && health < 0.999;
+        }
+        if (v.hpBack) v.hpBack.visible = health < 0.999;
         this.updateLabel(v, p.name, p.x, p.y, p.r + 54);
       });
 
@@ -883,7 +1063,7 @@ export class Arena3D {
       z => this.createZombie(z),
       (v, z) => {
         this.position(v.group, z.x, z.y, 0);
-        v.group.rotation.y = z.angle + Math.PI / 2;
+        v.group.rotation.y = Math.PI / 2 - z.angle;
         v.group.scale.setScalar(Math.max(0.7, z.r / 38));
         const blink = 0.92 + Math.sin(now * 5 + z.id) * 0.08;
         v.group.scale.y *= blink;
@@ -902,7 +1082,7 @@ export class Arena3D {
       b => this.createBullet(b, playerMap),
       (v, b) => {
         this.position(v.group, b[1], b[2], 12);
-        v.group.rotation.y = b[6] + Math.PI / 2;
+        v.group.rotation.y = Math.PI / 2 - b[6];
         v.group.rotation.z = b[5] === 3 || b[5] === 4 ? Math.sin(now * 18) * 0.05 : 0;
       });
 
