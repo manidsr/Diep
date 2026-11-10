@@ -15,8 +15,8 @@ test('xp thresholds are strictly increasing and invert via levelFromXp', () => {
 test('automatic stat growth advances every stat on every level and caps at level 45', () => {
   assert.equal(automaticStatLevel(1), 0);
   assert.equal(automaticStatLevel(2), 0.12);
-  assert.equal(automaticStatLevel(45), 5.28);
-  assert.equal(automaticStatLevel(100), 5.28);
+  assert.ok(Math.abs(automaticStatLevel(45) - 5.28) < 1e-9);
+  assert.ok(Math.abs(automaticStatLevel(100) - 5.28) < 1e-9);
 
   for (let level = 1; level < MAX_LEVEL; level++) {
     const current = deriveStats(level, 'basic');

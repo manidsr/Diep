@@ -43,8 +43,8 @@ export const TANK_SPECIALTIES = {
     bonuses: { bulletDamage: 0.2, maxHealth: 0.1, regen: 0.08 },
   },
   areaControl: {
-    label: 'Area Control', summary: 'Trap/projectile damage +12% · health +18% · regen +15%',
-    bonuses: { bulletDamage: 0.12, maxHealth: 0.18, regen: 0.15 },
+    label: 'Area Control', summary: 'Trap/projectile damage +24% · health +18% · regen +15%',
+    bonuses: { bulletDamage: 0.24, maxHealth: 0.18, regen: 0.15 },
   },
   rammer: {
     label: 'Rammer', summary: 'Body damage +28% · health +30% · speed +12% · regen +16%',
