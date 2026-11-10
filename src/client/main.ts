@@ -1,11 +1,19 @@
 import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES } from '../shared/config';
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
+import { Arena3D } from './render3d';
 import { drawFrame, drawMinimap, drawSticks, tankPreviewDataUrl, type View } from './render';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('c');
 const ctx = canvas.getContext('2d')!;
+const sceneCanvas = $<HTMLCanvasElement>('scene3d');
+let renderer3d: Arena3D | null = null;
+try { renderer3d = new Arena3D(sceneCanvas); }
+catch (error) {
+  console.warn('3D rendering is unavailable; using the 2D renderer instead.', error);
+  sceneCanvas.hidden = true;
+}
 const minimapCanvas = $<HTMLCanvasElement>('minimap');
 const minimapCtx = minimapCanvas.getContext('2d')!;
 const MINIMAP_SIZE = 176;
@@ -710,6 +718,8 @@ let W = 0, H = 0, dpr = 1;
 function resize() {
   W = window.innerWidth; H = window.innerHeight; dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  sceneCanvas.width = Math.round(W * dpr); sceneCanvas.height = Math.round(H * dpr);
+  renderer3d?.resize(sceneCanvas.width, sceneCanvas.height);
   minimapCanvas.width = Math.round(MINIMAP_SIZE * dpr);
   minimapCanvas.height = Math.round(MINIMAP_SIZE * dpr);
 }
@@ -726,7 +736,10 @@ function frame(now: number) {
   input.update(W, H);
   // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.
   if (playing && now - lastSendT >= 1000 / 60) {
-    const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${input.angle.toFixed(2)},"f":${input.fire ? 1 : 0},"secondary":${input.secondary ? 1 : 0},"spin":${input.spin ? 1 : 0}}`;
+    // Perspective foreshortens the ground plane vertically; compensate so touch/mouse aim
+    // still maps to the same world-space angle as the old straight-down camera.
+    const aimAngle = Math.atan2(Math.sin(input.angle) / 0.84, Math.cos(input.angle));
+    const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${aimAngle.toFixed(2)},"f":${input.fire ? 1 : 0},"secondary":${input.secondary ? 1 : 0},"spin":${input.spin ? 1 : 0}}`;
     if (msg !== lastSent || now - lastSendT > 500) {
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
       lastSent = msg; lastSendT = now;
@@ -754,7 +767,10 @@ function frame(now: number) {
   recoilCameraX += recoilCameraVX * dt; recoilCameraY += recoilCameraVY * dt;
   if (Math.abs(recoilCameraX) < 0.01 && Math.abs(recoilCameraVX) < 0.1) { recoilCameraX = 0; recoilCameraVX = 0; }
   if (Math.abs(recoilCameraY) < 0.01 && Math.abs(recoilCameraVY) < 0.1) { recoilCameraY = 0; recoilCameraVY = 0; }
-  drawFrame(ctx, W, H, cam, view, selfId, frames[frames.length - 1]?.snap.me.fov ?? 1);
+  const fov = frames[frames.length - 1]?.snap.me.fov ?? 1;
+  if (renderer3d) renderer3d.render(view, selfId, cam, fov);
+  else drawFrame(ctx, W, H, cam, view, selfId, fov);
+  if (renderer3d) ctx.clearRect(0, 0, W, H);
   if (playing) drawSticks(ctx, W, H, input);
 }
 requestAnimationFrame(frame);
