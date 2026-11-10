@@ -14,10 +14,10 @@ export function levelFromXp(xp: number): number {
   return level;
 }
 
-/** Every level improves all eight stats; level 45 equals 4.125 average old points per stat. */
+/** Every level improves all eight stats; reaching 45 grows each stat a little beyond the old average allocation. */
 export function automaticStatLevel(level: number): number {
   const cappedLevel = Math.min(MAX_LEVEL, Math.max(1, Math.floor(level)));
-  return (cappedLevel - 1) * 0.09375;
+  return (cappedLevel - 1) * 0.12;
 }
 
 /** Returns all classes reachable from the current class, including alternate evolution paths. */

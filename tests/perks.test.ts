@@ -116,10 +116,10 @@ test('damage, reload, critical, speed, spread, recoil and penetration cards affe
     const { game, player } = setup();
     player.survivalPerks.piercingRounds = 1;
     const b = fire(game, player);
-    assert.equal(b.hp, 2 + PLAYER_PIERCE_COST);
+    assert.equal(b.hp, player.d.bulletHp + PLAYER_PIERCE_COST);
     const z1 = zombie({ id: 901, x: b.x, y: b.y }), z2 = zombie({ id: 902, x: b.x, y: b.y });
     hit(game, b, z1);
-    assert.equal(b.hp, 2);
+    assert.equal(b.hp, player.d.bulletHp);
     hit(game, b, z2);
     assert.ok(z1.hp < z1.maxHp && z2.hp < z2.maxHp);
   }

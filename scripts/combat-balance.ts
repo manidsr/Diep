@@ -3,7 +3,7 @@ import { runAllCombatBenchmarks } from '../tests/combat-bench';
 const metrics = runAllCombatBenchmarks();
 const sorted = [...metrics].sort((a, b) => b.sustainedDps - a.sustainedDps);
 const column = (value: string, width: number) => value.padEnd(width).slice(0, width);
-console.log('Combat lab: level 45 with fixed max-stat allocations for each role.');
+console.log('Combat lab: level 45 with automatic growth and tank class bonuses.');
 console.log('DPS is measured against a stationary target through the server simulation.');
 console.log('Range is the furthest sampled centre-to-centre hit; + means the 2800u sample ceiling was reached.');
 console.log('Survival is passive time-to-kill from a moderate-pressure Basic tank (20s cap); defender auto-weapons are disabled.');
