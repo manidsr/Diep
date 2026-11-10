@@ -178,7 +178,7 @@ class Geometry {
   }
 }
 
-const vertexShader = \`
+const vertexShader = `
 attribute vec3 aPosition;
 attribute vec3 aNormal;
 attribute vec3 aColor;
@@ -196,8 +196,8 @@ void main() {
   vColor = aColor;
   vWorld = aPosition;
   vNormal = n;
-}\`;
-const fragmentShader = \`
+}`;
+const fragmentShader = `
 precision mediump float;
 uniform vec3 uEye;
 uniform vec2 uArenaCenter;
@@ -236,7 +236,7 @@ void main() {
 
   vec3 lit = base * vLight + vec3(specular + rim) + max(base - vec3(0.72), 0.0) * 0.12;
   gl_FragColor = vec4(lit, 1.0);
-}\`;
+}`;
 
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
   const shader = gl.createShader(type);
