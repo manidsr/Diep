@@ -217,6 +217,52 @@ test('clients can join the separate Co-op Survival world and receive wave status
   }
 });
 
+test('a Survival restart request respawns the connected squad and acknowledges every client', async () => {
+  const srv = await startServer({ port: 0, host: '127.0.0.1', game: new Game(seeded(80), 0) });
+  const first = client(srv.port), second = client(srv.port);
+  try {
+    await Promise.all([first.opened, second.opened]);
+    first.ws.send(JSON.stringify({ t: 'join', name: 'First', mode: 'survival' }));
+    second.ws.send(JSON.stringify({ t: 'join', name: 'Second', mode: 'survival' }));
+    const [firstWelcome, secondWelcome] = await Promise.all([
+      first.waitFor((m) => m.t === 'welcome'), second.waitFor((m) => m.t === 'welcome'),
+    ]);
+    assert.ok(firstWelcome.t === 'welcome' && secondWelcome.t === 'welcome');
+    const firstPlayer = srv.survivalGame.players.get(firstWelcome.id)!;
+    const secondPlayer = srv.survivalGame.players.get(secondWelcome.id)!;
+    firstPlayer.downed = true; firstPlayer.hp = 0;
+    secondPlayer.downed = true; secondPlayer.hp = 0;
+    srv.survivalGame.survivalGameOver = true;
+    await Promise.all([
+      first.waitFor((m) => m.t === 'lb' && m.mode === 'survival' && m.gameOver, 3000),
+      second.waitFor((m) => m.t === 'lb' && m.mode === 'survival' && m.gameOver, 3000),
+    ]);
+    const firstWelcomeCount = first.msgs.filter((m) => m.t === 'welcome').length;
+    const secondWelcomeCount = second.msgs.filter((m) => m.t === 'welcome').length;
+    first.ws.send(JSON.stringify({ t: 'restart' }));
+    const waitForWelcomeCount = async (c: ReturnType<typeof client>, count: number) => {
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline) {
+        if (c.msgs.filter((m) => m.t === 'welcome').length > count) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error('timeout waiting for restart acknowledgement');
+    };
+    await Promise.all([
+      waitForWelcomeCount(first, firstWelcomeCount), waitForWelcomeCount(second, secondWelcomeCount),
+    ]);
+    assert.equal(srv.survivalGame.survivalGameOver, false);
+    assert.equal(srv.survivalGame.wave, 1);
+    assert.ok(firstPlayer.alive && !firstPlayer.downed);
+    assert.ok(secondPlayer.alive && !secondPlayer.downed);
+    assert.equal(firstPlayer.level, 1);
+    assert.equal(secondPlayer.level, 1);
+  } finally {
+    first.ws.close(); second.ws.close();
+    await srv.close();
+  }
+});
+
 test('reconnecting restores the same player, class and progression during the grace period', async () => {
   const game = new Game(seeded(81), 0);
   const srv = await startServer({ port: 0, host: '127.0.0.1', game, reconnectGraceMs: 1400 });

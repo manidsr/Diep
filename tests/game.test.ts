@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, type Player } from '../src/server/game';
 import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, SHAPES, TEAM_BASE_DEPTH } from '../src/shared/config';
-import { totalXpForLevel } from '../src/shared/progression';
+import { levelFromXp, totalXpForLevel } from '../src/shared/progression';
 import { seeded } from './helpers';
 
 const DT = 1 / 30;
@@ -73,6 +73,21 @@ test('leveling automatically improves every stat without manual point allocation
   assert.ok(player.d.bulletDamage > base.bulletDamage);
   assert.ok(player.d.reload < base.reload);
   assert.ok(player.d.moveSpeed > base.moveSpeed);
+});
+
+test('late Survival joiners start with the current squad average XP', () => {
+  const game = new Game(seeded(62), 0, 'survival');
+  const first = game.addPlayer('veteran one')!;
+  game.addXp(first, totalXpForLevel(20));
+  const second = game.addPlayer('veteran two')!;
+  game.addXp(second, totalXpForLevel(24) - second.xp);
+
+  const expectedXp = Math.round((first.xp + second.xp) / 2);
+  const late = game.addPlayer('late arrival')!;
+  assert.equal(late.xp, expectedXp);
+  assert.equal(late.level, levelFromXp(expectedXp));
+  assert.ok(late.level >= 21, `late joiner should be near squad progress, got level ${late.level}`);
+  assert.equal(late.hp, late.maxHp, 'catch-up stats should be applied before spawning at full health');
 });
 
 test('class evolution requires level and valid parent', () => {
@@ -1058,7 +1073,7 @@ test('Revive progress falls when the helper leaves the downed ally', () => {
   assert.equal(downed.downed, true);
 });
 
-test('A solo squad wipe ends Survival and a later join can start a new rescue run', () => {
+test('A solo squad wipe freezes the results and can restart the whole run', () => {
   const game = new Game(seeded(99), 0, 'survival');
   const downed = place(game, game.addPlayer('last survivor')!.id, 1000, 1000);
   downed.hp = 0; downed.lastDamageT = game.time;
@@ -1069,21 +1084,24 @@ test('A solo squad wipe ends Survival and a later join can start a new rescue ru
   assert.equal(downed.alive, true);
   assert.equal(game.survivalGameOver, true, 'a solo player being downed ends the run');
   const level = downed.level, xp = downed.xp, classId = downed.cls;
+  const frozenAt = game.time;
   run(game, 75);
+  assert.equal(game.time, frozenAt, 'the simulation clock stays frozen on the results screen');
   assert.equal(downed.downed, true, 'the downed survivor stays in the results state');
   assert.equal(downed.alive, true, 'downed status remains distinct from a normal death');
   assert.equal(downed.level, level);
   assert.equal(downed.xp, xp);
   assert.equal(downed.cls, classId);
   assert.equal(game.survivalGameOver, true, 'game over remains visible until a fresh run starts');
-  const rescuer = place(game, game.addPlayer('late rescuer')!.id, 1040, 1000);
-  Object.assign(rescuer, { vx: 0, vy: 0 });
-  run(game, 2.7);
-  assert.equal(downed.downed, false, 'a teammate joining later can still revive the waiting player');
+  assert.equal(game.restartSurvivalRun(), true, 'the restart action should be accepted after Game Over');
+  assert.equal(game.survivalGameOver, false);
+  assert.equal(game.wave, 1);
+  assert.equal(downed.downed, false, 'the restart stands every connected squad member back up');
   assert.equal(downed.alive, true);
-  assert.equal(downed.level, level);
-  assert.equal(downed.xp, xp);
-  assert.equal(downed.cls, classId);
+  assert.equal(downed.level, 1);
+  assert.equal(downed.xp, 0);
+  assert.equal(downed.cls, 'basic');
+  assert.equal(game.restartSurvivalRun(), false, 'a second restart cannot reset an active run');
 });
 
 test('Boss kills guarantee a health pickup that heals a wounded survivor', () => {

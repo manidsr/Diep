@@ -152,6 +152,19 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
             });
           }
           break;
+        case 'restart': {
+          if (p && activeGame?.mode === 'survival' && activeGame.restartSurvivalRun()) {
+            for (const target of conns) {
+              if (target.game !== activeGame || target.playerId == null) continue;
+              send(target.ws, {
+                t: 'welcome', id: target.playerId, arena: ARENA_SIZE, hz: SERVER_TICK_HZ,
+                devCheats: devCheatsEnabled && devCheatOwnerSession === target.sessionToken,
+                mode: 'survival', resumeToken: target.sessionToken ?? '',
+              });
+            }
+          }
+          break;
+        }
         case 'input': if (p) activeGame?.setInput(p.id, m); break;
         case 'reward': if (p) activeGame?.chooseSurvivalReward(p.id, m.id); break;
         case 'class': if (p) activeGame?.chooseClass(p.id, m.id); break;

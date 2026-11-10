@@ -34,6 +34,10 @@ test('rejects removed stat-upgrade messages and accepts class messages', () => {
 });
 
 
+test('restart protocol accepts a payload-free Survival restart request', () => {
+  assert.deepEqual(parseClientMessage('{"t":"restart"}'), { t: 'restart' });
+});
+
 test('join protocol supports FFA and Team Mode selection', () => {
   assert.deepEqual(parseClientMessage('{"t":"join","name":"Solo","mode":"ffa"}'), {
     t: 'join', name: 'Solo', mode: 'ffa',

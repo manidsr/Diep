@@ -225,6 +225,10 @@ function connect() {
       resumeAttempt = false;
       try { localStorage.setItem(RESUME_TOKEN_KEY, resumeToken); } catch { /* Session recovery is optional without storage. */ }
       setSelectedMode(m.mode);
+      survivalGameOverEl.hidden = true;
+      survivalRestartBtn.disabled = false;
+      survivalRestartBtn.textContent = 'RESTART RUN FOR EVERYONE';
+      lastLv = 0; lastHudClass = ''; wasDowned = false;
       msgEl.textContent = ''; deathPanel.hidden = true; playBtn.textContent = 'Play'; menu.classList.add('hide');
       devCheatsEnabled = m.devCheats;
       devTools.hidden = !devCheatsEnabled;
@@ -525,6 +529,14 @@ interface LbRow { el: HTMLElement; bar: HTMLElement; rk: HTMLElement; nm: HTMLEl
 const lbRows = new Map<number, LbRow>();
 const LB_ROW_H = 26;
 const fmtScore = (n: number) => (n >= 100000 ? `${(n / 1000).toFixed(0)}k` : n >= 10000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+const survivalGameOverEl = $('survival-gameover');
+const survivalRestartBtn = $<HTMLButtonElement>('survival-restart');
+survivalRestartBtn.addEventListener('click', () => {
+  if (!playing || survivalRestartBtn.disabled) return;
+  survivalRestartBtn.disabled = true;
+  survivalRestartBtn.textContent = 'RESTARTING…';
+  send({ t: 'restart' });
+});
 
 function makeLbRow(): LbRow {
   const el = document.createElement('div'); el.className = 'lrow';
@@ -539,10 +551,35 @@ function makeLbRow(): LbRow {
 
 function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
   const title = $('lbtitle');
+  if (message.mode !== 'survival') survivalGameOverEl.hidden = true;
   const teamScore = $('teamscore');
   const box = $('lbrows');
 
   if (message.mode === 'survival') {
+    if (message.gameOver) {
+      if (survivalGameOverEl.hidden) {
+        survivalRestartBtn.disabled = false;
+        survivalRestartBtn.textContent = 'RESTART RUN FOR EVERYONE';
+      }
+      survivalGameOverEl.hidden = false;
+      $('survival-over-wave').textContent = String(message.wave);
+      $('survival-over-kills').textContent = String(message.zombieKills);
+      $('survival-over-time').textContent = `${Math.floor(message.elapsed / 60)}:${String(message.elapsed % 60).padStart(2, '0')}`;
+      const finalRoster = $('survival-over-roster');
+      finalRoster.replaceChildren();
+      for (const player of message.top) {
+        const row = document.createElement('div');
+        row.className = 'survival-final-row';
+        const name = document.createElement('span');
+        name.textContent = `${player.name}${player.downed ? ' · DOWNED' : player.alive ? '' : ' · OUT'}`;
+        const stat = document.createElement('b');
+        stat.textContent = `${player.kills} kills · Lv ${player.lv}`;
+        row.append(name, stat);
+        finalRoster.append(row);
+      }
+    } else {
+      survivalGameOverEl.hidden = true;
+    }
     title.textContent = message.gameOver ? 'HORDE OVER · GAME OVER' : 'CO-OP SURVIVAL';
     box.hidden = true;
     for (const row of lbRows.values()) row.el.remove();

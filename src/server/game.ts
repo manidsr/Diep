@@ -164,6 +164,8 @@ export class Game {
 
   addPlayer(name: string): Player | null {
     if (this.players.size >= MAX_PLAYERS) return null;
+    // A fresh arrival after a squad wipe starts a new run for the whole connected squad.
+    if (this.mode === 'survival' && this.survivalGameOver) this.restartSurvivalRun();
     const p: Player = {
       id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
       r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, cls: 'basic',
@@ -178,8 +180,11 @@ export class Game {
     };
     this.players.set(p.id, p);
     this.respawn(p.id, name);
-    if (this.mode === 'survival' && this.wave === 0) this.beginSurvivalWave();
-    if (this.mode === 'survival') this.syncSurvivalWaveSize();
+    if (this.mode === 'survival') {
+      if (this.wave === 0) this.beginSurvivalWave();
+      else this.applySurvivalCatchUp(p);
+      this.syncSurvivalWaveSize();
+    }
     return p;
   }
 
@@ -331,6 +336,8 @@ export class Game {
 
   // ---------- simulation ----------
   step(dt: number) {
+    // Keep the server's broadcast clock alive while the post-game results scene is frozen.
+    if (this.mode === 'survival' && this.survivalGameOver) { this.tick++; return; }
     this.time += dt;
     this.tick++;
     for (const p of this.players.values()) if (p.connected && p.alive && !p.downed) this.updatePlayer(p, dt);
@@ -357,6 +364,16 @@ export class Game {
     if (this.mode !== 'survival' && this.shapes.length < SHAPE_TARGET_COUNT && this.rng() < dt * 4) this.spawnShape();
   }
 
+  /** Restart a completed Survival run for every connected squad member. */
+  restartSurvivalRun(): boolean {
+    if (this.mode !== 'survival' || !this.survivalGameOver || this.players.size === 0) return false;
+    this.resetSurvivalRun();
+    for (const player of this.players.values()) {
+      if (player.connected) this.respawn(player.id, player.name);
+    }
+    return true;
+  }
+
   private resetSurvivalRun() {
     for (const player of this.players.values()) {
       player.survivalPerks = {};
@@ -380,6 +397,19 @@ export class Game {
     this.survivalStartedAt = this.time;
     this.bullets = [];
     this.shapes = [];
+  }
+
+  /** Late arrivals receive the current squad's average XP before the next snapshot. */
+  private applySurvivalCatchUp(joiner: Player) {
+    const squad = [...this.players.values()].filter((player) =>
+      player.id !== joiner.id && player.connected && player.alive
+    );
+    if (!squad.length) return;
+    const averageXp = squad.reduce((total, player) => total + player.xp, 0) / squad.length;
+    joiner.xp = Math.max(joiner.xp, Math.round(averageXp));
+    joiner.level = levelFromXp(joiner.xp);
+    this.refresh(joiner);
+    joiner.hp = joiner.maxHp;
   }
 
   private survivalWaveZombieCount(playerCount: number) {

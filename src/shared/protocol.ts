@@ -10,6 +10,7 @@ export type ClientMessage =
   | { t: 'join'; name: string; mode?: GameMode; resumeToken?: string }
   | { t: 'input'; mx: number; my: number; a: number; f: boolean; secondary?: boolean; spin?: boolean }
   | { t: 'reward'; id: string }
+  | { t: 'restart' }
   | { t: 'class'; id: string }
   | { t: 'devClass'; id: string };
 
@@ -55,6 +56,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'reward':
       if (typeof message.id !== 'string' || !/^[a-zA-Z][a-zA-Z0-9]{1,31}$/.test(message.id)) return null;
       return { t: 'reward', id: message.id };
+    case 'restart':
+      return { t: 'restart' };
     case 'class':
     case 'devClass':
       if (typeof message.id !== 'string' || !CLASS_IDS.includes(message.id as (typeof CLASS_IDS)[number])) return null;
