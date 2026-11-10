@@ -234,10 +234,10 @@ test('reconnecting restores the same player, class and progression during the gr
 
     const original = game.players.get(welcome.id)!;
     game.addXp(original, totalXpForLevel(15));
-    assert.equal(game.chooseClass(original.id, 'twin'), true);
-    assert.equal(game.upgradeStat(original.id, 0), true);
+    assert.equal(game.chooseClass(original.id, 'sniper'), true);
+    assert.ok(original.d.bulletSpeed > 520, 'sniper specialty is applied to the saved player');
     original.x = 1234; original.y = 987;
-    const saved = { xp: original.xp, level: original.level, cls: original.cls, stats: original.stats.slice(), x: original.x, y: original.y };
+    const saved = { xp: original.xp, level: original.level, cls: original.cls, derived: { ...original.d }, x: original.x, y: original.y };
 
     first.ws.close();
     const suspendedAt = Date.now() + 1000;
@@ -261,7 +261,7 @@ test('reconnecting restores the same player, class and progression during the gr
     assert.equal(game.players.get(welcome.id), original);
     assert.equal(original.connected, true);
     assert.deepEqual(
-      { xp: original.xp, level: original.level, cls: original.cls, stats: original.stats, x: original.x, y: original.y },
+      { xp: original.xp, level: original.level, cls: original.cls, derived: { ...original.d }, x: original.x, y: original.y },
       saved,
     );
 

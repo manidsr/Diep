@@ -153,7 +153,6 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
           }
           break;
         case 'input': if (p) activeGame?.setInput(p.id, m); break;
-        case 'upgrade': if (p) activeGame?.upgradeStat(p.id, m.stat); break;
         case 'reward': if (p) activeGame?.chooseSurvivalReward(p.id, m.id); break;
         case 'class': if (p) activeGame?.chooseClass(p.id, m.id); break;
         case 'devClass':

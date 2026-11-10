@@ -43,7 +43,7 @@ export interface DerivedStats {
 export function deriveStats(level: number, classId: string): DerivedStats {
   const cls = CLASS_BY_ID[classId] ?? CLASS_BY_ID.basic;
   const statLevel = automaticStatLevel(level);
-  const bonuses = TANK_SPECIALTIES[cls.specialty]?.bonuses ?? {};
+  const bonuses: Partial<Record<StatKey, number>> = TANK_SPECIALTIES[cls.specialty]?.bonuses ?? {};
   const applyBonus = (key: StatKey, value: number) => value * (1 + (bonuses[key] ?? 0));
   return {
     radius: PLAYER_BASE_RADIUS * Math.pow(1.01, level - 1) * (cls.sizeMul ?? 1),

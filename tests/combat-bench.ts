@@ -8,10 +8,6 @@ const DPS_SECONDS = 8;
 const RANGE_SECONDS = 4.5;
 const SURVIVAL_LIMIT_SECONDS = 20;
 const BURST_TICKS = Math.round(0.25 * SERVER_TICK_HZ);
-const OFFENCE_STATS = [0, 0, 0, 7, 7, 7, 7, 0];
-const RAMMER_STATS = [7, 7, 7, 0, 0, 0, 0, 7];
-const DEFENCE_STATS = [7, 7, 7, 0, 0, 0, 0, 7];
-const INCOMING_STATS = [0, 0, 0, 0, 0, 4, 4, 0];
 const RANGE_SAMPLES = [100, 150, 220, 320, 420, 520, 680, 850, 1050, 1300, 1600, 1900, 2200, 2500, 2800] as const;
 const TRAP_RANGE_SAMPLES = [90, 100, 110, 120, 140, 160, 200, 260, 360] as const;
 const LAB_X = 200;
@@ -46,16 +42,6 @@ function seedFor(id: string, distance: number): number {
   return (hash ^ Math.round(distance * 10)) >>> 0;
 }
 
-function applyStats(game: Game, player: Player, allocation: number[]) {
-  for (let index = 0; index < allocation.length; index++) {
-    for (let point = 0; point < allocation[index]; point++) {
-      if (!game.upgradeStat(player.id, index)) {
-        throw new Error('Could not apply benchmark stat allocation for ' + player.cls + ', stat ' + index);
-      }
-    }
-  }
-}
-
 function preparePair(
   classId: string,
   distance: number,
@@ -69,10 +55,8 @@ function preparePair(
 
   game.addXp(attacker, totalXpForLevel(45));
   if (!game.debugSetClass(attacker.id, classId)) throw new Error('Unknown benchmark class: ' + classId);
-  applyStats(game, attacker, CLASS_BY_ID[classId].smasher ? RAMMER_STATS : OFFENCE_STATS);
 
   game.addXp(target, totalXpForLevel(45));
-  if (options.defensiveTarget) applyStats(game, target, DEFENCE_STATS);
 
   const attackerX = LAB_X;
   const attackerY = LAB_Y;
@@ -189,10 +173,8 @@ function measureSurvivability(classId: string): { seconds: number; killed: boole
   if (!attacker || !target) throw new Error('Could not create survivability players');
 
   game.addXp(attacker, totalXpForLevel(45));
-  applyStats(game, attacker, INCOMING_STATS);
   game.addXp(target, totalXpForLevel(45));
   if (!game.debugSetClass(target.id, classId)) throw new Error('Unknown defence class: ' + classId);
-  applyStats(game, target, DEFENCE_STATS);
 
   const passiveGame = game as unknown as {
     updateAutoTurrets: (player: Player, dt: number) => void;
