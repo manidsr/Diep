@@ -29,11 +29,197 @@ const BARREL_WIDTH_MUL = 1.15;
 const NAME_GAP = 16;
 const HP_GAP = 10;
 
+type PixelParticle = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: string };
+type FxSource = { x: number; y: number; color: string; count: number; speed: number; size: number };
+type ShockRing = { x: number; y: number; color: string; age: number; duration: number; radius: number; expansion: number };
+
+const pixelParticles: PixelParticle[] = [];
+const shockRings: ShockRing[] = [];
+const fxEmitTimes = new Map<string, number>();
+const previousBullets = new Map<number, FxSource>();
+const previousShapes = new Map<number, FxSource>();
+const previousZombies = new Map<number, FxSource>();
+
+function pixelBurst(x: number, y: number, color: string, count: number, speed: number, size = 3) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const velocity = speed * (0.28 + Math.random() * 0.92);
+    const life = 0.22 + Math.random() * 0.42;
+    pixelParticles.push({
+      x: x + (Math.random() - 0.5) * 5, y: y + (Math.random() - 0.5) * 5,
+      vx: Math.cos(angle) * velocity, vy: Math.sin(angle) * velocity,
+      life, maxLife: life, size: size * (0.65 + Math.random() * 1.2), color,
+    });
+  }
+  if (shockRings.length < 80) shockRings.push({ x, y, color, age: 0, duration: 0.34, radius: 5, expansion: Math.max(24, speed * 0.42) });
+  if (pixelParticles.length > 1000) pixelParticles.splice(0, pixelParticles.length - 1000);
+}
+
+function trailPixel(x: number, y: number, angle: number, color: string, radius: number, intensity = 1) {
+  const back = radius * (0.55 + Math.random() * 0.6);
+  const life = 0.2 + Math.random() * 0.18;
+  pixelParticles.push({
+    x: x - Math.cos(angle) * back + (Math.random() - 0.5) * radius * 0.45,
+    y: y - Math.sin(angle) * back + (Math.random() - 0.5) * radius * 0.45,
+    vx: -Math.cos(angle) * (18 + Math.random() * 36) + (Math.random() - 0.5) * 30,
+    vy: -Math.sin(angle) * (18 + Math.random() * 36) + (Math.random() - 0.5) * 30,
+    life, maxLife: life, size: Math.max(2, radius * (0.15 + Math.random() * 0.16)) * intensity, color,
+  });
+}
+
+function syncRemoved(
+  currentIds: Set<number>, previous: Map<number, FxSource>, current: Map<number, FxSource>,
+) {
+  for (const [id, source] of previous) {
+    if (!currentIds.has(id)) pixelBurst(source.x, source.y, source.color, source.count, source.speed, source.size);
+  }
+  previous.clear();
+  for (const [id, source] of current) previous.set(id, source);
+}
+
+function collectPixelFx(view: View, now: number) {
+  const bulletIds = new Set<number>();
+  const bulletSources = new Map<number, FxSource>();
+  for (const bullet of view.bullets) {
+    const [id, x, y, radius, ownerId, kind, angle] = bullet;
+    bulletIds.add(id);
+    const owner = view.players.find((player) => player.id === ownerId);
+    const color = kind === 4 ? '#ff42d8' : kind === 3 ? '#ff9b42' : owner?.team === 'red' ? '#ff426e' : '#42dfff';
+    bulletSources.set(id, { x, y, color, count: kind === 3 || kind === 4 ? 8 : 5, speed: 92, size: 3 });
+    const interval = kind === 3 || kind === 4 ? 26 : kind === 1 ? 58 : 42;
+    const key = 'bullet:' + id;
+    if (now - (fxEmitTimes.get(key) ?? 0) > interval) {
+      trailPixel(x, y, angle, color, radius, kind === 3 || kind === 4 ? 1.45 : 1);
+      if (kind === 3 || kind === 4) trailPixel(x, y, angle, '#fff0ca', radius, 0.75);
+      fxEmitTimes.set(key, now);
+    }
+  }
+  syncRemoved(bulletIds, previousBullets, bulletSources);
+
+  const shapeIds = new Set<number>();
+  const shapeSources = new Map<number, FxSource>();
+  for (const shape of view.shapes) {
+    const id = shape[0], x = shape[1], y = shape[2], def = SHAPES[SHAPE_KINDS[shape[4]]];
+    shapeIds.add(id);
+    shapeSources.set(id, { x, y, color: def.color, count: 22, speed: 145, size: 4 });
+    const hit = Math.max(0, Math.min(1, shape[6] ?? 0));
+    const key = 'shape-hit:' + id;
+    if (hit > 0.22 && now - (fxEmitTimes.get(key) ?? 0) > 115) {
+      pixelBurst(shape[7] ?? x, shape[8] ?? y, '#fff0a0', 4, 110, 2.8);
+      fxEmitTimes.set(key, now);
+    }
+  }
+  syncRemoved(shapeIds, previousShapes, shapeSources);
+
+  const zombieIds = new Set<number>();
+  const zombieSources = new Map<number, FxSource>();
+  for (const zombie of view.zombies) {
+    zombieIds.add(zombie.id);
+    const boss = zombie.bossKind !== null;
+    const color = boss ? '#ff5c9e' : zombie.kind === 'stalker' ? '#a69aff' : zombie.kind === 'bomber' || zombie.kind === 'exploder' ? '#ff874e' : '#9dff73';
+    zombieSources.set(zombie.id, { x: zombie.x, y: zombie.y, color, count: boss ? 52 : 28, speed: boss ? 190 : 135, size: boss ? 5 : 3.5 });
+    const key = 'zombie-hit:' + zombie.id;
+    if (zombie.hitFlash > 0.24 && now - (fxEmitTimes.get(key) ?? 0) > 86) {
+      const ix = zombie.x + Math.cos(zombie.hitAngle) * zombie.r * 0.7;
+      const iy = zombie.y + Math.sin(zombie.hitAngle) * zombie.r * 0.7;
+      pixelBurst(ix, iy, boss ? '#ffd0ec' : '#d9ffad', boss ? 8 : 5, 105, 2.7);
+      fxEmitTimes.set(key, now);
+    }
+  }
+  syncRemoved(zombieIds, previousZombies, zombieSources);
+
+  if (fxEmitTimes.size > 1800) fxEmitTimes.clear();
+}
+
+function drawPixelFx(ctx: CanvasRenderingContext2D, now: number, dt: number) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = pixelParticles.length - 1; i >= 0; i--) {
+    const p = pixelParticles[i];
+    p.life -= dt;
+    if (p.life <= 0) { pixelParticles.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    const drag = Math.pow(0.12, dt);
+    p.vx *= drag; p.vy *= drag;
+    const fade = Math.max(0, p.life / p.maxLife);
+    ctx.globalAlpha = fade * 0.92;
+    ctx.fillStyle = p.color;
+    const size = Math.max(1, Math.round(p.size * (0.55 + fade * 0.5)));
+    ctx.fillRect(Math.round(p.x), Math.round(p.y), size, size);
+    if (fade > 0.62) {
+      ctx.globalAlpha = (fade - 0.62) * 0.75;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(p.x + size), Math.round(p.y), Math.max(1, Math.ceil(size * 0.45)), 1);
+    }
+  }
+  for (let i = shockRings.length - 1; i >= 0; i--) {
+    const ring = shockRings[i];
+    ring.age += dt;
+    if (ring.age >= ring.duration) { shockRings.splice(i, 1); continue; }
+    const progress = ring.age / ring.duration;
+    const radius = ring.radius + ring.expansion * progress;
+    ctx.globalAlpha = (1 - progress) * 0.72;
+    ctx.strokeStyle = ring.color;
+    ctx.lineWidth = Math.max(1.5, 4 * (1 - progress));
+    ctx.setLineDash([7, 6]);
+    ctx.lineDashOffset = -now / 32;
+    ctx.beginPath(); ctx.arc(ring.x, ring.y, radius, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+function drawCoreLayer(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string, seed: number, phase: number) {
+  ctx.beginPath();
+  const steps = 64;
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    const wobble = 1 + Math.sin(i * 2.7 + seed) * 0.018 + Math.cos(i * 0.83 + seed * 2) * 0.012 + Math.sin(phase + i * 0.14) * 0.012;
+    const r = radius * wobble;
+    const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+}
+
+function drawNeonCore(ctx: CanvasRenderingContext2D, x: number, y: number, seed: number) {
+  const phase = performance.now() / 620;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = seed ? '#ff385f' : '#43ff78';
+  ctx.shadowColor = ctx.fillStyle as string; ctx.shadowBlur = 34;
+  ctx.beginPath(); ctx.arc(x, y, 190 + Math.sin(phase) * 5, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  drawCoreLayer(ctx, x, y, 176 + Math.sin(phase) * 3, '#38ef70', seed + 1, phase);
+  drawCoreLayer(ctx, x, y, 148 + Math.sin(phase + 0.6) * 2, '#385fe9', seed + 2, phase);
+  drawCoreLayer(ctx, x, y, 119 + Math.sin(phase + 1.1) * 2, '#ff963d', seed + 3, phase);
+  drawCoreLayer(ctx, x, y, 91 + Math.sin(phase + 1.8) * 1.5, '#e9e9df', seed + 4, phase);
+  drawCoreLayer(ctx, x, y, 61 + Math.sin(phase + 2.4) * 1.5, seed ? '#f52260' : '#f52260', seed + 5, phase);
+  ctx.strokeStyle = seed ? '#ff557b' : '#b2ff9e';
+  ctx.globalAlpha = 0.7; ctx.lineWidth = 3;
+  ctx.setLineDash([5, 9]); ctx.lineDashOffset = -phase * 12;
+  ctx.beginPath(); ctx.arc(x, y, 190 + Math.sin(phase) * 5, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < 14; i++) {
+    const a = phase * (seed ? -0.9 : 0.9) + i * Math.PI * 2 / 14;
+    ctx.globalAlpha = 0.55 + 0.4 * Math.sin(phase * 2 + i);
+    ctx.fillStyle = i % 3 === 0 ? '#ffffff' : seed ? '#ff4b86' : '#72ff9a';
+    ctx.fillRect(Math.round(x + Math.cos(a) * 202), Math.round(y + Math.sin(a) * 202), 5, 5);
+  }
+  ctx.restore();
+}
+
 export function drawFrame(
   ctx: CanvasRenderingContext2D, W: number, H: number,
   cam: { x: number; y: number }, view: View, selfId: number, fovMul = 1,
 ) {
   const fov = Math.max(0.65, Math.min(1.8, fovMul));
+  const now = performance.now();
+  const dt = Math.min(0.05, Math.max(0, (now - (drawFrame as any)._fxAt || now) / 1000));
+  (drawFrame as any)._fxAt = now;
+  collectPixelFx(view, now);
   const arenaSize = view.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE;
   const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000) / fov;
   ctx.fillStyle = '#03050b';
@@ -73,6 +259,7 @@ export function drawFrame(
   for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
   for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true);
+  drawPixelFx(ctx, now, dt);
   ctx.restore();
 }
 
@@ -120,6 +307,9 @@ function drawTeamBases(ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = '#ff9ca2';
   ctx.strokeText('RED BASE · SAFE ZONE', ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
   ctx.fillText('RED BASE · SAFE ZONE', ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
+  // These oversized bullseye cores echo the pulsing, concentric neon bases in the reference.
+  drawNeonCore(ctx, TEAM_BASE_DEPTH / 2, ARENA_SIZE / 2, 13);
+  drawNeonCore(ctx, ARENA_SIZE - TEAM_BASE_DEPTH / 2, ARENA_SIZE / 2, 29);
   ctx.restore();
 }
 
@@ -170,6 +360,16 @@ function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][n
       ctx.globalAlpha = 0.82; ctx.shadowColor = wake; ctx.shadowBlur = 8; ctx.stroke();
       ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     }
+    // A dotted magenta satellite ring gives drone swarms the orbital look from the reference.
+    const orbit = radius * 1.9;
+    for (let i = 0; i < 10; i++) {
+      const a = performance.now() / 230 + i * Math.PI * 2 / 10;
+      ctx.globalAlpha = 0.42 + 0.5 * Math.sin(performance.now() / 90 + i);
+      ctx.fillStyle = i % 3 === 0 ? '#fff0ff' : '#ff3f91';
+      ctx.shadowColor = '#ff277b'; ctx.shadowBlur = 8;
+      ctx.fillRect(Math.cos(a) * orbit - 2, Math.sin(a) * orbit - 2, 4, 4);
+    }
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     // Drone: diamond-shaped body with a visible centre.
     ctx.beginPath(); ctx.moveTo(radius * 1.35, 0); ctx.lineTo(0, radius * 0.95);
     ctx.lineTo(-radius * 1.15, 0); ctx.lineTo(0, -radius * 0.95); ctx.closePath();
@@ -185,13 +385,28 @@ function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][n
     ctx.restore();
   } else if (kind === 3 || kind === 4) {
     ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+    const trail = kind === 4 ? '#ff3bd4' : '#ff9b42';
+    for (let i = 1; i <= 4; i++) {
+      ctx.globalAlpha = (1 - i / 5) * 0.68;
+      ctx.fillStyle = i === 1 ? '#fff4d4' : trail;
+      ctx.shadowColor = trail; ctx.shadowBlur = 12;
+      const tail = radius * (0.9 + i * 0.62);
+      ctx.fillRect(-tail - radius * 0.55, -radius * (0.08 + i * 0.035), radius * 0.42, radius * (0.16 + i * 0.07));
+    }
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     ctx.beginPath(); ctx.moveTo(radius * 1.9, 0); ctx.lineTo(-radius, -radius * 0.72); ctx.lineTo(-radius * 0.55, 0);
     ctx.lineTo(-radius, radius * 0.72); ctx.closePath();
     ctx.fillStyle = kind === 3 ? '#ffc36a' : '#fff0a0'; ctx.fill();
     ctx.lineWidth = 2.5; ctx.strokeStyle = kind === 3 ? '#9c5a23' : '#b78327'; ctx.stroke();
     ctx.restore();
   } else {
+    ctx.save();
+    ctx.globalAlpha = 0.5; ctx.fillStyle = palette.fill; ctx.shadowColor = palette.fill; ctx.shadowBlur = 13;
+    ctx.beginPath(); ctx.arc(x, y, radius * 1.65, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     circle(ctx, x, y, radius, palette.fill, palette.stroke, 3);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(x - radius * 0.18), Math.round(y - radius * 0.18), Math.max(2, radius * 0.36), Math.max(2, radius * 0.36));
+    ctx.restore();
   }
 }
 
@@ -551,7 +766,10 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number])
   };
 
   path();
+  ctx.save();
+  if (hit > 0.08) { ctx.shadowColor = '#fff3b0'; ctx.shadowBlur = 12 + hit * 18; }
   ctx.fillStyle = def.color; ctx.fill();
+  ctx.shadowBlur = 0;
   ctx.lineWidth = 3; ctx.strokeStyle = hit > 0.08 ? '#fff4d6' : def.stroke;
   ctx.lineJoin = 'round'; ctx.stroke();
 
@@ -580,6 +798,7 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number])
     ctx.restore();
   }
   if (shape[5] < 1) hpBar(ctx, shape[1], shape[2] + def.radius + 10, def.radius * 1.4, shape[5]);
+  ctx.restore();
 }
 function hpBar(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, fraction: number) {
   ctx.fillStyle = '#000a'; ctx.fillRect(x - width / 2 - 2, y - 4, width + 4, 8);
