@@ -39,6 +39,7 @@ const fxEmitTimes = new Map<string, number>();
 const previousBullets = new Map<number, FxSource>();
 const previousShapes = new Map<number, FxSource>();
 const previousZombies = new Map<number, FxSource>();
+let fxLastFrameAt = 0;
 
 function pixelBurst(x: number, y: number, color: string, count: number, speed: number, size = 3) {
   for (let i = 0; i < count; i++) {
@@ -187,7 +188,7 @@ function drawNeonCore(ctx: CanvasRenderingContext2D, x: number, y: number, seed:
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.globalAlpha = 0.18;
-  ctx.fillStyle = seed ? '#ff385f' : '#43ff78';
+  ctx.fillStyle = seed % 2 ? '#ff385f' : '#43ff78';
   ctx.shadowColor = ctx.fillStyle as string; ctx.shadowBlur = 34;
   ctx.beginPath(); ctx.arc(x, y, 190 + Math.sin(phase) * 5, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 1; ctx.shadowBlur = 0;
@@ -196,16 +197,16 @@ function drawNeonCore(ctx: CanvasRenderingContext2D, x: number, y: number, seed:
   drawCoreLayer(ctx, x, y, 119 + Math.sin(phase + 1.1) * 2, '#ff963d', seed + 3, phase);
   drawCoreLayer(ctx, x, y, 91 + Math.sin(phase + 1.8) * 1.5, '#e9e9df', seed + 4, phase);
   drawCoreLayer(ctx, x, y, 61 + Math.sin(phase + 2.4) * 1.5, seed ? '#f52260' : '#f52260', seed + 5, phase);
-  ctx.strokeStyle = seed ? '#ff557b' : '#b2ff9e';
+  ctx.strokeStyle = seed % 2 ? '#ff557b' : '#9df5ff';
   ctx.globalAlpha = 0.7; ctx.lineWidth = 3;
   ctx.setLineDash([5, 9]); ctx.lineDashOffset = -phase * 12;
   ctx.beginPath(); ctx.arc(x, y, 190 + Math.sin(phase) * 5, 0, Math.PI * 2); ctx.stroke();
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
   for (let i = 0; i < 14; i++) {
-    const a = phase * (seed ? -0.9 : 0.9) + i * Math.PI * 2 / 14;
+    const a = phase * (seed % 2 ? -0.9 : 0.9) + i * Math.PI * 2 / 14;
     ctx.globalAlpha = 0.55 + 0.4 * Math.sin(phase * 2 + i);
-    ctx.fillStyle = i % 3 === 0 ? '#ffffff' : seed ? '#ff4b86' : '#72ff9a';
+    ctx.fillStyle = i % 3 === 0 ? '#ffffff' : seed % 2 ? '#ff4b86' : '#72ff9a';
     ctx.fillRect(Math.round(x + Math.cos(a) * 202), Math.round(y + Math.sin(a) * 202), 5, 5);
   }
   ctx.restore();
@@ -217,8 +218,8 @@ export function drawFrame(
 ) {
   const fov = Math.max(0.65, Math.min(1.8, fovMul));
   const now = performance.now();
-  const dt = Math.min(0.05, Math.max(0, (now - (drawFrame as any)._fxAt || now) / 1000));
-  (drawFrame as any)._fxAt = now;
+  const dt = fxLastFrameAt ? Math.min(0.05, Math.max(0, (now - fxLastFrameAt) / 1000)) : 1 / 60;
+  fxLastFrameAt = now;
   collectPixelFx(view, now);
   const arenaSize = view.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE;
   const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000) / fov;
@@ -308,7 +309,7 @@ function drawTeamBases(ctx: CanvasRenderingContext2D) {
   ctx.strokeText('RED BASE · SAFE ZONE', ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
   ctx.fillText('RED BASE · SAFE ZONE', ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
   // These oversized bullseye cores echo the pulsing, concentric neon bases in the reference.
-  drawNeonCore(ctx, TEAM_BASE_DEPTH / 2, ARENA_SIZE / 2, 13);
+  drawNeonCore(ctx, TEAM_BASE_DEPTH / 2, ARENA_SIZE / 2, 12);
   drawNeonCore(ctx, ARENA_SIZE - TEAM_BASE_DEPTH / 2, ARENA_SIZE / 2, 29);
   ctx.restore();
 }
