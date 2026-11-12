@@ -1,19 +1,15 @@
 import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES } from '../shared/config';
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
-import { Arena3D } from './render3d';
 import { drawFrame, drawMinimap, drawSticks, tankPreviewDataUrl, type View } from './render';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('c');
 const ctx = canvas.getContext('2d')!;
-const sceneCanvas = $<HTMLCanvasElement>('scene3d');
-let renderer3d: Arena3D | null = null;
-try { renderer3d = new Arena3D(sceneCanvas); }
-catch (error) {
-  console.warn('3D rendering is unavailable; using the 2D renderer instead.', error);
-  sceneCanvas.hidden = true;
-}
+// Render the world to a deliberately small framebuffer, then enlarge it with
+// smoothing disabled. HUD/touch controls remain crisp on the native canvas.
+const pixelCanvas = document.createElement('canvas');
+const pixelCtx = pixelCanvas.getContext('2d', { alpha: false })!;
 const minimapCanvas = $<HTMLCanvasElement>('minimap');
 const minimapCtx = minimapCanvas.getContext('2d')!;
 const MINIMAP_SIZE = 176;
@@ -768,9 +764,17 @@ function frame(now: number) {
   if (Math.abs(recoilCameraX) < 0.01 && Math.abs(recoilCameraVX) < 0.1) { recoilCameraX = 0; recoilCameraVX = 0; }
   if (Math.abs(recoilCameraY) < 0.01 && Math.abs(recoilCameraVY) < 0.1) { recoilCameraY = 0; recoilCameraVY = 0; }
   const fov = frames[frames.length - 1]?.snap.me.fov ?? 1;
-  if (renderer3d) renderer3d.render(view, selfId, cam, fov);
-  else drawFrame(ctx, W, H, cam, view, selfId, fov);
-  if (renderer3d) ctx.clearRect(0, 0, W, H);
+  const pixelScale = Math.min(1, 420 / Math.max(W, H));
+  const pixelW = Math.max(1, Math.round(W * pixelScale));
+  const pixelH = Math.max(1, Math.round(H * pixelScale));
+  if (pixelCanvas.width !== pixelW || pixelCanvas.height !== pixelH) {
+    pixelCanvas.width = pixelW; pixelCanvas.height = pixelH;
+  }
+  pixelCtx.setTransform(pixelScale, 0, 0, pixelScale, 0, 0);
+  drawFrame(pixelCtx, W, H, cam, view, selfId, fov);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(pixelCanvas, 0, 0, W, H);
+  ctx.imageSmoothingEnabled = true;
   if (playing) drawSticks(ctx, W, H, input);
 }
 requestAnimationFrame(frame);

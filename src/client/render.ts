@@ -36,25 +36,32 @@ export function drawFrame(
   const fov = Math.max(0.65, Math.min(1.8, fovMul));
   const arenaSize = view.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE;
   const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000) / fov;
-  ctx.fillStyle = '#b4b4b8';
+  ctx.fillStyle = '#03050b';
   ctx.fillRect(0, 0, W, H);
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(scale, scale);
   ctx.translate(-cam.x, -cam.y);
 
-  ctx.fillStyle = '#cdcdd2';
+  ctx.fillStyle = '#070912';
   ctx.fillRect(0, 0, arenaSize, arenaSize);
-  const x0 = Math.max(0, Math.floor((cam.x - W / 2 / scale) / 50) * 50);
+  const x0 = Math.max(0, Math.floor((cam.x - W / 2 / scale) / 120) * 120);
   const x1 = Math.min(arenaSize, cam.x + W / 2 / scale);
-  const y0 = Math.max(0, Math.floor((cam.y - H / 2 / scale) / 50) * 50);
+  const y0 = Math.max(0, Math.floor((cam.y - H / 2 / scale) / 120) * 120);
   const y1 = Math.min(arenaSize, cam.y + H / 2 / scale);
-  ctx.strokeStyle = '#c1c1c7';
-  ctx.lineWidth = 1 / scale + 0.5;
-  ctx.beginPath();
-  for (let x = x0; x <= x1; x += 50) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
-  for (let y = y0; y <= y1; y += 50) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
-  ctx.stroke();
+  // Deterministic sparse starfield: stars stay anchored to the world as the camera moves.
+  for (let sx = x0; sx <= x1; sx += 120) for (let sy = y0; sy <= y1; sy += 120) {
+    let hash = Math.imul(Math.floor(sx / 120) + 7919, 374761393) ^ Math.imul(Math.floor(sy / 120) + 104729, 668265263);
+    hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
+    const n = (hash >>> 0) / 4294967295;
+    if (n > 0.72) {
+      const px = sx + n * 73, py = sy + ((hash >>> 8) % 97);
+      ctx.fillStyle = n > 0.94 ? '#a7caff' : '#46506d';
+      ctx.fillRect(px, py, n > 0.94 ? 3 : 2, n > 0.94 ? 3 : 2);
+    }
+  }
+  ctx.strokeStyle = '#27314b'; ctx.lineWidth = 5 / scale;
+  ctx.strokeRect(0, 0, arenaSize, arenaSize);
 
   if (view.mode === 'teams') drawTeamBases(ctx);
   for (const shape of view.shapes) drawShape(ctx, shape);
