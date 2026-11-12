@@ -762,7 +762,7 @@ function frame(now: number) {
   if (Math.abs(recoilCameraX) < 0.01 && Math.abs(recoilCameraVX) < 0.1) { recoilCameraX = 0; recoilCameraVX = 0; }
   if (Math.abs(recoilCameraY) < 0.01 && Math.abs(recoilCameraVY) < 0.1) { recoilCameraY = 0; recoilCameraVY = 0; }
   const fov = frames[frames.length - 1]?.snap.me.fov ?? 1;
-  const pixelScale = Math.min(1, 420 / Math.max(W, H));
+  const pixelScale = Math.min(1, 640 / Math.max(W, H));
   const pixelW = Math.max(1, Math.round(W * pixelScale));
   const pixelH = Math.max(1, Math.round(H * pixelScale));
   if (pixelCanvas.width !== pixelW || pixelCanvas.height !== pixelH) {

@@ -41,6 +41,67 @@ const previousShapes = new Map<number, FxSource>();
 const previousZombies = new Map<number, FxSource>();
 let fxLastFrameAt = 0;
 
+let WORLD_PIXEL = 2;
+
+function snapPixel(value: number, step = WORLD_PIXEL): number {
+  return Math.round(value / step) * step;
+}
+
+function pixelRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, color: string, cell = WORLD_PIXEL * 2) {
+  const left = snapPixel(x, cell), top = snapPixel(y, cell);
+  const w = Math.max(cell, Math.round(width / cell) * cell);
+  const h = Math.max(cell, Math.round(height / cell) * cell);
+  ctx.fillStyle = color;
+  ctx.fillRect(left, top, w, h);
+}
+
+/** A true stepped-disc sprite built from aligned rectangular pixel clusters. */
+function pixelDisc(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, fill: string, edge: string, cell = WORLD_PIXEL * 2) {
+  const cx = snapPixel(x, cell), cy = snapPixel(y, cell);
+  const layer = (r: number, color: string) => {
+    const rows = Math.ceil(r / cell);
+    ctx.fillStyle = color;
+    for (let row = -rows; row <= rows; row++) {
+      const dy = Math.abs(row * cell + cell * 0.5);
+      if (dy > r) continue;
+      const half = Math.floor(Math.sqrt(Math.max(0, r * r - dy * dy)) / cell);
+      ctx.fillRect(cx - half * cell, cy + row * cell, (half * 2 + 1) * cell, cell);
+    }
+  };
+  layer(radius + cell, edge);
+  layer(radius, fill);
+}
+
+function tankPixelColors(fill: string) {
+  if (fill === TEAM_BLUE.fill || fill === ME.fill) return { light: '#a5f2ff', mid: '#39c9f2', shade: '#075d91', edge: '#081c34' };
+  if (fill === TEAM_RED.fill || fill === FOE.fill) return { light: '#ffc0be', mid: '#ff737c', shade: '#8c263d', edge: '#260f25' };
+  return { light: '#d8efff', mid: '#a9c9df', shade: '#415b77', edge: '#101b2b' };
+}
+
+function drawPixelTankHull(ctx: CanvasRenderingContext2D, player: PlayerSnap, palette: { fill: string; stroke: string }) {
+  const { x, y, r } = player;
+  const colors = tankPixelColors(palette.fill);
+  const cell = WORLD_PIXEL * 2;
+  pixelDisc(ctx, x, y, r, palette.fill, colors.edge, cell);
+  // A stepped inset rim and deliberate highlight/shadow clusters give the hull volume.
+  pixelDisc(ctx, x, y, r - cell * 1.2, colors.mid, palette.stroke, cell);
+  pixelRect(ctx, x - r * 0.42, y - r * 0.5, cell * 2.1, cell, colors.light, cell);
+  pixelRect(ctx, x - r * 0.58, y - r * 0.18, cell, cell, colors.light, cell);
+  pixelRect(ctx, x + r * 0.2, y + r * 0.3, cell * 2.2, cell, colors.shade, cell);
+  pixelRect(ctx, x + r * 0.42, y + r * 0.05, cell, cell * 1.7, colors.shade, cell);
+  pixelRect(ctx, x - cell * 0.55, y - cell * 0.55, cell * 1.1, cell * 1.1, '#eaffff', cell);
+}
+
+function drawPixelShield(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string, phase: number) {
+  const cell = WORLD_PIXEL * 2;
+  for (let i = 0; i < 24; i++) {
+    const angle = i * Math.PI * 2 / 24 + phase;
+    if (i % 3 === 1) continue;
+    const size = i % 2 === 0 ? cell * 1.15 : cell * 0.7;
+    pixelRect(ctx, x + Math.cos(angle) * radius - size / 2, y + Math.sin(angle) * radius - size / 2, size, size, color, cell);
+  }
+}
+
 function pixelBurst(x: number, y: number, color: string, count: number, speed: number, size = 3) {
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2;
@@ -223,12 +284,18 @@ export function drawFrame(
   collectPixelFx(view, now);
   const arenaSize = view.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE;
   const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000) / fov;
+  const canvasWidth = (ctx as unknown as { canvas?: HTMLCanvasElement }).canvas?.width;
+  const pixelRatio = typeof canvasWidth === 'number' && W > 0 ? canvasWidth / W : 1;
+  WORLD_PIXEL = Math.max(0.7, 1 / (scale * pixelRatio));
+  const alignedCamX = snapPixel(cam.x), alignedCamY = snapPixel(cam.y);
+  const centerX = pixelRatio > 0 ? Math.round(W * pixelRatio / 2) / pixelRatio : W / 2;
+  const centerY = pixelRatio > 0 ? Math.round(H * pixelRatio / 2) / pixelRatio : H / 2;
   ctx.fillStyle = '#03050b';
   ctx.fillRect(0, 0, W, H);
   ctx.save();
-  ctx.translate(W / 2, H / 2);
+  ctx.translate(centerX, centerY);
   ctx.scale(scale, scale);
-  ctx.translate(-cam.x, -cam.y);
+  ctx.translate(-alignedCamX, -alignedCamY);
 
   ctx.fillStyle = '#070912';
   ctx.fillRect(0, 0, arenaSize, arenaSize);
@@ -405,8 +472,8 @@ function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][n
     ctx.globalAlpha = 0.5; ctx.fillStyle = palette.fill; ctx.shadowColor = palette.fill; ctx.shadowBlur = 13;
     ctx.beginPath(); ctx.arc(x, y, radius * 1.65, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-    circle(ctx, x, y, radius, palette.fill, palette.stroke, 3);
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(x - radius * 0.18), Math.round(y - radius * 0.18), Math.max(2, radius * 0.36), Math.max(2, radius * 0.36));
+    pixelDisc(ctx, x, y, radius, palette.fill, palette.stroke, WORLD_PIXEL * 2);
+    pixelRect(ctx, x - WORLD_PIXEL, y - WORLD_PIXEL, WORLD_PIXEL * 2, WORLD_PIXEL * 2, '#ffffff', WORLD_PIXEL * 2);
     ctx.restore();
   }
 }
@@ -759,8 +826,8 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number])
       const ux = Math.cos(angle), uy = Math.sin(angle);
       const along = ux * ca + uy * sa;
       const across = -ux * sa + uy * ca;
-      const px = shape[1] + def.radius * (along * stretch * ca - across * squash * sa);
-      const py = shape[2] + def.radius * (along * stretch * sa + across * squash * ca);
+      const px = snapPixel(shape[1] + def.radius * (along * stretch * ca - across * squash * sa));
+      const py = snapPixel(shape[2] + def.radius * (along * stretch * sa + across * squash * ca));
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
@@ -771,8 +838,17 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number])
   if (hit > 0.08) { ctx.shadowColor = '#fff3b0'; ctx.shadowBlur = 12 + hit * 18; }
   ctx.fillStyle = def.color; ctx.fill();
   ctx.shadowBlur = 0;
-  ctx.lineWidth = 3; ctx.strokeStyle = hit > 0.08 ? '#fff4d6' : def.stroke;
-  ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.lineWidth = WORLD_PIXEL * 2; ctx.strokeStyle = hit > 0.08 ? '#fff4d6' : def.stroke;
+  ctx.lineJoin = 'miter'; ctx.stroke();
+  // A tiny clipped checker highlight gives solid shapes a hand-painted pixel texture.
+  ctx.save(); path(); ctx.clip();
+  const cell = WORLD_PIXEL * 2;
+  const left = snapPixel(shape[1] - def.radius, cell), top = snapPixel(shape[2] - def.radius, cell);
+  ctx.globalAlpha = 0.24;
+  for (let row = 0; row < 5; row++) for (let col = 0; col < 5; col++) {
+    if ((row + col + shape[0]) % 3 === 0) pixelRect(ctx, left + col * cell * 2, top + row * cell * 2, cell, cell, '#fff4b0', cell);
+  }
+  ctx.restore();
 
   if (hit > 0.025) {
     ctx.save();
@@ -810,29 +886,21 @@ function drawBarrels(
   ctx: CanvasRenderingContext2D, player: PlayerSnap, cls: (typeof CLASSES)[number], scale: number,
 ) {
   ctx.save();
-  ctx.translate(player.x, player.y);
-  ctx.rotate(player.a);
-  ctx.lineJoin = 'round';
+  ctx.translate(snapPixel(player.x), snapPixel(player.y));
+  ctx.rotate(Math.round(player.a / (Math.PI / 8)) * (Math.PI / 8));
   for (const barrel of cls.barrels) {
     ctx.save();
-    ctx.rotate(barrel.angle);
-    const width = barrel.width * scale * BARREL_WIDTH_MUL;
-    const length = barrel.length * scale;
-    ctx.fillStyle = barrel.projectile === 'trap' ? '#b8a17e' : barrel.projectile === 'missile' ? '#bd9b70' : BARREL_FILL;
-    ctx.strokeStyle = BARREL_EDGE;
-    ctx.lineWidth = BARREL_STROKE;
-    const barrelY = barrel.offset * scale - width / 2;
-    const corner = Math.min(width * 0.18, 5 * scale);
-    ctx.beginPath();
-    ctx.roundRect(0, barrelY, length, width, corner);
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(5 * scale, barrelY + 2 * scale);
-    ctx.lineTo(Math.max(5 * scale, length - 3 * scale), barrelY + 2 * scale);
-    ctx.strokeStyle = '#ffffff35';
-    ctx.lineWidth = Math.max(1, 1.2 * scale);
-    ctx.stroke();
+    ctx.rotate(Math.round(barrel.angle / (Math.PI / 8)) * (Math.PI / 8));
+    const cell = WORLD_PIXEL * 2;
+    const width = Math.max(cell * 2, Math.round(barrel.width * scale * BARREL_WIDTH_MUL / cell) * cell);
+    const length = Math.max(cell * 3, Math.round(barrel.length * scale / cell) * cell);
+    const barrelY = snapPixel(barrel.offset * scale - width / 2, cell);
+    const metal = barrel.projectile === 'trap' ? '#b8a17e' : barrel.projectile === 'missile' ? '#bd9b70' : '#aebdca';
+    pixelRect(ctx, -cell, barrelY - cell, length + cell * 2, width + cell * 2, '#111a2b', cell);
+    pixelRect(ctx, 0, barrelY, length, width, BARREL_EDGE, cell);
+    pixelRect(ctx, cell, barrelY + cell, Math.max(cell, length - cell * 2), Math.max(cell, width - cell * 2), metal, cell);
+    pixelRect(ctx, cell, barrelY + cell, Math.max(cell, length - cell * 2), cell, '#e5f0f4', cell);
+    pixelRect(ctx, Math.max(cell, length - cell * 2), barrelY, cell, width, '#526c83', cell);
     ctx.restore();
   }
   ctx.restore();
@@ -859,16 +927,17 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
     ctx.save();
     ctx.translate(tx, ty);
     ctx.rotate(angle - player.a);
-    ctx.fillStyle = '#777'; ctx.strokeStyle = '#555'; ctx.lineWidth = 2.5;
-    ctx.fillRect(-2, -5 * scale, 18 * scale, 10 * scale);
-    ctx.strokeRect(-2, -5 * scale, 18 * scale, 10 * scale);
-    circle(ctx, 0, 0, 6 * scale, '#888', '#555', 2);
+    const cell = WORLD_PIXEL * 2;
+    pixelRect(ctx, -cell, -cell * 3, cell * 10, cell * 6, '#111a2b', cell);
+    pixelRect(ctx, 0, -cell * 2, cell * 8, cell * 4, '#9eafc1', cell);
+    pixelRect(ctx, cell * 5, -cell, cell * 3, cell * 2, '#e4f4ff', cell);
+    pixelRect(ctx, -cell * 2, -cell * 2, cell * 4, cell * 4, '#647b91', cell);
     ctx.restore();
   }
   ctx.restore();
 
   // Body and shield.
-  circle(ctx, player.x, player.y, player.r, palette.fill, palette.stroke, BODY_STROKE);
+  drawPixelTankHull(ctx, player, palette);
 
   // The hull masks the roots, but should never hide the exposed barrel tips.
   // An even-odd clip selects everything outside the body circle and redraws
@@ -882,13 +951,13 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
   ctx.restore();
 
   // Soft upper-left sheen, kept subtle to preserve the original flat arena aesthetic.
-  ctx.beginPath();
-  ctx.arc(player.x - player.r * 0.08, player.y - player.r * 0.08, player.r * 0.82, Math.PI * 1.08, Math.PI * 1.78);
-  ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = Math.max(2, player.r * 0.055); ctx.stroke();
+  // Tiny fixed-grid glints replace smooth vector sheen.
+  const hullCell = WORLD_PIXEL * 2;
+  pixelRect(ctx, player.x - player.r * 0.1 - hullCell, player.y - player.r * 0.22 - hullCell, hullCell, hullCell, '#e9fbff', hullCell);
+  pixelRect(ctx, player.x - player.r * 0.1 + hullCell, player.y - player.r * 0.22 - hullCell, hullCell, hullCell, '#b6efff', hullCell);
   if (player.prot) {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
-    ctx.beginPath(); ctx.arc(player.x, player.y, player.r + 7 + pulse * 3, 0, Math.PI * 2);
-    ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.4})`; ctx.stroke();
+    drawPixelShield(ctx, player.x, player.y, player.r + 7 + pulse * 3, '#e6fbff', performance.now() / 900);
   }
   let y = player.y + player.r;
   if (player.hp < player.mhp && player.vis > 0.5) {
