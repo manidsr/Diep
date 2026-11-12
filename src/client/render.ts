@@ -29,9 +29,16 @@ const BARREL_WIDTH_MUL = 1.15;
 const NAME_GAP = 16;
 const HP_GAP = 10;
 
-type PixelParticle = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: string };
+type PixelParticle = {
+  x: number; y: number; vx: number; vy: number; life: number; maxLife: number;
+  size: number; color: string; angle: number; spin: number; gravity: number;
+  stretch: number; hot: boolean;
+};
 type FxSource = { x: number; y: number; color: string; count: number; speed: number; size: number };
-type ShockRing = { x: number; y: number; color: string; age: number; duration: number; radius: number; expansion: number };
+type ShockRing = {
+  x: number; y: number; color: string; age: number; delay: number; duration: number;
+  radius: number; expansion: number; segments: number; dashEvery: number;
+};
 
 const pixelParticles: PixelParticle[] = [];
 const shockRings: ShockRing[] = [];
@@ -116,29 +123,50 @@ function drawPixelShield(ctx: CanvasRenderingContext2D, x: number, y: number, ra
 }
 
 function pixelBurst(x: number, y: number, color: string, count: number, speed: number, size = 3) {
+  // Evenly-spaced launch angles make the blast read as a deliberate arcade impact,
+  // while a little jitter keeps each burst energetic rather than perfectly mechanical.
+  const phase = Math.random() * Math.PI * 2;
   for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const velocity = speed * (0.28 + Math.random() * 0.92);
-    const life = 0.22 + Math.random() * 0.42;
+    const angle = phase + (i / Math.max(1, count)) * Math.PI * 2 + (Math.random() - 0.5) * 0.34;
+    const shard = i % 4 === 0;
+    const velocity = speed * (shard ? 0.72 + Math.random() * 0.82 : 0.3 + Math.random() * 0.9);
+    const life = (shard ? 0.3 : 0.22) + Math.random() * (shard ? 0.48 : 0.42);
     pixelParticles.push({
       x: x + (Math.random() - 0.5) * 5, y: y + (Math.random() - 0.5) * 5,
       vx: Math.cos(angle) * velocity, vy: Math.sin(angle) * velocity,
-      life, maxLife: life, size: size * (0.65 + Math.random() * 1.2), color,
+      life, maxLife: life,
+      size: size * (shard ? 1.15 + Math.random() * 0.85 : 0.62 + Math.random() * 1.05),
+      color: i % 7 === 0 ? '#fff4d2' : color,
+      angle, spin: (Math.random() - 0.5) * 7,
+      gravity: shard ? 92 : -10, stretch: shard ? 2.1 : 1, hot: i % 5 === 0,
     });
   }
-  if (shockRings.length < 80) shockRings.push({ x, y, color, age: 0, duration: 0.34, radius: 5, expansion: Math.max(24, speed * 0.42) });
+  if (shockRings.length < 78) {
+    shockRings.push({
+      x, y, color, age: 0, delay: 0, duration: 0.4, radius: 4,
+      expansion: Math.max(28, speed * 0.5), segments: 40, dashEvery: 4,
+    });
+    // The pale inner ring follows the main blast a fraction later for a layered pulse.
+    shockRings.push({
+      x, y, color: '#eafaff', age: 0, delay: 0.055, duration: 0.29, radius: 2,
+      expansion: Math.max(18, speed * 0.32), segments: 28, dashEvery: 3,
+    });
+  }
   if (pixelParticles.length > 1000) pixelParticles.splice(0, pixelParticles.length - 1000);
 }
 
 function trailPixel(x: number, y: number, angle: number, color: string, radius: number, intensity = 1) {
   const back = radius * (0.55 + Math.random() * 0.6);
-  const life = 0.2 + Math.random() * 0.18;
+  const life = 0.2 + Math.random() * 0.2;
+  const drift = (Math.random() - 0.5) * 34;
   pixelParticles.push({
     x: x - Math.cos(angle) * back + (Math.random() - 0.5) * radius * 0.45,
     y: y - Math.sin(angle) * back + (Math.random() - 0.5) * radius * 0.45,
-    vx: -Math.cos(angle) * (18 + Math.random() * 36) + (Math.random() - 0.5) * 30,
-    vy: -Math.sin(angle) * (18 + Math.random() * 36) + (Math.random() - 0.5) * 30,
-    life, maxLife: life, size: Math.max(2, radius * (0.15 + Math.random() * 0.16)) * intensity, color,
+    vx: -Math.cos(angle) * (24 + Math.random() * 42) - Math.sin(angle) * drift,
+    vy: -Math.sin(angle) * (24 + Math.random() * 42) + Math.cos(angle) * drift,
+    life, maxLife: life, size: Math.max(2, radius * (0.16 + Math.random() * 0.2)) * intensity,
+    color, angle, spin: (Math.random() - 0.5) * 4, gravity: -8,
+    stretch: intensity > 1.2 ? 1.8 : 1.25, hot: intensity > 1.2 && Math.random() > 0.45,
   });
 }
 
@@ -214,28 +242,50 @@ function drawPixelFx(ctx: CanvasRenderingContext2D, now: number, dt: number) {
     p.life -= dt;
     if (p.life <= 0) { pixelParticles.splice(i, 1); continue; }
     p.x += p.vx * dt; p.y += p.vy * dt;
-    const drag = Math.pow(0.12, dt);
+    p.vy += p.gravity * dt;
+    p.angle += p.spin * dt;
+    const drag = Math.pow(p.gravity > 30 ? 0.28 : 0.48, dt);
     p.vx *= drag; p.vy *= drag;
     const fade = Math.max(0, p.life / p.maxLife);
-    ctx.globalAlpha = fade * 0.92;
-    ctx.fillStyle = p.color;
     const cell = WORLD_PIXEL * 2;
-    const size = Math.max(cell, Math.round(p.size * (0.55 + fade * 0.5) / cell) * cell);
-    ctx.fillRect(snapPixel(p.x, cell), snapPixel(p.y, cell), size, size);
-    if (fade > 0.62) {
-      ctx.globalAlpha = (fade - 0.62) * 0.75;
+    const px = snapPixel(p.x, cell), py = snapPixel(p.y, cell);
+    const size = Math.max(cell, Math.round(p.size * (0.48 + fade * 0.62) / cell) * cell);
+
+    // A larger translucent square under each mote creates a chunky neon halo
+    // without blurring away the deliberately crisp pixel edges.
+    ctx.globalAlpha = fade * (p.hot ? 0.24 : 0.13);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(px - cell, py - cell, size + cell * 2, size + cell * 2);
+    ctx.globalAlpha = fade * (p.hot ? 1 : 0.84);
+    ctx.fillRect(px, py, size, size);
+
+    // Fast shards leave a short axis-aligned pixel streak, keeping every edge
+    // locked to the same pixel grid as the tank sprites.
+    if (p.stretch > 1.2 && fade > 0.12) {
+      ctx.globalAlpha = fade * 0.64;
+      const streak = Math.max(cell, Math.round(size * p.stretch / cell) * cell);
+      if (Math.abs(p.vx) >= Math.abs(p.vy)) {
+        ctx.fillRect(px - (p.vx > 0 ? streak : 0), py, streak, cell);
+      } else {
+        ctx.fillRect(px, py - (p.vy > 0 ? streak : 0), cell, streak);
+      }
+    }
+    if (p.hot && fade > 0.28) {
+      ctx.globalAlpha = fade * 0.92;
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(snapPixel(p.x + size, cell), snapPixel(p.y, cell), cell, cell);
+      ctx.fillRect(px, py, cell, cell);
     }
   }
   for (let i = shockRings.length - 1; i >= 0; i--) {
     const ring = shockRings[i];
     ring.age += dt;
-    if (ring.age >= ring.duration) { shockRings.splice(i, 1); continue; }
-    const progress = ring.age / ring.duration;
+    if (ring.age < ring.delay) continue;
+    const age = ring.age - ring.delay;
+    if (age >= ring.duration) { shockRings.splice(i, 1); continue; }
+    const progress = age / ring.duration;
     const radius = ring.radius + ring.expansion * progress;
-    ctx.globalAlpha = (1 - progress) * 0.8;
-    drawPixelRing(ctx, ring.x, ring.y, radius, ring.color, 36, 3, now / 260);
+    ctx.globalAlpha = (1 - progress) * (ring.delay > 0 ? 0.68 : 0.92);
+    drawPixelRing(ctx, ring.x, ring.y, radius, ring.color, ring.segments, ring.dashEvery, now / 260);
   }
   ctx.restore();
 }
