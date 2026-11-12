@@ -92,6 +92,19 @@ function drawPixelTankHull(ctx: CanvasRenderingContext2D, player: PlayerSnap, pa
   pixelRect(ctx, x - cell * 0.55, y - cell * 0.55, cell * 1.1, cell * 1.1, '#eaffff', cell);
 }
 
+function drawPixelRing(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string, segments = 40, dashEvery = 0, phase = 0) {
+  const cell = WORLD_PIXEL * 2;
+  const offset = Math.round(phase * segments / (Math.PI * 2));
+  for (let i = 0; i < segments; i++) {
+    if (dashEvery > 0 && (i + offset) % dashEvery >= Math.max(1, dashEvery - 1)) continue;
+    const a = i * Math.PI * 2 / segments;
+    const wobble = 1 + Math.sin(i * 2.1 + phase) * 0.018;
+    const size = i % 4 === 0 ? cell * 1.5 : cell;
+    pixelRect(ctx, x + Math.cos(a) * radius * wobble - size / 2,
+      y + Math.sin(a) * radius * wobble - size / 2, size, size, color, cell);
+  }
+}
+
 function drawPixelShield(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string, phase: number) {
   const cell = WORLD_PIXEL * 2;
   for (let i = 0; i < 24; i++) {
@@ -206,12 +219,13 @@ function drawPixelFx(ctx: CanvasRenderingContext2D, now: number, dt: number) {
     const fade = Math.max(0, p.life / p.maxLife);
     ctx.globalAlpha = fade * 0.92;
     ctx.fillStyle = p.color;
-    const size = Math.max(1, Math.round(p.size * (0.55 + fade * 0.5)));
-    ctx.fillRect(Math.round(p.x), Math.round(p.y), size, size);
+    const cell = WORLD_PIXEL * 2;
+    const size = Math.max(cell, Math.round(p.size * (0.55 + fade * 0.5) / cell) * cell);
+    ctx.fillRect(snapPixel(p.x, cell), snapPixel(p.y, cell), size, size);
     if (fade > 0.62) {
       ctx.globalAlpha = (fade - 0.62) * 0.75;
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(Math.round(p.x + size), Math.round(p.y), Math.max(1, Math.ceil(size * 0.45)), 1);
+      ctx.fillRect(snapPixel(p.x + size, cell), snapPixel(p.y, cell), cell, cell);
     }
   }
   for (let i = shockRings.length - 1; i >= 0; i--) {
@@ -220,13 +234,8 @@ function drawPixelFx(ctx: CanvasRenderingContext2D, now: number, dt: number) {
     if (ring.age >= ring.duration) { shockRings.splice(i, 1); continue; }
     const progress = ring.age / ring.duration;
     const radius = ring.radius + ring.expansion * progress;
-    ctx.globalAlpha = (1 - progress) * 0.72;
-    ctx.strokeStyle = ring.color;
-    ctx.lineWidth = Math.max(1.5, 4 * (1 - progress));
-    ctx.setLineDash([7, 6]);
-    ctx.lineDashOffset = -now / 32;
-    ctx.beginPath(); ctx.arc(ring.x, ring.y, radius, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.globalAlpha = (1 - progress) * 0.8;
+    drawPixelRing(ctx, ring.x, ring.y, radius, ring.color, 36, 3, now / 260);
   }
   ctx.restore();
 }
@@ -513,27 +522,17 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
 
   ctx.save();
   ctx.globalAlpha *= Math.max(0.04, Math.min(1, zombie.visibility));
-  ctx.translate(x, y);
+  ctx.translate(snapPixel(x), snapPixel(y));
 
   if (boss) {
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 1.25, 0, Math.PI * 2);
-    ctx.strokeStyle = palette.accent;
-    ctx.globalAlpha = 0.38;
-    ctx.lineWidth = Math.max(3, r * 0.075);
-    ctx.stroke();
+    ctx.globalAlpha = 0.5;
+    drawPixelRing(ctx, 0, 0, r * 1.25, palette.accent, 36, 0, performance.now() / 700);
     ctx.globalAlpha = 1;
 
     if (zombie.bossPhase === 'windup') {
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 75);
-      ctx.beginPath();
-      ctx.arc(0, 0, r * (1.75 + pulse * 0.12), 0, Math.PI * 2);
-      ctx.setLineDash([r * 0.28, r * 0.17]);
-      ctx.strokeStyle = zombie.bossKind === 'breaker' ? '#ff293d' : '#ff4e45';
       ctx.globalAlpha = 0.58 + pulse * 0.4;
-      ctx.lineWidth = 5 + pulse * 2;
-      ctx.stroke();
-      ctx.setLineDash([]);
+      drawPixelRing(ctx, 0, 0, r * (1.75 + pulse * 0.12), zombie.bossKind === 'breaker' ? '#ff293d' : '#ff4e45', 48, 3, performance.now() / 250);
       ctx.globalAlpha = 1;
       if (zombie.bossKind === 'breaker') {
         ctx.save(); ctx.rotate(zombie.angle);
@@ -544,12 +543,8 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
         ctx.restore();
       }
     } else if (zombie.bossPhase === 'charge') {
-      ctx.beginPath();
-      ctx.arc(0, 0, r * 1.48, 0, Math.PI * 2);
-      ctx.strokeStyle = '#ff5f45';
-      ctx.globalAlpha = 0.7;
-      ctx.lineWidth = 5;
-      ctx.stroke();
+      ctx.globalAlpha = 0.82;
+      drawPixelRing(ctx, 0, 0, r * 1.48, '#ff5f45', 40, 2, performance.now() / 180);
       ctx.globalAlpha = 1;
     }
   }
@@ -561,19 +556,17 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     ctx.fillStyle = '#d5e2a0'; ctx.beginPath(); ctx.moveTo(-r * 0.55, -r * 0.65);
     ctx.lineTo(-r * 0.85, -r * 1.22); ctx.lineTo(-r * 0.15, -r * 0.82); ctx.fill();
   } else if (!boss && zombie.kind === 'armoured') {
-    ctx.beginPath(); ctx.arc(0, 0, r * 1.36, 0, Math.PI * 2);
-    ctx.strokeStyle = '#dce4ea'; ctx.lineWidth = Math.max(4, r * 0.2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, 0, r * 1.06, 0, Math.PI * 2); ctx.strokeStyle = '#49535d'; ctx.lineWidth = 2; ctx.stroke();
+    drawPixelRing(ctx, 0, 0, r * 1.36, '#dce4ea', 32, 0);
+    drawPixelRing(ctx, 0, 0, r * 1.06, '#49535d', 32, 0);
   } else if (!boss && zombie.kind === 'medic') {
     ctx.fillStyle = '#d8ffe4'; ctx.fillRect(-r * 0.16, -r * 0.78, r * 0.32, r * 1.56);
     ctx.fillRect(-r * 0.78, -r * 0.16, r * 1.56, r * 0.32);
-    ctx.strokeStyle = '#eafff0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, r * 1.18, 0, Math.PI * 2); ctx.stroke();
+    drawPixelRing(ctx, 0, 0, r * 1.18, '#eafff0', 28, 0);
   } else if (!boss && zombie.kind === 'splitter') {
     ctx.strokeStyle = palette.accent; ctx.lineWidth = 3; ctx.beginPath();
     ctx.arc(-r * 0.25, 0, r * 0.82, -1.1, 1.1); ctx.arc(r * 0.25, 0, r * 0.82, Math.PI - 1.1, Math.PI + 1.1); ctx.stroke();
   } else if (!boss && zombie.kind === 'stalker') {
-    ctx.shadowColor = palette.accent; ctx.shadowBlur = 14; ctx.strokeStyle = palette.accent; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(0, 0, r * 1.4, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0;
+    drawPixelRing(ctx, 0, 0, r * 1.4, palette.accent, 32, 2, performance.now() / 260);
     ctx.fillStyle = '#b7c4ff'; ctx.fillRect(-r * 0.55, -r * 0.22, r * 0.34, r * 0.09); ctx.fillRect(r * 0.2, -r * 0.22, r * 0.34, r * 0.09);
   } else if (!boss && zombie.kind === 'commander') {
     ctx.fillStyle = palette.accent; ctx.strokeStyle = palette.stroke; ctx.lineWidth = 2;
@@ -586,16 +579,15 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   }
   if (!boss && zombie.kind === 'guardian') {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
-    ctx.beginPath(); ctx.arc(0, 0, r * (1.62 + pulse * 0.08), 0, Math.PI * 2);
-    ctx.strokeStyle = '#75fff0'; ctx.globalAlpha = zombie.protected ? 0.88 : 0.48;
-    ctx.lineWidth = zombie.protected ? 5 : 3; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.globalAlpha = zombie.protected ? 0.95 : 0.56;
+    drawPixelRing(ctx, 0, 0, r * (1.62 + pulse * 0.08), '#75fff0', 32, 2, performance.now() / 280);
+    ctx.globalAlpha = 1;
   }
   if (!boss && zombie.specialPhase === 'windup') {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 55);
-    ctx.beginPath(); ctx.arc(0, 0, r * (1.55 + pulse * 0.16), 0, Math.PI * 2);
-    ctx.strokeStyle = zombie.kind === 'ranger' ? '#ffe08a' : '#ff293d';
-    ctx.globalAlpha = 0.56 + pulse * 0.42; ctx.lineWidth = 4 + pulse * 2;
-    ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.56 + pulse * 0.42;
+    drawPixelRing(ctx, 0, 0, r * (1.55 + pulse * 0.16), zombie.kind === 'ranger' ? '#ffe08a' : '#ff293d', 36, 3, performance.now() / 170);
+    ctx.globalAlpha = 1;
     if (zombie.kind === 'leaper') {
       ctx.save(); ctx.rotate(zombie.angle);
       ctx.fillStyle = 'rgba(255, 30, 50, 0.16)'; ctx.strokeStyle = '#ff3548';
@@ -696,17 +688,19 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   ctx.shadowBlur = 2 + hit * 15;
   ctx.fillStyle = hit > 0.18 ? '#e5ffd1' : palette.fill;
   ctx.strokeStyle = hit > 0.18 ? '#f3ffd7' : palette.stroke;
-  ctx.lineWidth = Math.max(2, r * (boss ? 0.1 : 0.12));
-  ctx.lineJoin = 'round';
+  const bodyCell = WORLD_PIXEL * 2;
+  const pt = (value: number) => snapPixel(value, bodyCell);
+  ctx.lineWidth = bodyCell;
+  ctx.lineJoin = 'miter';
   ctx.beginPath();
-  ctx.moveTo(-r * 1.2, -r * 0.2);
-  ctx.lineTo(-r * 1.65, -r * 0.8);
-  ctx.lineTo(-r * 0.7, -r * 0.55);
-  ctx.lineTo(-r * 0.35, -r);
-  ctx.lineTo(r * 0.55, -r * 0.85);
-  ctx.lineTo(r * 1.2, -r * 0.25);
-  ctx.lineTo(r * 1.05, r * 0.9);
-  ctx.lineTo(-r * 0.95, r * 0.95);
+  ctx.moveTo(pt(-r * 1.2), pt(-r * 0.2));
+  ctx.lineTo(pt(-r * 1.65), pt(-r * 0.8));
+  ctx.lineTo(pt(-r * 0.7), pt(-r * 0.55));
+  ctx.lineTo(pt(-r * 0.35), pt(-r));
+  ctx.lineTo(pt(r * 0.55), pt(-r * 0.85));
+  ctx.lineTo(pt(r * 1.2), pt(-r * 0.25));
+  ctx.lineTo(pt(r * 1.05), pt(r * 0.9));
+  ctx.lineTo(pt(-r * 0.95), pt(r * 0.95));
   ctx.closePath();
   ctx.fill(); ctx.stroke();
   ctx.shadowBlur = 0;
@@ -718,10 +712,9 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   const gazeY = facingY * r * 0.075;
   ctx.fillStyle = zombie.bossKind === 'spitter' ? '#d8ff9a' : '#a8d66b';
   for (const eyeX of [-r * 0.34, r * 0.35]) {
-    ctx.beginPath(); ctx.arc(eyeX, eyeY, r * (boss ? 0.19 : 0.16), 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#202b20';
-    ctx.beginPath(); ctx.arc(eyeX + gazeX, eyeY + gazeY, r * (boss ? 0.09 : 0.07), 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = zombie.bossKind === 'spitter' ? '#d8ff9a' : '#a8d66b';
+    const eyeCell = WORLD_PIXEL * 2;
+    pixelRect(ctx, eyeX - eyeCell, eyeY - eyeCell, eyeCell * 2, eyeCell * 2, zombie.bossKind === 'spitter' ? '#d8ff9a' : '#a8d66b', eyeCell);
+    pixelRect(ctx, snapPixel(eyeX + gazeX, eyeCell), snapPixel(eyeY + gazeY, eyeCell), eyeCell, eyeCell, '#202b20', eyeCell);
   }
   ctx.strokeStyle = '#202b20';
   ctx.lineWidth = Math.max(1.5, r * 0.08);
@@ -775,26 +768,33 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
 
 function drawXpDrop(ctx: CanvasRenderingContext2D, drop: XpDropSnap) {
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 150 + drop.id);
-  ctx.save(); ctx.translate(drop.x, drop.y); ctx.rotate(performance.now() / 500 + drop.id);
-  ctx.shadowColor = '#ffe56f'; ctx.shadowBlur = 6 + pulse * 10;
-  ctx.fillStyle = '#fff2a1'; ctx.strokeStyle = '#b27a21'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, -drop.r * (1 + pulse * 0.12)); ctx.lineTo(drop.r * 0.8, 0);
-  ctx.lineTo(0, drop.r * (1 + pulse * 0.12)); ctx.lineTo(-drop.r * 0.8, 0); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  ctx.save(); ctx.translate(snapPixel(drop.x), snapPixel(drop.y));
+  const cell = WORLD_PIXEL * 2, bob = Math.sin(performance.now() / 150 + drop.id);
+  pixelDisc(ctx, 0, bob * cell, drop.r * 0.72, '#ffe77c', '#95632b', cell);
+  pixelRect(ctx, -cell, -cell * 2 + bob * cell, cell * 2, cell, '#fff7c5', cell);
+  pixelRect(ctx, -cell * 2, bob * cell, cell * 4, cell, '#ffbd47', cell);
+  ctx.restore();
 }
 function drawDamagePool(ctx: CanvasRenderingContext2D, pool: DamagePoolSnap) {
-  ctx.save(); ctx.globalAlpha = Math.min(0.52, pool.life / 8); ctx.fillStyle = '#e35b32'; ctx.strokeStyle = '#ffae65'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(pool.x, pool.y, pool.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.globalAlpha *= 0.5; ctx.beginPath(); ctx.arc(pool.x, pool.y, pool.r * 0.62, 0, Math.PI * 2); ctx.fillStyle = '#7f251e'; ctx.fill(); ctx.restore();
+  ctx.save(); ctx.globalAlpha = Math.min(0.52, pool.life / 8);
+  pixelDisc(ctx, pool.x, pool.y, pool.r, '#a83d35', '#ff9b56', WORLD_PIXEL * 3);
+  pixelDisc(ctx, pool.x, pool.y, pool.r * 0.62, '#7f251e', '#d95e3b', WORLD_PIXEL * 2);
+  const cell = WORLD_PIXEL * 3;
+  for (let i = 0; i < 9; i++) {
+    const a = performance.now() / 500 + i * Math.PI * 2 / 9;
+    pixelRect(ctx, pool.x + Math.cos(a) * pool.r * 0.72, pool.y + Math.sin(a) * pool.r * 0.72, cell, cell, '#ffb35b', cell);
+  }
+  ctx.restore();
 }
 
 function drawHealthDrop(ctx: CanvasRenderingContext2D, drop: HealthDropSnap) {
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180 + drop.id);
-  ctx.save(); ctx.translate(drop.x, drop.y); ctx.shadowColor = '#75ff9c'; ctx.shadowBlur = 7 + pulse * 8;
-  ctx.fillStyle = '#baffbb'; ctx.strokeStyle = '#267648'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(0, 0, drop.r * (1 + pulse * 0.08), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.shadowBlur = 0; ctx.fillStyle = '#23884a';
-  ctx.fillRect(-drop.r * 0.18, -drop.r * 0.62, drop.r * 0.36, drop.r * 1.24);
-  ctx.fillRect(-drop.r * 0.62, -drop.r * 0.18, drop.r * 1.24, drop.r * 0.36);
+  ctx.save(); ctx.translate(snapPixel(drop.x), snapPixel(drop.y));
+  const cell = WORLD_PIXEL * 2;
+  pixelDisc(ctx, 0, 0, drop.r * (1 + pulse * 0.08), '#8df5a5', '#1f653e', cell);
+  pixelRect(ctx, -cell, -drop.r * 0.62, cell * 2, drop.r * 1.24, '#e2ffe5', cell);
+  pixelRect(ctx, -drop.r * 0.62, -cell, drop.r * 1.24, cell * 2, '#e2ffe5', cell);
+  pixelRect(ctx, -cell * 0.5, -cell * 0.5, cell, cell, '#ffffff', cell);
   ctx.restore();
 }
 
