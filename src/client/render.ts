@@ -887,10 +887,10 @@ function drawBarrels(
 ) {
   ctx.save();
   ctx.translate(snapPixel(player.x), snapPixel(player.y));
-  ctx.rotate(Math.round(player.a / (Math.PI / 8)) * (Math.PI / 8));
+  ctx.rotate(player.a);
   for (const barrel of cls.barrels) {
     ctx.save();
-    ctx.rotate(Math.round(barrel.angle / (Math.PI / 8)) * (Math.PI / 8));
+    ctx.rotate(barrel.angle);
     const cell = WORLD_PIXEL * 2;
     const width = Math.max(cell * 2, Math.round(barrel.width * scale * BARREL_WIDTH_MUL / cell) * cell);
     const length = Math.max(cell * 3, Math.round(barrel.length * scale / cell) * cell);

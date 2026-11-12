@@ -5,11 +5,13 @@ import type { Input } from '../src/client/input';
 
 function mockCanvasContext() {
   let saveDepth = 0;
+  const rotations: number[] = [];
   const target: Record<string, unknown> = { globalAlpha: 1 };
   const ctx = new Proxy(target, {
     get(object, property) {
       if (property === 'save') return () => { saveDepth++; };
       if (property === 'restore') return () => { saveDepth--; };
+      if (property === 'rotate') return (angle: number) => { rotations.push(angle); };
       const value = Reflect.get(object, property);
       return value === undefined ? () => {} : value;
     },
@@ -17,7 +19,7 @@ function mockCanvasContext() {
       return Reflect.set(object, property, value);
     },
   }) as unknown as CanvasRenderingContext2D;
-  return { ctx, saveDepth: () => saveDepth };
+  return { ctx, saveDepth: () => saveDepth, rotations };
 }
 
 test('rendering two players keeps the arena camera transform intact for both tanks', () => {
@@ -50,4 +52,25 @@ test('touch control hints keep canvas drawing state isolated', () => {
   drawSticks(ctx, 390, 844, active);
 
   assert.equal(saveDepth(), 0, 'touch controls must not leak canvas drawing state into the next frame');
+});
+
+
+test('tank barrels preserve continuous aim angles instead of snapping to fixed directions', () => {
+  const { ctx, rotations } = mockCanvasContext();
+  const aimAngle = 0.123456789;
+  const player = {
+    id: 1, name: 'pilot', x: 1000, y: 1100, a: aimAngle,
+    hp: 100, mhp: 100, r: 26, lv: 1, cls: 0, prot: 0 as const, vis: 1, team: null,
+  };
+  const view: View = {
+    players: [player], bullets: [], shapes: [], zombies: [], downed: [],
+    healthDrops: [], xpDrops: [], pools: [], mode: 'ffa',
+  };
+
+  drawFrame(ctx, 800, 600, { x: player.x, y: player.y }, view, player.id);
+
+  assert.ok(
+    rotations.some((angle) => Math.abs(angle - aimAngle) < 1e-12),
+    'barrel transform should receive the full continuous aim angle',
+  );
 });
