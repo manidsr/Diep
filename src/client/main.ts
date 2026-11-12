@@ -714,8 +714,6 @@ let W = 0, H = 0, dpr = 1;
 function resize() {
   W = window.innerWidth; H = window.innerHeight; dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-  sceneCanvas.width = Math.round(W * dpr); sceneCanvas.height = Math.round(H * dpr);
-  renderer3d?.resize(sceneCanvas.width, sceneCanvas.height);
   minimapCanvas.width = Math.round(MINIMAP_SIZE * dpr);
   minimapCanvas.height = Math.round(MINIMAP_SIZE * dpr);
 }
