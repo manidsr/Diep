@@ -25,7 +25,6 @@ test('automatic stat growth advances every stat on every level and caps at level
     assert.ok(next.regenFrac > current.regenFrac, `regeneration at level ${level + 1}`);
     assert.ok(next.bodyDps > current.bodyDps, `body damage at level ${level + 1}`);
     assert.ok(next.bulletSpeed > current.bulletSpeed, `bullet speed at level ${level + 1}`);
-    assert.ok(next.bulletHp > current.bulletHp, `bullet penetration at level ${level + 1}`);
     assert.ok(next.bulletDamage > current.bulletDamage, `bullet damage at level ${level + 1}`);
     assert.ok(next.reload < current.reload, `reload gets faster at level ${level + 1}`);
     assert.ok(next.moveSpeed > current.moveSpeed, `movement speed at level ${level + 1}`);
@@ -64,7 +63,6 @@ test('tank specialties give distinct classes meaningful stat advantages', () => 
   assert.ok(scatter.bulletDamage > balanced.bulletDamage * 1.35);
   assert.ok(scatter.maxHp > balanced.maxHp);
   assert.ok(sniper.bulletSpeed > balanced.bulletSpeed);
-  assert.ok(sniper.bulletHp > balanced.bulletHp);
   assert.ok(rapid.reload < balanced.reload);
   assert.ok(rapid.bulletSpeed > balanced.bulletSpeed);
   assert.equal(CLASS_BY_ID.octo.specialty, 'rapidFire');

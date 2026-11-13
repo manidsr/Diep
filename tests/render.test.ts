@@ -6,12 +6,14 @@ import type { Input } from '../src/client/input';
 function mockCanvasContext() {
   let saveDepth = 0;
   const rotations: number[] = [];
+  let fillRectCount = 0;
   const target: Record<string, unknown> = { globalAlpha: 1 };
   const ctx = new Proxy(target, {
     get(object, property) {
       if (property === 'save') return () => { saveDepth++; };
       if (property === 'restore') return () => { saveDepth--; };
       if (property === 'rotate') return (angle: number) => { rotations.push(angle); };
+      if (property === 'fillRect') return () => { fillRectCount++; };
       const value = Reflect.get(object, property);
       return value === undefined ? () => {} : value;
     },
@@ -19,7 +21,7 @@ function mockCanvasContext() {
       return Reflect.set(object, property, value);
     },
   }) as unknown as CanvasRenderingContext2D;
-  return { ctx, saveDepth: () => saveDepth, rotations };
+  return { ctx, saveDepth: () => saveDepth, rotations, fillRectCount: () => fillRectCount };
 }
 
 test('rendering two players keeps the arena camera transform intact for both tanks', () => {
@@ -72,5 +74,31 @@ test('tank barrels preserve continuous aim angles instead of snapping to fixed d
   assert.ok(
     rotations.some((angle) => Math.abs(angle - aimAngle) < 1e-12),
     'barrel transform should receive the full continuous aim angle',
+  );
+});
+
+
+test('one sustained hit flash produces one particle burst, not a second burst after the cooldown', async () => {
+  const { ctx, fillRectCount } = mockCanvasContext();
+  const target: View['zombies'][number] = {
+    id: 654321, x: 1000, y: 1100, r: 24, hp: 90, mhp: 100, visibility: 1,
+    angle: 0, hitFlash: 1, hitAngle: 0.35, kind: 'shambler', protected: false,
+    bossKind: null, bossPhase: 'idle', bossTimer: 0,
+    specialPhase: 'idle', specialTimer: 0,
+  };
+  const view: View = {
+    players: [], bullets: [], shapes: [], zombies: [target], downed: [],
+    healthDrops: [], xpDrops: [], pools: [], mode: 'survival',
+  };
+
+  drawFrame(ctx, 800, 600, { x: target.x, y: target.y }, view, 0);
+  const firstFrameRects = fillRectCount();
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  drawFrame(ctx, 800, 600, { x: target.x, y: target.y }, view, 0);
+  const secondFrameRects = fillRectCount() - firstFrameRects;
+
+  assert.ok(
+    secondFrameRects <= firstFrameRects,
+    'a hit flash that never rises again must not emit another batch of impact particles',
   );
 });

@@ -14,7 +14,7 @@ export function levelFromXp(xp: number): number {
   return level;
 }
 
-/** Every level improves all eight stats; reaching 45 grows each stat a little beyond the old average allocation. */
+/** Every level improves the seven combat stats; reaching 45 grows each stat a little beyond the old average allocation. */
 export function automaticStatLevel(level: number): number {
   const cappedLevel = Math.min(MAX_LEVEL, Math.max(1, Math.floor(level)));
   return (cappedLevel - 1) * 0.12;
@@ -34,7 +34,6 @@ export interface DerivedStats {
   bodyDps: number;
   bulletSpeed: number;
   bulletDamage: number;
-  bulletHp: number;
   reload: number;
   moveSpeed: number;
   fovMul: number;
@@ -52,7 +51,6 @@ export function deriveStats(level: number, classId: string): DerivedStats {
     bodyDps: applyBonus('bodyDamage', 18 + 6 * statLevel) * (cls.bodyDamageMul ?? 1),
     bulletSpeed: applyBonus('bulletSpeed', 520 * (1 + 0.12 * statLevel)) * cls.bulletSpeedMul,
     bulletDamage: applyBonus('bulletDamage', 7 + 3 * statLevel) * cls.damageMul,
-    bulletHp: applyBonus('bulletPenetration', 2 + 2 * statLevel),
     reload: 0.6 * Math.pow(0.9, statLevel) * cls.reloadMul / (1 + (bonuses.reload ?? 0)),
     moveSpeed: applyBonus('moveSpeed', 260 * (1 + 0.06 * statLevel)) * (cls.moveSpeedMul ?? 1),
     fovMul: cls.fovMul ?? 1,

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, type Bullet, type Player, type Zombie } from '../src/server/game';
-import { CLASS_BY_ID, PLAYER_PIERCE_COST, REGEN_DELAY_S, type BarrelDef } from '../src/shared/config';
+import { CLASS_BY_ID, REGEN_DELAY_S, type BarrelDef } from '../src/shared/config';
 import { seeded } from './helpers';
 
 const DT = 1 / 30;
@@ -60,24 +60,28 @@ function hit(g: Game, b: Bullet, z: Zombie) {
 
 const ids = [
   'heavyRounds','rapidLoader','blastRounds','lifesteal','droneWingman','cryoRounds',
-  'medicalSupplies','emergencyShield','piercingRounds','explosiveImpact','longshot',
+  'medicalSupplies','emergencyShield','explosiveImpact','longshot',
   'ironSkin','fleetfoot','fieldMedic','criticalCore','bossHunter','executioner',
   'scavenger','luckyFind','xpMagnet','steadyAim','recoilDampers','hotRounds',
-  'rescueProtocol','secondWind','armorPiercer','overdrive','chainShot','adrenaline',
+  'rescueProtocol','secondWind','overdrive','chainShot','adrenaline',
   'shrapnel','vitalCore','concussiveRounds','droneTactician',
 ] as const;
 
-test('all 33 Survival upgrade cards are selectable and grant their advertised ID', () => {
+test('all 31 Survival upgrade cards are selectable and grant their advertised ID', () => {
   const { game, player } = setup();
-  assert.equal(ids.length, 33);
+  assert.equal(ids.length, 31);
   for (const id of ids) {
     player.rewardOffers.push({ cards: [{ id, title: id, description: id, rarity: 'common' }], timeRemaining: 20 });
     assert.equal(game.chooseSurvivalReward(player.id, id), true, id);
     assert.equal(player.survivalPerks[id], 1, id);
   }
+  for (const removedId of ['piercingRounds', 'armorPiercer']) {
+    player.rewardOffers.push({ cards: [{ id: removedId, title: removedId, description: removedId, rarity: 'common' }], timeRemaining: 20 });
+    assert.equal(game.chooseSurvivalReward(player.id, removedId), false, removedId);
+  }
 });
 
-test('damage, reload, critical, speed, spread, recoil and penetration cards affect real shots', () => {
+test('damage, reload, critical, speed, spread and recoil cards affect real shots', () => {
   {
     const { game, player, c } = setup();
     player.survivalPerks.heavyRounds = 2;
@@ -111,17 +115,6 @@ test('damage, reload, critical, speed, spread, recoil and penetration cards affe
     b.player.survivalPerks.recoilDampers = 1;
     fire(b.game, b.player);
     assert.ok(Math.abs(Math.hypot(b.player.rvx, b.player.rvy) / Math.hypot(a.player.rvx, a.player.rvy) - 0.88) < 0.001);
-  }
-  {
-    const { game, player } = setup();
-    player.survivalPerks.piercingRounds = 1;
-    const b = fire(game, player);
-    assert.equal(b.hp, player.d.bulletHp + PLAYER_PIERCE_COST);
-    const z1 = zombie({ id: 901, x: b.x, y: b.y }), z2 = zombie({ id: 902, x: b.x, y: b.y });
-    hit(game, b, z1);
-    assert.equal(b.hp, player.d.bulletHp);
-    hit(game, b, z2);
-    assert.ok(z1.hp < z1.maxHp && z2.hp < z2.maxHp);
   }
 });
 
@@ -199,14 +192,12 @@ test('lifesteal, burn, chain, splash and enemy-specific damage cards apply on re
     assert.ok(near.hp < near.maxHp && near.slowT >= 3);
   }
   for (const [perk, enemy, hpBefore, expected] of [
-    ['armorPiercer', { kind: 'armoured' }, 500, 7.6],
     ['bossHunter', { bossKind: 'breaker' }, 500, 9.744],
     ['executioner', { hp: 150, maxHp: 500 }, 150, 11.8],
     ['adrenaline', {}, 500, 11.2],
   ] as const) {
     const { game, player } = setup();
     player.survivalPerks[perk] = 1;
-    if (perk === 'armorPiercer') player.survivalPerks.armorPiercer = 2;
     if (perk === 'adrenaline') player.hp = player.maxHp * 0.3;
     const z = zombie({ id: 950, x: 442, y: 400, ...enemy });
     const b = shotFor(player, z, { dmg: 10 });

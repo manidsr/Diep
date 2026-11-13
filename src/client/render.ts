@@ -34,16 +34,9 @@ type PixelParticle = {
   size: number; color: string; angle: number; spin: number; gravity: number;
   stretch: number; hot: boolean;
 };
-type FxSource = { x: number; y: number; color: string; count: number; speed: number; size: number };
-type ShockRing = {
-  x: number; y: number; color: string; age: number; delay: number; duration: number;
-  radius: number; expansion: number; segments: number; dashEvery: number;
-};
-
+type FxSource = { x: number; y: number; color: string; count: number; speed: number; size: number; hitFlash?: number };
 const pixelParticles: PixelParticle[] = [];
-const shockRings: ShockRing[] = [];
 const fxEmitTimes = new Map<string, number>();
-const previousBullets = new Map<number, FxSource>();
 const previousShapes = new Map<number, FxSource>();
 const previousZombies = new Map<number, FxSource>();
 let fxLastFrameAt = 0;
@@ -122,34 +115,30 @@ function drawPixelShield(ctx: CanvasRenderingContext2D, x: number, y: number, ra
   }
 }
 
-function pixelBurst(x: number, y: number, color: string, count: number, speed: number, size = 3) {
-  // Evenly-spaced launch angles make the blast read as a deliberate arcade impact,
-  // while a little jitter keeps each burst energetic rather than perfectly mechanical.
+function pixelBurst(
+  x: number, y: number, color: string, count: number, speed: number, size = 3,
+  direction?: number,
+) {
+  // Impacts throw a forward fan of shards instead of drawing an expanding circle.
+  // Entity destruction omits direction and scatters debris in a loose full-field burst.
   const phase = Math.random() * Math.PI * 2;
+  const spread = direction === undefined ? Math.PI * 2 : Math.PI * 1.3;
   for (let i = 0; i < count; i++) {
-    const angle = phase + (i / Math.max(1, count)) * Math.PI * 2 + (Math.random() - 0.5) * 0.34;
-    const shard = i % 4 === 0;
-    const velocity = speed * (shard ? 0.72 + Math.random() * 0.82 : 0.3 + Math.random() * 0.9);
-    const life = (shard ? 0.3 : 0.22) + Math.random() * (shard ? 0.48 : 0.42);
+    const t = count <= 1 ? 0.5 : i / (count - 1);
+    const angle = direction === undefined
+      ? phase + t * spread + (Math.random() - 0.5) * 0.34
+      : direction + (t - 0.5) * spread + (Math.random() - 0.5) * 0.3;
+    const shard = i % 3 === 0;
+    const velocity = speed * (shard ? 0.82 + Math.random() * 0.92 : 0.34 + Math.random() * 0.9);
+    const life = (shard ? 0.3 : 0.2) + Math.random() * (shard ? 0.5 : 0.38);
     pixelParticles.push({
       x: x + (Math.random() - 0.5) * 5, y: y + (Math.random() - 0.5) * 5,
       vx: Math.cos(angle) * velocity, vy: Math.sin(angle) * velocity,
       life, maxLife: life,
-      size: size * (shard ? 1.15 + Math.random() * 0.85 : 0.62 + Math.random() * 1.05),
-      color: i % 7 === 0 ? '#fff4d2' : color,
+      size: size * (shard ? 1.2 + Math.random() * 0.9 : 0.62 + Math.random() * 1.05),
+      color: i % 6 === 0 ? '#fff4d2' : color,
       angle, spin: (Math.random() - 0.5) * 7,
-      gravity: shard ? 92 : -10, stretch: shard ? 2.1 : 1, hot: i % 5 === 0,
-    });
-  }
-  if (shockRings.length < 78) {
-    shockRings.push({
-      x, y, color, age: 0, delay: 0, duration: 0.4, radius: 4,
-      expansion: Math.max(28, speed * 0.5), segments: 40, dashEvery: 4,
-    });
-    // The pale inner ring follows the main blast a fraction later for a layered pulse.
-    shockRings.push({
-      x, y, color: '#eafaff', age: 0, delay: 0.055, duration: 0.29, radius: 2,
-      expansion: Math.max(18, speed * 0.32), segments: 28, dashEvery: 3,
+      gravity: shard ? 92 : -10, stretch: shard ? 2.4 : 1.25, hot: i % 4 === 0,
     });
   }
   if (pixelParticles.length > 1000) pixelParticles.splice(0, pixelParticles.length - 1000);
@@ -181,14 +170,10 @@ function syncRemoved(
 }
 
 function collectPixelFx(view: View, now: number) {
-  const bulletIds = new Set<number>();
-  const bulletSources = new Map<number, FxSource>();
-  for (const bullet of view.bullets) {
+    for (const bullet of view.bullets) {
     const [id, x, y, radius, ownerId, kind, angle] = bullet;
-    bulletIds.add(id);
     const owner = view.players.find((player) => player.id === ownerId);
     const color = kind === 4 ? '#ff42d8' : kind === 3 ? '#ff9b42' : owner?.team === 'red' ? '#ff426e' : '#42dfff';
-    bulletSources.set(id, { x, y, color, count: kind === 3 || kind === 4 ? 8 : 5, speed: 92, size: 3 });
     const interval = kind === 3 || kind === 4 ? 26 : kind === 1 ? 58 : 42;
     const key = 'bullet:' + id;
     if (now - (fxEmitTimes.get(key) ?? 0) > interval) {
@@ -197,19 +182,16 @@ function collectPixelFx(view: View, now: number) {
       fxEmitTimes.set(key, now);
     }
   }
-  syncRemoved(bulletIds, previousBullets, bulletSources);
-
   const shapeIds = new Set<number>();
   const shapeSources = new Map<number, FxSource>();
   for (const shape of view.shapes) {
     const id = shape[0], x = shape[1], y = shape[2], def = SHAPES[SHAPE_KINDS[shape[4]]];
     shapeIds.add(id);
-    shapeSources.set(id, { x, y, color: def.color, count: 22, speed: 145, size: 4 });
     const hit = Math.max(0, Math.min(1, shape[6] ?? 0));
-    const key = 'shape-hit:' + id;
-    if (hit > 0.22 && now - (fxEmitTimes.get(key) ?? 0) > 115) {
-      pixelBurst(shape[7] ?? x, shape[8] ?? y, '#fff0a0', 4, 110, 2.8);
-      fxEmitTimes.set(key, now);
+    const previousHit = previousShapes.get(id)?.hitFlash ?? 0;
+    shapeSources.set(id, { x, y, color: def.color, count: 22, speed: 145, size: 4, hitFlash: hit });
+    if (hit > 0.22 && hit - previousHit > 0.1) {
+      pixelBurst(shape[7] ?? x, shape[8] ?? y, '#fff0a0', 6, 135, 3, shape[9] ?? 0);
     }
   }
   syncRemoved(shapeIds, previousShapes, shapeSources);
@@ -220,13 +202,15 @@ function collectPixelFx(view: View, now: number) {
     zombieIds.add(zombie.id);
     const boss = zombie.bossKind !== null;
     const color = boss ? '#ff5c9e' : zombie.kind === 'stalker' ? '#a69aff' : zombie.kind === 'bomber' || zombie.kind === 'exploder' ? '#ff874e' : '#9dff73';
-    zombieSources.set(zombie.id, { x: zombie.x, y: zombie.y, color, count: boss ? 52 : 28, speed: boss ? 190 : 135, size: boss ? 5 : 3.5 });
-    const key = 'zombie-hit:' + zombie.id;
-    if (zombie.hitFlash > 0.24 && now - (fxEmitTimes.get(key) ?? 0) > 86) {
+    const previousHit = previousZombies.get(zombie.id)?.hitFlash ?? 0;
+    zombieSources.set(zombie.id, {
+      x: zombie.x, y: zombie.y, color, count: boss ? 52 : 28,
+      speed: boss ? 190 : 135, size: boss ? 5 : 3.5, hitFlash: zombie.hitFlash,
+    });
+    if (zombie.hitFlash > 0.24 && zombie.hitFlash - previousHit > 0.1) {
       const ix = zombie.x + Math.cos(zombie.hitAngle) * zombie.r * 0.7;
       const iy = zombie.y + Math.sin(zombie.hitAngle) * zombie.r * 0.7;
-      pixelBurst(ix, iy, boss ? '#ffd0ec' : '#d9ffad', boss ? 8 : 5, 105, 2.7);
-      fxEmitTimes.set(key, now);
+      pixelBurst(ix, iy, boss ? '#ffd0ec' : '#d9ffad', boss ? 9 : 6, 132, 2.9, zombie.hitAngle);
     }
   }
   syncRemoved(zombieIds, previousZombies, zombieSources);
@@ -275,17 +259,6 @@ function drawPixelFx(ctx: CanvasRenderingContext2D, now: number, dt: number) {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(px, py, cell, cell);
     }
-  }
-  for (let i = shockRings.length - 1; i >= 0; i--) {
-    const ring = shockRings[i];
-    ring.age += dt;
-    if (ring.age < ring.delay) continue;
-    const age = ring.age - ring.delay;
-    if (age >= ring.duration) { shockRings.splice(i, 1); continue; }
-    const progress = age / ring.duration;
-    const radius = ring.radius + ring.expansion * progress;
-    ctx.globalAlpha = (1 - progress) * (ring.delay > 0 ? 0.68 : 0.92);
-    drawPixelRing(ctx, ring.x, ring.y, radius, ring.color, ring.segments, ring.dashEvery, now / 260);
   }
   ctx.restore();
 }

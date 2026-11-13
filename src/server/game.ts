@@ -21,7 +21,6 @@ const SURVIVAL_PERKS: { id: string; title: string; description: string; max: num
   { id: 'cryoRounds', title: 'Cryo Rounds', description: 'Shots slow zombies for 3 seconds', max: 3 },
   { id: 'medicalSupplies', title: 'Medical Supplies', description: 'Healing pickups restore 18% more health per stack', max: 4 },
   { id: 'emergencyShield', title: 'Emergency Shield', description: 'A brief shield triggers at critical health', max: 2 },
-  { id: 'piercingRounds', title: 'Piercing Rounds', description: 'Bullet and missile shots pass through one more enemy per stack', max: 3 },
   { id: 'explosiveImpact', title: 'Explosive Impact', description: 'Projectile hits splash nearby zombies', max: 3 },
   { id: 'longshot', title: 'Longshot Coils', description: '+10% projectile speed per stack', max: 4 },
   { id: 'ironSkin', title: 'Iron Skin', description: 'Take 6% less damage per stack', max: 4 },
@@ -38,7 +37,6 @@ const SURVIVAL_PERKS: { id: string; title: string; description: string; max: num
   { id: 'hotRounds', title: 'Hot Rounds', description: 'Shots burn enemies for damage over time', max: 3 },
   { id: 'rescueProtocol', title: 'Rescue Protocol', description: 'Revive allies faster and from farther away', max: 3 },
   { id: 'secondWind', title: 'Second Wind', description: 'Revive with more health and protection', max: 3 },
-  { id: 'armorPiercer', title: 'Armour Piercer', description: 'Ignore more of Armoured zombies’ damage reduction', max: 4 },
   { id: 'overdrive', title: 'Overdrive', description: 'Move faster while firing', max: 3 },
   { id: 'chainShot', title: 'Chain Shot', description: 'Hits arc damage to another nearby zombie', max: 3 },
   { id: 'adrenaline', title: 'Adrenaline', description: 'Deal more damage and move faster while your health is low', max: 3 },
@@ -1246,7 +1244,7 @@ export class Game {
       id: this.nextId++, owner: p.id, x: muzzleX, y: muzzleY,
       vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed,
       r: bulletRadius, dmg: p.d.bulletDamage * (barrel.damageMul ?? 1) * perkDamage * critical,
-      hp: kind === 'drone' ? 8 : kind === 'trap' ? 100 : p.d.bulletHp + (this.mode === 'survival' && kind !== 'firework' ? this.perkCount(p, 'piercingRounds') * PLAYER_PIERCE_COST : 0),
+      hp: kind === 'drone' ? 8 : kind === 'trap' ? 100 : 1,
       life, hit: new Set(), kind, angle: spreadAngle,
       maxSpeed: kind === 'missile' ? p.d.bulletSpeed * 1.45 : speed,
       turnRate: kind === 'missile' ? 2.7 : 4.2,
@@ -1772,8 +1770,7 @@ export class Game {
 
   private survivalDamageMultiplier(owner: Player | undefined, zombie: Zombie): number {
     const guardianMul = this.isZombieProtected(zombie) ? 0.58 : 1;
-    const armourStacks = this.mode === 'survival' ? this.perkCount(owner, 'armorPiercer') : 0;
-    const armourMul = zombie.kind === 'armoured' ? Math.min(0.96, 0.58 + armourStacks * 0.09) : 1;
+    const armourMul = zombie.kind === 'armoured' ? 0.58 : 1;
     const bossMul = zombie.bossKind ? 0.84 : 1;
     let perkMul = 1;
     if (owner && this.mode === 'survival') {
