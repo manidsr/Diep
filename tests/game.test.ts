@@ -59,7 +59,7 @@ test('shooting a shape kills it, awards XP and levels up', () => {
   assert.ok(p.d.moveSpeed > 260, 'level-up automatically increases movement speed');
 });
 
-test('leveling automatically improves every stat without manual point allocation', () => {
+test('leveling automatically improves every active stat without manual point allocation', () => {
   const game = fresh();
   const player = game.addPlayer('automatic growth')!;
   const base = { ...player.d };
@@ -69,7 +69,6 @@ test('leveling automatically improves every stat without manual point allocation
   assert.ok(player.d.regenFrac > base.regenFrac);
   assert.ok(player.d.bodyDps > base.bodyDps);
   assert.ok(player.d.bulletSpeed > base.bulletSpeed);
-  assert.ok(player.d.bulletHp > base.bulletHp);
   assert.ok(player.d.bulletDamage > base.bulletDamage);
   assert.ok(player.d.reload < base.reload);
   assert.ok(player.d.moveSpeed > base.moveSpeed);

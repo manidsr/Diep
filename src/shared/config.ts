@@ -22,7 +22,7 @@ export type StatKey =
 
 export const TANK_SPECIALTIES = {
   balanced: {
-    label: 'Balanced', summary: 'All stats +6%',
+    label: 'Balanced', summary: 'All combat stats +6%',
     bonuses: { regen: 0.06, maxHealth: 0.06, bodyDamage: 0.06, bulletSpeed: 0.06,
       bulletDamage: 0.06, reload: 0.06, moveSpeed: 0.06 },
   },

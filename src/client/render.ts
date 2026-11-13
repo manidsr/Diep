@@ -170,7 +170,7 @@ function syncRemoved(
 }
 
 function collectPixelFx(view: View, now: number) {
-    for (const bullet of view.bullets) {
+  for (const bullet of view.bullets) {
     const [id, x, y, radius, ownerId, kind, angle] = bullet;
     const owner = view.players.find((player) => player.id === ownerId);
     const color = kind === 4 ? '#ff42d8' : kind === 3 ? '#ff9b42' : owner?.team === 'red' ? '#ff426e' : '#42dfff';
