@@ -407,8 +407,6 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     commander: { fill: '#94733a', stroke: '#563d1c', accent: '#ffe08a' },
   };
   const palette = zombie.bossKind ? bossPalettes[zombie.bossKind] : mobPalettes[zombie.kind];
-  const facingX = Math.cos(zombie.angle);
-  const facingY = Math.sin(zombie.angle);
 
   ctx.save();
   ctx.globalAlpha *= Math.max(0.04, Math.min(1, zombie.visibility));
@@ -474,87 +472,146 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     ctx.save(); ctx.strokeStyle = '#ed7137'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(0, 0, r * (1.35 + 0.12 * Math.sin(performance.now() / 90)), 0, Math.PI * 2); ctx.stroke(); ctx.restore();
   }
+  // Corrupted constructs: readable geometric silhouettes instead of cartoon faces.
   ctx.globalAlpha = opacity;
   ctx.scale(r, r);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  const disk = (px: number, py: number, radius: number, fill: string, edge = palette.stroke, width = 0.1) =>
+  const time = performance.now() * 0.001;
+  const phase = time * 2.6 + zombie.id * 0.618;
+  const pulse = 0.5 + 0.5 * Math.sin(phase);
+  const shell = hit > 0.22 ? '#edf9ed' : palette.fill;
+  const ink = '#202832';
+  const accent = palette.accent;
+  const disk = (px: number, py: number, radius: number, fill: string, edge = ink, width = 0.075) =>
     circle(ctx, px, py, radius, fill, edge, width);
-  const plate = (px: number, py: number, w: number, h: number, fill: string) => {
-    ctx.beginPath(); ctx.roundRect(px, py, w, h, 0.12); ctx.fillStyle = fill; ctx.fill();
-    ctx.strokeStyle = palette.stroke; ctx.lineWidth = 0.09; ctx.stroke();
+  const path = (points: readonly number[], fill: string, edge = ink, width = 0.1) => {
+    ctx.beginPath(); ctx.moveTo(points[0], points[1]);
+    for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
+    ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = edge; ctx.lineWidth = width; ctx.stroke();
   };
-  const line = (points: number[], color: string, width = 0.08) => {
+  const poly = (sides: number, outer: number, angle = 0, inner = outer, fill = shell, edge = ink, width = 0.10) => {
+    const points: number[] = [];
+    const count = inner === outer ? sides : sides * 2;
+    for (let i = 0; i < count; i++) {
+      const a = angle + i * Math.PI * 2 / count;
+      const d = inner === outer || i % 2 === 0 ? outer : inner;
+      points.push(Math.cos(a) * d, Math.sin(a) * d);
+    }
+    path(points, fill, edge, width);
+  };
+  const line = (points: readonly number[], color = accent, width = 0.085) => {
     ctx.beginPath(); ctx.moveTo(points[0], points[1]);
     for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
     ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
   };
-  const heavy = boss || zombie.kind === 'tank' || zombie.kind === 'armoured' || zombie.kind === 'guardian';
-  // Small shadow, symmetrical hands and a rounded silhouette at every heading.
-  ctx.fillStyle = '#18202526'; ctx.beginPath(); ctx.ellipse(0, 0.48, 1.05, 0.75, 0, 0, Math.PI * 2); ctx.fill();
-  for (const side of [-1, 1]) {
-    ctx.save(); ctx.translate(side * 0.92, 0.27); ctx.rotate(side * -0.22);
-    plate(-0.24, -0.34, 0.48, 0.78, heavy ? palette.stroke : palette.fill);
-    if (heavy) plate(-0.24, -0.29, 0.48, 0.3, palette.accent);
-    ctx.restore();
-  }
-  disk(0, 0, 0.98, hit > 0.22 ? '#efffdc' : palette.fill, palette.stroke, boss ? 0.09 : 0.12);
-  ctx.beginPath(); ctx.arc(0, 0, 0.79, 0.25 * Math.PI, 0.75 * Math.PI);
-  ctx.strokeStyle = '#17232235'; ctx.lineWidth = 0.14; ctx.stroke();
-  ctx.beginPath(); ctx.arc(0, 0, 0.81, 1.12 * Math.PI, 1.76 * Math.PI);
-  ctx.strokeStyle = '#ffffff55'; ctx.lineWidth = 0.09; ctx.stroke();
-
-  // One recognizable accessory per variant, placed on top of the hull.
-  const crown = () => {
-    ctx.beginPath(); ctx.moveTo(-0.65, -0.76); ctx.lineTo(-0.59, -1.24);
-    ctx.lineTo(-0.26, -1.02); ctx.lineTo(0, -1.39); ctx.lineTo(0.26, -1.02);
-    ctx.lineTo(0.59, -1.24); ctx.lineTo(0.65, -0.76); ctx.closePath();
-    ctx.fillStyle = palette.accent; ctx.fill(); ctx.strokeStyle = palette.stroke; ctx.lineWidth = 0.1; ctx.stroke();
+  const arc = (radius: number, start: number, end: number, color = accent, width = 0.085) => {
+    ctx.beginPath(); ctx.arc(0, 0, radius, start, end);
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
   };
+  const shard = (angle: number, reach = 1.17, width = 0.29, color = shell) => {
+    ctx.save(); ctx.rotate(angle);
+    path([0.47,-width, reach-0.13,-width*0.7, reach,0, reach-0.13,width*0.7, 0.47,width],color);
+    line([0.72,0,reach-0.17,0],accent,0.06);
+    ctx.restore();
+  };
+  const core = (radius = 0.33, px = 0, py = 0) => {
+    disk(px, py, radius + 0.095, '#222d37', ink, 0.055);
+    disk(px, py, radius * (0.91 + pulse * 0.09), accent, palette.stroke, 0.055);
+    disk(px - radius*0.21, py - radius*0.19, radius*0.31, '#f5fff0', accent, 0.025);
+  };
+
+  // Flat shadow stays independent of orientation. The hull follows the attack direction.
+  ctx.fillStyle = '#15232c26'; ctx.beginPath(); ctx.ellipse(0,0.20,1.03,0.88,0,0,Math.PI*2); ctx.fill();
+  ctx.rotate(zombie.angle);
   if (boss) {
     switch (zombie.bossKind) {
       case 'breaker':
-      case 'abomination':
-        for (const side of [-1, 1]) line([side * 0.55, -0.62, side * 0.94, -1.19, side * 0.97, -0.8], palette.accent, 0.2);
-        break;
-      case 'colossus': for (const side of [-1, 1]) plate(side * 0.64 - 0.18, -0.84, 0.36, 0.62, palette.accent); break;
-      case 'spitter': for (const side of [-1, 1]) disk(side * 0.86, 0.2, 0.23, palette.accent); break;
-      case 'nestMother': for (const side of [-1, 1]) disk(side * 0.65, 0.68, 0.25, palette.accent); break;
+        for (const side of [-1,1]) {
+          ctx.save(); ctx.scale(1,side);
+          path([0.14,0.47, 0.96,0.37, 1.20,0.67, 0.88,0.99, -0.29,0.85],shell);
+          line([0.40,0.66,0.83,0.66],accent,0.14); ctx.restore();
+        }
+        poly(6,0.92,0); core(0.39); break;
+      case 'spitter':
+        for (const a of [-1.15,1.15,Math.PI]) { ctx.save(); ctx.rotate(a); disk(0.75,0,0.32,shell); disk(0.80,0,0.17,accent); ctx.restore(); }
+        poly(5,0.88,0); path([0.37,-0.25,0.99,-0.22,1.16,0,0.99,0.22,0.37,0.25],ink,palette.stroke);
+        core(0.30,-0.12,0); break;
       case 'summoner':
-      case 'lich': crown(); break;
-      case 'devourer': plate(-0.48, 0.35, 0.96, 0.32, palette.stroke); break;
+        poly(6,1.02,0,0.64); ctx.save(); ctx.rotate(time*0.65); poly(3,0.84,0,0.67,'#24303e',accent,0.075);
+        for(let i=0;i<3;i++) { const a=i*Math.PI*2/3; disk(Math.cos(a)*1.12,Math.sin(a)*1.12,0.14,accent); } ctx.restore();
+        core(0.36); break;
+      case 'colossus':
+        poly(8,1.03,Math.PI/8); poly(8,0.81,Math.PI/8,0.81,palette.stroke,accent,0.065);
+        for(let i=0;i<4;i++) shard(Math.PI/4+i*Math.PI/2,1.14,0.28,shell);
+        poly(4,0.52,Math.PI/4,0.52,accent,ink,0.10); core(0.24); break;
+      case 'nestMother':
+        poly(6,0.90,0); for(let i=0;i<6;i++) { const a=i*Math.PI/3; disk(Math.cos(a)*0.83,Math.sin(a)*0.83,0.28,palette.stroke); disk(Math.cos(a)*0.85,Math.sin(a)*0.85,0.15,accent); }
+        core(0.38); break;
+      case 'lich':
+        poly(4,1.10,0,0.65); ctx.save(); ctx.rotate(-time*0.55); poly(4,0.78,Math.PI/4,0.78,'#242d3b',accent,0.08); ctx.restore();
+        for(const a of [-0.65,0.65,Math.PI]) shard(a,1.20,0.17); core(0.32); break;
+      case 'devourer':
+        poly(8,1.00,Math.PI/8);
+        for(const side of [-1,1]) { ctx.save(); ctx.scale(1,side); path([-0.32,0.37,0.45,0.39,1.12,0.62,0.93,0.19,0.51,0.05,0.24,0.20],accent); ctx.restore(); }
+        core(0.35,-0.23,0); break;
+      case 'abomination':
+        poly(7,1.08,0,0.70); for(let i=0;i<3;i++) shard(i*Math.PI*2/3+0.15,1.21,0.24);
+        core(0.29,-0.14,-0.22); core(0.23,0.24,0.24); break;
     }
   } else {
     switch (zombie.kind) {
-      case 'shambler': line([-0.48, -0.75, -0.24, -0.55, -0.38, -0.37], palette.stroke); break;
-      case 'runner': for (const side of [-1, 1]) line([side * 0.75, -0.2, side * 1.17, -0.75], palette.accent, 0.17); break;
+      case 'shambler':
+        path([0.98,0,0.48,0.80,-0.39,0.91,-0.92,0.23,-0.72,-0.67,0.27,-0.91],shell);
+        line([-0.60,-0.60,-0.24,-0.36,-0.43,-0.06],ink,0.11); core(0.36); break;
+      case 'runner':
+        path([1.08,0,-0.50,0.87,-0.87,0.48,-0.48,0,-0.87,-0.48,-0.50,-0.87],shell);
+        line([-0.64,-0.47,-0.25,-0.21],accent); line([-0.64,0.47,-0.25,0.21],accent);
+        core(0.26,0.11,0); break;
       case 'tank':
-      case 'armoured': plate(-0.65, -0.79, 1.3, 0.25, palette.accent); break;
-      case 'guardian': plate(-0.17, -0.83, 0.34, 0.27, palette.accent); break;
-      case 'ranger': plate(-0.66, -0.36, 1.32, 0.37, palette.stroke); break;
-      case 'medic': line([-0.23, -0.64, 0.23, -0.64], palette.accent, 0.16); line([0, -0.87, 0, -0.41], palette.accent, 0.16); break;
+        poly(8,1.00,Math.PI/8); for(const side of [-1,1]) { ctx.save(); ctx.scale(1,side); path([-0.62,0.52,0.58,0.52,0.72,0.83,-0.72,0.83],palette.stroke); line([-0.43,0.69,0.40,0.69],accent); ctx.restore(); }
+        core(0.40); break;
+      case 'ranger':
+        poly(5,0.90,0); path([0.35,-0.22,1.16,-0.22,1.16,0.22,0.35,0.22],palette.stroke);
+        line([0.58,0,1.05,0],accent,0.10); core(0.28,-0.18,0); break;
+      case 'guardian':
+        poly(6,0.91,0); for(const side of [-1,1]) { ctx.save(); ctx.scale(1,side); path([-0.53,0.55,0.53,0.55,0.78,0.82,0,1.09,-0.78,0.82],palette.stroke,ink); line([-0.42,0.78,0,0.93,0.42,0.78],accent); ctx.restore(); }
+        core(0.34); break;
       case 'bomber':
-      case 'exploder': disk(0, -0.65, 0.2, '#ffcf73'); line([0, -0.84, 0.12, -1.08, 0.28, -1.08], palette.stroke); break;
-      case 'leaper': for (const side of [-1, 1]) line([side * 0.59, -0.47, side * 0.83, -0.97], palette.accent, 0.15); break;
-      case 'splitter': line([0, -0.87, -0.13, -0.65, 0.09, -0.45], palette.stroke); break;
-      case 'stalker': line([-0.55, -0.6, 0, -0.78, 0.55, -0.6], palette.accent); break;
-      case 'commander': crown(); break;
+        poly(6,0.99,0); for(let i=0;i<3;i++) shard(i*Math.PI*2/3,1.02,0.19,palette.stroke);
+        core(0.44); arc(0.60,phase,phase+Math.PI*1.35,accent,0.10); break;
+      case 'leaper':
+        for(const side of [-1,1]) { ctx.save(); ctx.scale(1,side); path([0.70,0.30,0.14,0.99,-0.82,0.79,-0.36,0.48],shell); line([0.16,0.68,-0.37,0.69],accent); ctx.restore(); }
+        poly(4,0.84,0); core(0.26,0.14,0); break;
+      case 'armoured':
+        poly(8,1.02,Math.PI/8); poly(8,0.73,Math.PI/8,0.73,palette.stroke,accent,0.08);
+        for(let i=0;i<4;i++) { const a=i*Math.PI/2; ctx.save(); ctx.rotate(a); line([0.76,-0.20,0.76,0.20],accent,0.11); ctx.restore(); }
+        core(0.25); break;
+      case 'medic':
+        poly(6,0.93,0); disk(0,0,0.53,palette.stroke);
+        path([-0.12,-0.39,0.12,-0.39,0.12,-0.12,0.39,-0.12,0.39,0.12,0.12,0.12,0.12,0.39,-0.12,0.39,-0.12,0.12,-0.39,0.12,-0.39,-0.12,-0.12,-0.12],accent,ink,0.055);
+        arc(0.75,phase,phase+1.2,accent); break;
+      case 'exploder':
+        poly(6,1.09,0,0.72); core(0.43 + pulse*0.06); arc(0.69,0,Math.PI*2,accent,0.07); break;
+      case 'splitter':
+        poly(4,1.05,0,0.76); line([-0.66,-0.64,-0.19,-0.10,0.14,-0.10,0.66,0.64],ink,0.13);
+        core(0.24,-0.32,0.20); core(0.24,0.32,-0.20); break;
+      case 'stalker':
+        path([1.03,0,0.16,0.77,-0.77,0.61,-0.46,0,-0.77,-0.61,0.16,-0.77],shell);
+        line([-0.53,-0.39,0.38,0,-0.53,0.39],accent,0.09); core(0.22,0.30,0); break;
+      case 'commander':
+        poly(6,0.94,0); for(let i=0;i<3;i++) shard(i*Math.PI*2/3,1.10,0.23,palette.stroke);
+        poly(4,0.51,0,0.51,accent,ink,0.075); core(0.21); break;
     }
   }
-  // High-contrast eyes stay upright; pupils follow the movement direction.
-  const eyeColor = hit > 0.22 ? '#ffffff' : palette.accent;
-  for (const side of [-1, 1]) {
-    const px = side * 0.32;
-    disk(px, -0.12, boss ? 0.21 : 0.18, eyeColor, '#263028', 0.055);
-    disk(px + facingX * 0.055, -0.12 + facingY * 0.055, 0.078, '#202827', '#202827', 0.025);
-    line([px - 0.16, -0.33 - side * 0.045, px + 0.16, -0.33 + side * 0.045], palette.stroke, 0.09);
-  }
-  plate(-0.28, 0.33, 0.56, 0.19, '#27302b');
-  line([0, 0.36, 0, 0.46], '#e8e6c2', 0.05);
-
+  // A narrow edge reflection gives the solid-color shells depth without expensive blur.
+  ctx.globalAlpha = opacity * 0.36;
+  arc(0.84,Math.PI*1.05,Math.PI*1.58,'#f5ffff',0.045);
+  ctx.globalAlpha = opacity;
   ctx.restore();
 
   // Directional impact sparks and a brief bright ring make each shot feel physical.
-  if (hit > 0.025) {
+  if (hit > 0.025 && zombie.visibility > 0.15) {
     drawImpactBurst(ctx, x + Math.cos(zombie.hitAngle) * r * 0.65,
       y + Math.sin(zombie.hitAngle) * r * 0.65, r, hit, zombie.hitAngle, '#ffd36b');
   }
@@ -579,7 +636,7 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     ctx.fillText(names[zombie.bossKind!], x, y - r - 20);
     ctx.restore();
     hpBar(ctx, x, y + r + 13, r * 3.2, zombie.hp / Math.max(1, zombie.mhp));
-  } else {
+  } else if (zombie.visibility > 0.15) {
     hpBar(ctx, x, y + r + 9, r * 2.1, zombie.hp / Math.max(1, zombie.mhp));
   }
 }
