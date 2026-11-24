@@ -73,7 +73,20 @@ export function drawFrame(
   for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
   for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false,view.renderTick);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true,view.renderTick);
-  for (const beam of view.beams??[]) drawCombatLink(ctx,beam);
+  // The same interpolated positions used to draw entities anchor every combat link.
+  if(view.beams?.length){
+    const positions=new Map<number,{x:number;y:number}>();
+    for(const p of view.players)positions.set(p.id,p);
+    for(const z of view.zombies)positions.set(z.id,z);
+    for(const p of view.downed)positions.set(p.id,p);
+    for(const s of view.shapes)positions.set(s[0],{x:s[1],y:s[2]});
+    for(const b of view.bullets)positions.set(b[0],{x:b[1],y:b[2]});
+    for(const beam of view.beams){
+      const from=beam.fromId===undefined?undefined:positions.get(beam.fromId);
+      const to=beam.toId===undefined?undefined:positions.get(beam.toId);
+      drawCombatLink(ctx,{...beam,x:from?.x??beam.x,y:from?.y??beam.y,tx:to?.x??beam.tx,ty:to?.y??beam.ty});
+    }
+  }
   for (const effect of view.effects ?? []) drawCombatEffect(ctx, effect);
   ctx.restore();
   if (view.mode === 'survival') drawSurvivalOverlay(ctx, W, H, view);
@@ -82,18 +95,21 @@ export function drawFrame(
 
 /** Animated, outlined links; deterministic bends avoid random per-frame flicker. */
 function drawCombatLink(ctx:CanvasRenderingContext2D, beam:NonNullable<View['beams']>[number]){
-  const {x,y,tx,ty,age,color}=beam;
-  const kind=beam.kind??'laser', duration=kind==='arc'?0.42:kind==='fork'?0.28:0.18;
+  const {x,y,tx,ty,color}=beam;
+  const kind=beam.kind??'laser';
+  const age=beam.age-(kind==='arc'?(beam.hop??0)*0.055:0);
+  if(kind==='blast'||kind==='gravity'){drawAreaPulse(ctx,x,y,beam.radius??0,age,color,kind==='gravity');return;}
+  const duration=kind==='arc'?0.44:kind==='fork'?0.28:0.18;
   if(age<0||age>=duration)return;
   const dx=tx-x,dy=ty-y,d=Math.hypot(dx,dy);
   if(d<0.01)return;
-  const progress=Math.min(1,age/(kind==='arc'?0.075:kind==='fork'?0.055:0.025));
+  const progress=Math.min(1,(age+0.012)/(kind==='arc'?0.065:kind==='fork'?0.04:0.025));
   const fade=Math.min(1,(duration-age)/(duration*0.55));
   const nx=-dy/d,ny=dx/d;
   const points:{x:number;y:number}[]=[{x,y}];
   if(kind==='arc'){
     const segments=Math.max(3,Math.min(9,Math.ceil(d/23)));
-    let seed=(Math.imul(beam.tick+1,1664525)^Math.imul(Math.round(x*10),73856093)^Math.imul(Math.round(ty*10),19349663))>>>0;
+    let seed=(Math.imul(beam.tick+1,1664525)^Math.imul(beam.fromId??Math.round(beam.x*10),73856093)^Math.imul(beam.toId??Math.round(beam.ty*10),19349663))>>>0;
     for(let i=1;i<segments;i++){
       seed=(Math.imul(seed,1664525)+1013904223)>>>0;
       const t=i/segments, bend=(i%2===0?1:-1)*(0.55+seed/4294967296*0.45)*Math.min(12,d*0.10)*Math.sin(t*Math.PI);
@@ -140,6 +156,28 @@ function drawCombatLink(ctx:CanvasRenderingContext2D, beam:NonNullable<View['bea
   ctx.restore();
 }
 
+/** Two crisp expanding rings show the actual blast radius; gravity contracts instead. */
+function drawAreaPulse(ctx:CanvasRenderingContext2D,x:number,y:number,radius:number,age:number,color:string,inward:boolean){
+  const duration=inward?0.42:0.46;
+  if(age<0||age>=duration||radius<=0)return;
+  const t=age/duration,fade=(1-t)*(1-t);
+  const wave=inward?radius*(1-0.9*t):radius*(0.16+0.84*(1-Math.pow(1-t,3)));
+  ctx.save();ctx.translate(x,y);ctx.lineJoin='round';ctx.lineCap='round';
+  ctx.globalAlpha=fade*0.18;ctx.fillStyle=color;ctx.beginPath();ctx.arc(0,0,radius,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=fade*0.65;ctx.strokeStyle=color;ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(0,0,radius,0,Math.PI*2);ctx.stroke();
+  ctx.globalAlpha=Math.min(1,fade*1.6);ctx.strokeStyle=inward?'#72589f':'#ad6839';ctx.lineWidth=7;
+  ctx.beginPath();ctx.arc(0,0,wave,0,Math.PI*2);ctx.stroke();ctx.strokeStyle=color;ctx.lineWidth=4;ctx.stroke();
+  ctx.strokeStyle='#fff6da';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.globalAlpha=fade;ctx.strokeStyle=color;ctx.lineWidth=3;
+  for(let i=0;i<8;i++){
+    const a=i*Math.PI/4+0.2, r=Math.min(radius,wave+5);
+    const r2=Math.min(radius,r+8+12*t);
+    ctx.beginPath();ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r);ctx.lineTo(Math.cos(a)*r2,Math.sin(a)*r2);ctx.stroke();
+  }
+  ctx.globalAlpha=fade*0.8;ctx.fillStyle='#fff5cf';ctx.beginPath();ctx.arc(0,0,Math.max(2,radius*0.13*(1-t)),0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
 function drawSurvivalOverlay(ctx: CanvasRenderingContext2D, W: number, H: number, view: View) {
   const state = view.survival;
   if (!state) return;
@@ -644,6 +682,12 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   }
   ctx.restore();
 
+  if(zombie.visibility>0.15&&(zombie.chilled||zombie.burning)){
+    ctx.save();ctx.globalAlpha=0.85;ctx.lineWidth=2.5;ctx.lineCap='round';
+    if(zombie.chilled){ctx.strokeStyle='#70c8f5';ctx.beginPath();ctx.arc(x,y,r+3,Math.PI*0.15,Math.PI*0.92);ctx.stroke();ctx.beginPath();ctx.arc(x,y,r+3,Math.PI*1.15,Math.PI*1.92);ctx.stroke();}
+    if(zombie.burning){ctx.strokeStyle='#ef8b42';for(let i=0;i<3;i++){const a=i*Math.PI*2/3+performance.now()*0.002;const px=x+Math.cos(a)*(r+4),py=y+Math.sin(a)*(r+4);ctx.beginPath();ctx.moveTo(px-3,py+3);ctx.lineTo(px,py-4);ctx.lineTo(px+3,py+3);ctx.stroke();}}
+    ctx.restore();
+  }
   // Directional impact sparks and a brief bright ring make each shot feel physical.
   if (hit > 0.025 && zombie.visibility > 0.15) {
     drawImpactBurst(ctx, x + Math.cos(zombie.hitAngle) * r * 0.65,

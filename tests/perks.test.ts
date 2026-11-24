@@ -375,3 +375,27 @@ test('developer shop exposes free perks during active waves without changing nor
   assert.equal(ffa.buyShop(other.id,'chainShot',true),false);
   assert.equal(ffa.snapshotFor(other.id,true)!.me.shop?.length,0);
 });
+
+
+test('chain walks distinct nearby targets across several jumps and follows moving endpoints',()=>{
+  const {game,player}=setup();
+  player.survivalPerks.chainShot=3;
+  const targets=Array.from({length:6},(_,i)=>zombie({id:9810+i,x:442+i*140,y:400}));
+  game.zombies=targets;
+  const b=shotFor(player,targets[0],{dmg:20});
+  hit(game,b,targets[0]);
+  assert.ok(targets.slice(1,5).every(z=>z.hp<z.maxHp));
+  assert.equal(targets[5].hp,targets[5].maxHp);
+  let links=game.snapshotFor(player.id)!.beams!.filter(b=>b.kind==='arc');
+  assert.deepEqual(links.map(l=>[l.fromId,l.toId,l.hop]),targets.slice(0,4).map((z,i)=>[z.id,targets[i+1].id,i]));
+  targets[1].x+=12;targets[1].y+=37;
+  links=game.snapshotFor(player.id)!.beams!.filter(b=>b.kind==='arc');
+  assert.deepEqual([links[0].tx,links[0].ty,links[1].x,links[1].y],[targets[1].x,targets[1].y,targets[1].x,targets[1].y]);
+});
+test('explosive perk reports actual radius even without secondary victims',()=>{
+  const {game,player}=setup();const z=zombie({id:9890});game.zombies=[z];
+  const b=shotFor(player,z,{explosionRadius:64});
+  hit(game,b,z);
+  const blast=game.snapshotFor(player.id)!.beams!.find(b=>b.kind==='blast');
+  assert.ok(blast);assert.equal(blast.radius,64);assert.equal(blast.x,z.x);assert.equal(blast.y,z.y);
+});

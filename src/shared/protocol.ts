@@ -87,7 +87,7 @@ export type ZombieSpecialPhase = 'idle' | 'windup' | 'charge';
 
 export type WaveTheme = 'standard' | 'rush' | 'siege' | 'swarm' | 'boss';
 export interface ZombieSnap {
-  elite?: boolean;
+  elite?: boolean; chilled?:boolean; burning?:boolean;
   id: number; x: number; y: number; r: number; hp: number; mhp: number; visibility: number;
   angle: number; hitFlash: number; hitAngle: number;
   kind: ZombieKind; protected: boolean;
@@ -120,7 +120,8 @@ export interface CombatEffect {
 /** Short-lived visual links. Endpoints come from actual server combat events. */
 export interface BeamSnap {
   tick:number; x:number; y:number; tx:number; ty:number; color:string;
-  kind?:'arc'|'fork'|'laser'; root?:boolean;
+  kind?:'arc'|'fork'|'laser'|'blast'|'gravity'; root?:boolean;
+  fromId?:number; toId?:number; hop?:number; radius?:number;
 }
 export interface Snapshot {
   t: 's';

@@ -331,7 +331,7 @@ export const CLASSES: TankClassDef[] = [
     noBarrels, { smasher: true, sizeMul: 1.2, maxHpMul: 1.45, bodyDamageMul: 2.65, moveSpeedMul: 1.02 }),
   T('autoTank', 'Auto Tank', 'A standard cannon supported by one tracking auto turret.', 'basic', 45,
     [B(0, 0, 42, 18, 0, 0, 0.75)], { turretCount: 1, turretRange: 600 }),
-  T('tesla','Tesla','Shots arc to one additional nearby enemy.','gunner',45,[B(0,0,45,20,0,0,0.5)],{specialty:'rapidFire',reloadMul:0.85,damageMul:0.85}),
+  T('tesla','Tesla','Shots arc through up to three additional nearby enemies.','gunner',45,[B(0,0,45,20,0,0,0.5)],{specialty:'rapidFire',reloadMul:0.85,damageMul:0.85}),
   T('gravity','Gravity','Heavy rounds pull nearby targets toward the impact.','destroyer',45,[B(0,0,46,30,0,0,1.7)],{specialty:'heavyArtillery',reloadMul:1.6,damageMul:1.3,bulletSpeedMul:0.85}),
   T('ricochet','Ricochet','Rounds bounce off arena walls twice.','triple',45,[B(0,0,46,18),B(-0.24,0,35,12,0.5),B(0.24,0,35,12,0.5)],{damageMul:0.85,bulletLifeMul:1.7,reloadMul:1.2}),
   T('engineer','Engineer','Places up to three automatic defense turrets.','trapper',45,[B(0,0,40,26,0,0,0.6,'trap')],{specialty:'areaControl',reloadMul:2.3,trapLife:13,damageMul:0.75}),

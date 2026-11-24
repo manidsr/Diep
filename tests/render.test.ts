@@ -60,3 +60,11 @@ test('touch control hints keep canvas drawing state isolated', () => {
     drawFrame(ctx,800,600,{x:100,y:100},view,1);assert.equal(saveDepth(),0);
   }
 });
+
+
+test('live chain endpoints and area effects draw without leaking canvas state',()=>{
+  const {ctx,saveDepth}=mockCanvasContext();
+  const view:View={players:[],bullets:[[4,180,150,5,1,0,0,0]],shapes:[],zombies:[],downed:[],healthDrops:[],xpDrops:[],pools:[],mode:'ffa',
+    beams:[{tick:10,x:100,y:100,tx:100,ty:100,toId:4,kind:'fork',color:'#ffd174',age:0.1},{tick:10,x:100,y:100,tx:100,ty:100,kind:'blast',radius:64,color:'#ffba62',age:0.1},{tick:10,x:100,y:100,tx:220,ty:120,kind:'arc',hop:2,color:'#a5b4ff',age:0.2}]};
+  drawFrame(ctx,800,600,{x:100,y:100},view,1);assert.equal(saveDepth(),0);
+});

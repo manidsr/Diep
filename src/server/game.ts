@@ -39,7 +39,7 @@ const SURVIVAL_PERKS: { id: string; title: string; description: string; max: num
   { id: 'secondWind', title: 'Second Wind', description: 'Revive with more health and protection', max: 3 },
   { id: 'armorPiercer', title: 'Armour Piercer', description: 'Ignore more of Armoured zombies’ damage reduction', max: 4 },
   { id: 'overdrive', title: 'Overdrive', description: 'Move faster while firing', max: 3 },
-  { id: 'chainShot', title: 'Chain Shot', description: 'Hits arc damage to another nearby zombie', max: 3 },
+  { id: 'chainShot', title: 'Chain Shot', description: 'Hits chain through 2–4 nearby zombies; each stack adds one jump', max: 3 },
   { id: 'adrenaline', title: 'Adrenaline', description: 'Deal more damage and move faster while your health is low', max: 3 },
   { id: 'shrapnel', title: 'Shrapnel', description: 'Every fourth shot bursts into a larger blast', max: 3 },
   { id: 'vitalCore', title: 'Vital Core', description: '+8% maximum health per stack', max: 4 },
@@ -82,7 +82,7 @@ export interface Bullet {
   bounces?: number; weapon?: string; turretNext?: number;
   hostile?: boolean;
   hostileName?: string;
-  explosionRadius?: number; exploded?: boolean; chilled?: boolean; chained?: boolean;
+  explosionRadius?: number; exploded?: boolean; chilled?: boolean; chained?: boolean; splitDone?:boolean; weaponChained?:boolean;
 }
 export interface Zombie {
   elite?: boolean;
@@ -142,9 +142,25 @@ export class Game {
   crates: {id:number;x:number;y:number;r:number;kind:Powerup;life:number}[] = [];
   private nextCrate = 10;
   private beams: BeamSnap[] = [];
-  private link(from:{x:number;y:number},to:{x:number;y:number},color:string,kind:BeamSnap['kind'],root=true){
-    this.beams.push({tick:this.tick,x:from.x,y:from.y,tx:to.x,ty:to.y,color,kind,root});
-    if(this.beams.length>220)this.beams.splice(0,this.beams.length-220);
+  private link(from:{x:number;y:number;id?:number},to:{x:number;y:number;id?:number},color:string,kind:BeamSnap['kind'],root=true,hop=0,radius?:number){
+    this.beams.push({tick:this.tick,x:from.x,y:from.y,tx:to.x,ty:to.y,color,kind,root,hop,radius,fromId:from.id,toId:to.id});
+    if(this.beams.length>280)this.beams.splice(0,this.beams.length-280);
+  }
+  private blastVisual(x:number,y:number,radius:number,color='#ffb653',kind:'blast'|'gravity'='blast'){
+    this.link({x,y},{x,y},color,kind,true,0,radius);
+  }
+  /** Cache last known coordinates before removal; clients use their interpolated positions when available. */
+  private followCombatLinks(){
+    if(!this.beams.length)return;
+    const positions=new Map<number,{x:number;y:number}>();
+    for(const p of this.players.values())positions.set(p.id,p);
+    for(const entities of [this.zombies,this.shapes,this.bullets])for(const e of entities)positions.set(e.id,e);
+    for(const b of this.beams){
+      const from=b.fromId===undefined?undefined:positions.get(b.fromId);
+      const to=b.toId===undefined?undefined:positions.get(b.toId);
+      if(from){b.x=from.x;b.y=from.y;}
+      if(to){b.tx=to.x;b.ty=to.y;}
+    }
   }
   royalePhase: 'lobby'|'active'|'result' = 'lobby';
   private royaleTimer = 10;
@@ -363,7 +379,7 @@ export class Game {
     this.time += dt;
     this.tick++;
     if (this.mode === 'royale' && !this.updateRoyale(dt)) return;
-    this.beams = this.beams.filter(b=>this.tick-b.tick<=16);
+    this.beams = this.beams.filter(b=>this.tick-b.tick<=24);
     this.updateCrates(dt);
     this.combatEffects = this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ);
     for (const p of this.players.values()) if (p.connected && p.alive && p.hp>0 && !p.downed) this.updatePlayer(p, dt);
@@ -390,6 +406,7 @@ export class Game {
     for (const [id, feedback] of this.incomingFeedback) {
       if (feedback.next <= this.time || !this.players.has(id)) this.flushIncomingFeedback(id);
     }
+    this.followCombatLinks();
     this.reap();
     if (this.mode === 'royale') this.finishRoyaleIfNeeded();
     if (this.mode === 'survival') {
@@ -471,7 +488,7 @@ export class Game {
       {id:'rapidLoader',title:'Rapid Loader',cost:12,description:'One faster reload stack'},
       {id:'heavyRounds',title:'Heavy Rounds',cost:12,description:'One damage stack'},
       {id:'cryoRounds',title:'Cryo Rounds',cost:14,description:'Slow zombies'},
-      {id:'chainShot',title:'Chain Shot',cost:14,description:'Chain damage'},
+      {id:'chainShot',title:'Chain Shot',cost:14,description:'Chain through nearby enemies; +1 jump per stack'},
       {id:'hotRounds',title:'Hot Rounds',cost:14,description:'Burn zombies'},
       {id:'blastRounds',title:'Blast Rounds',cost:14,description:'Area damage'},
       {id:'lifesteal',title:'Lifesteal',cost:14,description:'Heal on hits'},
@@ -1242,6 +1259,7 @@ export class Game {
     this.xpDrops = this.xpDrops.filter((drop) => drop.life > 0);
   }
   private spawnExploderPool(zombie: Zombie) {
+    this.blastVisual(zombie.x,zombie.y,138,'#f27d62');
     if (this.damagePools.length >= 10) this.damagePools.shift();
     this.damagePools.push({ id: this.nextId++, x: zombie.x, y: zombie.y, r: 94, damage: 8 + this.wave * 0.65, life: 5, tick: 0.1 });
     for (const player of this.players.values()) {
@@ -1266,8 +1284,9 @@ export class Game {
     for (let i = 0; i < 2 && this.zombies.length < MAX_ZOMBIES; i++) {
       const angle = zombie.id * 0.71 + i * Math.PI, r = Math.max(10, zombie.r * 0.58), hp = Math.max(12, zombie.maxHp * 0.28);
       const x=clamp(zombie.x+Math.cos(angle)*(zombie.r+r+5),r,this.arenaSize-r),y=clamp(zombie.y+Math.sin(angle)*(zombie.r+r+5),r,this.arenaSize-r);
-      this.link(zombie,{x,y},'#b6df83','fork',i===0);
-      this.zombies.push({ id: this.nextId++, kind: 'shambler', x,y,
+      const id=this.nextId++;
+      this.link({x:zombie.x,y:zombie.y},{x,y,id},'#b6df83','fork',i===0);
+      this.zombies.push({ id, kind: 'shambler', x,y,
         vx: Math.cos(angle) * 35, vy: Math.sin(angle) * 35, kvx: 0, kvy: 0, r, hp, maxHp: hp,
         speed: 90 + this.wave * 2, damage: 5 + this.wave * 0.7, xp: Math.max(2, Math.round(zombie.xp * 0.16)),
         angle, targetId: null, staggerT: 0, hitFlash: 0, hitAngle: 0,
@@ -1656,7 +1675,7 @@ export class Game {
     drone.attackTargetId = undefined;
     drone.attackTimer = 0;
     drone.attackCooldown = Math.max(drone.attackCooldown ?? 0, cooldown);
-    drone.exploded = false; drone.chained = false;
+    drone.exploded = false; drone.chained = false; drone.weaponChained=false;
     drone.attackEscapeAngle = speed > 1 ? Math.atan2(drone.vy, drone.vx) : drone.angle;
   }
 
@@ -1765,15 +1784,16 @@ export class Game {
   }
 
   private explodeFirework(rocket: Bullet) {
-    rocket.hp = 0;
+    if(rocket.splitDone)return;
+    rocket.splitDone=true;rocket.hp = 0;
     const baseAngle = rocket.angle;
     const speed = Math.max(260, Math.hypot(rocket.vx, rocket.vy) * 0.75);
     for (let i = 0; i < FIREWORK_PELLETS && this.bullets.length < MAX_BULLETS; i++) {
       const angle = baseAngle + (i / FIREWORK_PELLETS) * Math.PI * 2;
-      const reach=Math.max(28,Math.min(64,speed*0.085));
-      this.link(rocket,{x:rocket.x+Math.cos(angle)*reach,y:rocket.y+Math.sin(angle)*reach},'#ffd174','fork',i===0);
+      const id=this.nextId++;
+      this.link({x:rocket.x,y:rocket.y},{x:rocket.x,y:rocket.y,id},'#ffd174','fork',i===0);
       this.bullets.push({
-        id: this.nextId++, owner: rocket.owner, x: rocket.x, y: rocket.y,
+        id, owner: rocket.owner, x: rocket.x, y: rocket.y,
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
         r: Math.max(3, rocket.r * 0.45), dmg: rocket.dmg * 0.42, hp: 1,
         life: 0.8, hit: new Set(rocket.hit), kind: 'bullet', angle, maxSpeed: speed, turnRate: 0,
@@ -2074,9 +2094,19 @@ export class Game {
   private weaponImpact(b:Bullet,target:{id:number;x:number;y:number}){
     const owner=this.players.get(b.owner);if(!owner||!b.weapon)return;
     if(b.weapon==='tesla'){
-      const next=this.weaponTargets(owner).filter(t=>t.id!==target.id&&Math.hypot(t.x-target.x,t.y-target.y)<150).sort((a,c)=>Math.hypot(a.x-target.x,a.y-target.y)-Math.hypot(c.x-target.x,c.y-target.y))[0];
-      if(next){this.specialDamage(owner,next.id,b.dmg*0.45);this.link(target,next,'#82c9ff','arc');}
+      // In Survival combine Tesla and Chain Shot into one path, rather than hitting the same victim twice.
+      if(this.mode==='survival'&&this.perkCount(owner,'chainShot')>0)return;
+      if(b.weaponChained)return;b.weaponChained=true;
+      const visited=new Set([target.id]);let from=target;
+      for(let hop=0;hop<3;hop++){
+        const next=this.weaponTargets(owner).filter(t=>!visited.has(t.id)&&Math.hypot(t.x-from.x,t.y-from.y)<=150).sort((a,c)=>Math.hypot(a.x-from.x,a.y-from.y)-Math.hypot(c.x-from.x,c.y-from.y)||a.id-c.id)[0];
+        if(!next)break;
+        visited.add(next.id);this.link(from,next,'#82c9ff','arc',hop===0,hop);
+        this.specialDamage(owner,next.id,b.dmg*0.45*Math.pow(0.72,hop));from=next;
+      }
     }else if(b.weapon==='gravity'){
+      if(b.weaponChained)return;b.weaponChained=true;
+      this.blastVisual(target.x,target.y,145,'#b69ce9','gravity');
       for(const t of this.weaponTargets(owner)){
         const dx=target.x-t.x,dy=target.y-t.y,d=Math.hypot(dx,dy);
         if(d>1&&d<145){t.kvx+=dx/d*45*(1-d/145);t.kvy+=dy/d*45*(1-d/145);}
@@ -2141,27 +2171,38 @@ export class Game {
     bullet.chained = true;
     const stacks = this.perkCount(owner, 'chainShot');
     const radius = 100 + stacks * 25;
-    let target: Zombie | undefined, nearest = radius;
-    for (const zombie of this.zombies) {
-      if (zombie === directHit || zombie.hp <= 0) continue;
-      const distance = Math.hypot(zombie.x - directHit.x, zombie.y - directHit.y);
-      if (distance >= nearest) continue;
-      target = zombie; nearest = distance;
+    const tesla=bullet.weapon==='tesla';
+    const frozen=this.combos(owner).includes('Frozen Storm');
+    const visited=new Set([directHit.id]);let from=directHit;
+    const jumps=Math.min(5,stacks+1+(tesla?1:0));
+    for(let hop=0;hop<jumps;hop++){
+      let target:Zombie|undefined,nearest=radius;
+      for(const z of this.zombies){
+        if(visited.has(z.id)||z.hp<=0)continue;
+        const d=Math.hypot(z.x-from.x,z.y-from.y);
+        if(d>nearest||(d===nearest&&target&&z.id>target.id))continue;
+        target=z;nearest=d;
+      }
+      if(!target)break;
+      visited.add(target.id);
+      this.link(from,target,frozen?'#9ce9ff':tesla?'#82c9ff':'#a5b4ff','arc',hop===0,hop);
+      const chainDamage=damage*(tesla?Math.max(0.45,0.14+stacks*0.06):0.14+stacks*0.06)*Math.pow(0.76,hop)*this.survivalDamageMultiplier(owner,target);
+      this.effect(target,chainDamage,'#9eeaff');
+      target.hp-=chainDamage;
+      if(frozen)target.slowT=Math.max(target.slowT,4);
+      target.damageBy.set(owner.id,(target.damageBy.get(owner.id)??0)+chainDamage);
+      this.applySurvivalHitEffects(owner,target,chainDamage,bullet);
+      target.hitFlash=Math.max(target.hitFlash,0.65);
+      target.hitAngle=Math.atan2(target.y-from.y,target.x-from.x);
+      from=target;
     }
-    if (!target) return;
-    this.link(directHit,target,this.combos(owner).includes('Frozen Storm')?'#9ce9ff':'#a5b4ff','arc');
-    const chainDamage = damage * (0.14 + stacks * 0.06) * this.survivalDamageMultiplier(owner, target);
-    this.effect(target, chainDamage, '#9eeaff');
-      target.hp -= chainDamage;
-    if(this.combos(owner).includes('Frozen Storm'))target.slowT=Math.max(target.slowT,4);
-    target.damageBy.set(owner.id, (target.damageBy.get(owner.id) ?? 0) + chainDamage);
-    this.applySurvivalHitEffects(owner, target, chainDamage, bullet);
-    target.hitFlash = Math.max(target.hitFlash, 0.65);
   }
 
   private explodeSurvivalImpact(bullet: Bullet, directHit: Zombie) {
     bullet.exploded = true;
     const radius = bullet.explosionRadius ?? 0, owner = this.players.get(bullet.owner);
+    if(radius<=0)return;
+    this.blastVisual(bullet.x,bullet.y,radius,owner&&this.combos(owner).includes('Napalm')?'#ff8f55':'#ffba62');
     const splash = bullet.dmg * Math.min(0.62, (this.perkCount(owner, 'blastRounds') > 0 ? 0.42 : 0.28) + this.perkCount(owner, 'shrapnel') * 0.07);
     for (const zombie of this.zombies) {
       if (zombie === directHit || zombie.hp <= 0 || Math.hypot(zombie.x - bullet.x, zombie.y - bullet.y) > radius + zombie.r) continue;
@@ -2292,7 +2333,8 @@ export class Game {
     const exploded=new Set<number>();
     for(let pass=0;pass<this.shapes.length;pass++){
       const source=this.shapes.find(s=>s.explosive&&s.hp<=0&&!exploded.has(s.id));if(!source)break;exploded.add(source.id);
-      this.effect({...source,r:80},0,'#ff8954','destroy');
+      this.blastVisual(source.x,source.y,125,'#ff995b');
+      this.effect({...source,r:42},0,'#ff8954','destroy');
       const owner=source.lastHitBy==null?undefined:this.players.get(source.lastHitBy);
       for(const t of this.shapes){if(t.hp<=0||Math.hypot(t.x-source.x,t.y-source.y)>125+t.r)continue;this.effect(t,28,'#ffcf75');t.hp-=28;t.lastHitBy=source.lastHitBy;}
       for(const p of this.players.values()){if(!p.connected||!p.alive||p.protT>0||Math.hypot(p.x-source.x,p.y-source.y)>125+p.r||(owner?.team!=null&&owner.team===p.team&&owner.id!==p.id))continue;this.hurtPlayer(p,24,owner?.id??null,owner?.name??'an explosive object');}
@@ -2419,6 +2461,7 @@ export class Game {
   snapshotFor(id: number, developer=false): Snapshot | null {
     const me = this.players.get(id);
     if (!me) return null;
+    this.followCombatLinks();
     const near = (x: number, y: number, radius: number) =>
       Math.abs(x - me.x) <= VIEW_HALF + radius && Math.abs(y - me.y) <= VIEW_HALF + radius;
     const currentXp = totalXpForLevel(me.level);
@@ -2429,7 +2472,7 @@ export class Game {
       t: 's', tick: this.tick, mode: this.mode,
       crates:this.crates.filter(c=>near(c.x,c.y,c.r)).map(({id,x,y,r,kind})=>({id,x,y,r,kind})),
       explosiveIds:this.shapes.filter(s=>s.explosive&&near(s.x,s.y,s.r)).map(s=>s.id),
-      beams:this.beams.filter(b=>this.tick-b.tick<=16&&(near(b.x,b.y,100)||near(b.tx,b.ty,100))),
+      beams:this.beams.filter(b=>this.tick-b.tick<=(b.kind==='laser'?8:24)&&(near(b.x,b.y,b.radius??100)||near(b.tx,b.ty,100))),
       ...(this.mode==='royale'?{royale:{phase:this.royalePhase,radius:this.royaleRadius,seconds:Math.ceil(this.royaleTimer),alive:[...this.players.values()].filter(p=>p.connected&&p.alive).length,winner:this.royaleWinner}}:{}),
       ...(this.mode === 'survival' ? { survival: { wave: this.wave, theme: this.waveTheme(), remaining: this.zombies.length + this.waveSpawnRemaining, intermission: this.waveIntermission } } : {}),
       effects: this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ && near(effect.x, effect.y, effect.radius)),
@@ -2437,7 +2480,7 @@ export class Game {
         id: zombie.id, x: r1(zombie.x), y: r1(zombie.y), r: r1(zombie.r),
         hp: r1(zombie.hp), mhp: r1(zombie.maxHp),
         angle: r2(zombie.angle), hitFlash: r2(zombie.hitFlash), hitAngle: r2(zombie.hitAngle),
-        kind: zombie.kind, elite: zombie.elite, protected: this.isZombieProtected(zombie),
+        kind: zombie.kind, elite: zombie.elite, chilled:zombie.slowT>0, burning:(zombie.burnT??0)>0, protected: this.isZombieProtected(zombie),
         visibility: zombie.kind === 'stalker' ? (Math.min(...[...this.players.values()].filter((player) => player.connected && player.alive && !player.downed).map((player) => Math.hypot(player.x - zombie.x, player.y - zombie.y)), Infinity) < 300 ? 1 : 0.07) : 1,
         bossKind: zombie.bossKind, bossPhase: zombie.bossPhase, bossTimer: r2(zombie.bossTimer),
         specialPhase: zombie.specialPhase, specialTimer: r2(zombie.specialTimer),
