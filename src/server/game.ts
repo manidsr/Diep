@@ -46,6 +46,14 @@ const SURVIVAL_PERKS: { id: string; title: string; description: string; max: num
   { id: 'concussiveRounds', title: 'Concussive Rounds', description: '+20% damage-based knockback per stack', max: 3 },
   { id: 'droneTactician', title: 'Drone Tactician', description: '+15% drone damage and +8% drone speed per stack', max: 4 },
 ];
+const EXTRA_PERKS = [{"id":"chainCount","title":"Chain Amount","description":"+1 additional enemy per stack","max":3,"requires":"chainShot","category":"Chain"},{"id":"chainRange","title":"Chain Range","description":"+35 world units per jump per stack","max":4,"requires":"chainShot","category":"Chain"},{"id":"chainDamage","title":"Chain Damage","description":"+10 percentage points of original damage per stack","max":4,"requires":"chainShot","category":"Chain"},{"id":"chainRetention","title":"Chain Retention","description":"+6 percentage points of damage retained each jump per stack","max":4,"requires":"chainShot","category":"Chain"},{"id":"forkShot","title":"Fork Shot","description":"Hits launch 2 seeking-direction projectiles at nearby distinct enemies; 30% damage each","max":1,"requires":"","category":"Fork"},{"id":"forkCount","title":"Fork Amount","description":"+1 branch per stack; +2 Firework pellets","max":3,"requires":"forkShot","category":"Fork"},{"id":"forkDamage","title":"Fork Damage","description":"+10 percentage points of original damage per stack","max":4,"requires":"forkShot","category":"Fork"},{"id":"forkRange","title":"Fork Range","description":"+45 targeting units and +0.12s branch lifetime per stack","max":4,"requires":"forkShot","category":"Fork"},{"id":"forkSpeed","title":"Fork Speed","description":"+15% branch projectile speed per stack","max":4,"requires":"forkShot","category":"Fork"},{"id":"blastRadius","title":"Blast Radius","description":"+20 world units of explosion radius per stack","max":4,"requires":"explosiveImpact","category":"Explosion"},{"id":"blastDamage","title":"Blast Damage","description":"+12 percentage points of original projectile damage as splash per stack","max":4,"requires":"explosiveImpact","category":"Explosion"},{"id":"blastFrequency","title":"Blast Frequency","description":"Periodic Blast Rounds and Shrapnel trigger one shot sooner per stack, minimum 2","max":3,"requires":"blastRounds","category":"Explosion"},{"id":"blastKnockback","title":"Blast Force","description":"+25 outward impulse per stack; bosses remain immovable","max":3,"requires":"explosiveImpact","category":"Explosion"},{"id":"burnDuration","title":"Burn Duration","description":"+1 second of burn per stack","max":4,"requires":"hotRounds","category":"Elemental"},{"id":"burnDamage","title":"Burn Damage","description":"+25% burn damage per stack","max":4,"requires":"hotRounds","category":"Elemental"},{"id":"cryoDuration","title":"Freeze Duration","description":"+1 second of slow per stack","max":4,"requires":"cryoRounds","category":"Elemental"},{"id":"cryoStrength","title":"Freeze Strength","description":"+7 percentage points of movement slow per stack","max":4,"requires":"cryoRounds","category":"Elemental"},{"id":"projectileLife","title":"Projectile Lifetime","description":"+12% lifetime of standard bullets per stack","max":4,"requires":"","category":"Weapons"},{"id":"criticalDamage","title":"Critical Damage","description":"+25 percentage points of critical damage per stack","max":4,"requires":"criticalCore","category":"Weapons"}] as const;
+SURVIVAL_PERKS.push(...EXTRA_PERKS);
+const SHOP_GROUPS:Record<string,string[]> = {
+  Chain:['chainShot'], Fork:[], Explosion:['explosiveImpact','blastRounds','shrapnel'], Elemental:['hotRounds','cryoRounds'],
+  Weapons:['heavyRounds','rapidLoader','longshot','criticalCore','steadyAim','recoilDampers','bossHunter','executioner','armorPiercer','concussiveRounds'],
+  Defense:['heal','lifesteal','medicalSupplies','emergencyShield','ironSkin','fieldMedic','vitalCore','secondWind'],
+  Mobility:['fleetfoot','overdrive','adrenaline'], Support:['droneWingman','droneTactician','scavenger','luckyFind','xpMagnet','rescueProtocol']
+};
 const RARITY_SCORE: Record<RewardRarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3 };
 
 export interface Player {
@@ -82,7 +90,7 @@ export interface Bullet {
   bounces?: number; weapon?: string; turretNext?: number;
   hostile?: boolean;
   hostileName?: string;
-  explosionRadius?: number; exploded?: boolean; chilled?: boolean; chained?: boolean; splitDone?:boolean; weaponChained?:boolean;
+  explosionRadius?: number; exploded?: boolean; chilled?: boolean; chained?: boolean; splitDone?:boolean; weaponChained?:boolean; forked?:boolean; forkChild?:boolean;
 }
 export interface Zombie {
   elite?: boolean;
@@ -94,7 +102,7 @@ export interface Zombie {
   bossAimX: number; bossAimY: number; bossPattern: number;
   specialPhase: ZombieSpecialPhase; specialTimer: number; specialCooldown: number; specialAimX: number; specialAimY: number;
   attackCooldown: number; damageBy: Map<number, number>; slowT: number;
-  burnT?: number; burnDps?: number; burnTick?: number; burnOwnerId?: number | null;
+  slowStrength?:number; burnT?: number; burnDps?: number; burnTick?: number; burnOwnerId?: number | null;
 }
 export interface Shape {
   id: number; kind: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
@@ -379,7 +387,7 @@ export class Game {
     this.time += dt;
     this.tick++;
     if (this.mode === 'royale' && !this.updateRoyale(dt)) return;
-    this.beams = this.beams.filter(b=>this.tick-b.tick<=24);
+    this.beams = this.beams.filter(b=>this.tick-b.tick<=30);
     this.updateCrates(dt);
     this.combatEffects = this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ);
     for (const p of this.players.values()) if (p.connected && p.alive && p.hp>0 && !p.downed) this.updatePlayer(p, dt);
@@ -481,28 +489,60 @@ export class Game {
     if(has('droneWingman')&&has('rapidLoader'))out.push('Drone Army');
     return out;
   }
-  private shopOffers(p:Player, developer=false){
+  private perkRequirement(p:Player,id:string):string|undefined{
+    const e=EXTRA_PERKS.find(k=>k.id===id);
+    if(!e?.requires)return;
+    if(e.requires==='explosiveImpact'&&(this.perkCount(p,'blastRounds')||this.perkCount(p,'shrapnel')))return;
+    if(e.requires==='blastRounds'&&this.perkCount(p,'shrapnel'))return;
+    if(e.requires==='forkShot'&&p.cls==='firework')return;
+    if(e.requires==='chainShot'&&p.cls==='tesla')return;
+    if(this.perkCount(p,e.requires)>0)return;
+    return 'Requires '+(SURVIVAL_PERKS.find(k=>k.id===e.requires)?.title??e.requires);
+  }
+  private upgradeValue(p:Player,id:string,delta=0):string|undefined{
+    const n=(key:string)=>this.perkCount(p,key)+(key===id?delta:0);
+    const pct=(v:number)=>Math.round(v*100)+'%';
+    const tesla=p.cls==='tesla',firework=p.cls==='firework',chain=n('chainShot'),fork=n('forkShot');
+    switch(id){
+      case 'chainShot':case 'chainCount': return (chain||tesla?Math.min(8,(chain?chain+1+(tesla?1:0):3)+n('chainCount')):0)+' jumps';
+      case 'chainRange':return (chain?100+chain*25+35*n(id):150+35*n(id))+' units';
+      case 'chainDamage':return pct((tesla?Math.max(0.45,0.14+chain*0.06):0.14+chain*0.06)+0.10*n(id));
+      case 'chainRetention':return pct(Math.min(0.98,(tesla&&!chain?0.72:0.76)+0.06*n(id)))+' retained';
+      case 'forkShot':case 'forkCount':return (firework?FIREWORK_PELLETS+2*n('forkCount'):fork?2+n('forkCount'):0)+' branches';
+      case 'forkDamage':return pct((firework?0.42:0.30)+0.10*n(id));
+      case 'forkRange':return (160+45*n(id))+' units';
+      case 'forkSpeed':return pct(1+0.15*n(id))+' speed';
+      case 'blastRadius':return '+'+20*n(id)+' units';
+      case 'blastDamage':return '+'+12*n(id)+'% of shot';
+      case 'blastFrequency':return Math.max(2,5-n(id))+' / '+Math.max(2,4-n(id))+' shots';
+      case 'blastKnockback':return '+'+25*n(id)+' impulse';
+      case 'burnDuration':case 'cryoDuration':return (3+n(id))+'s';
+      case 'burnDamage':return pct(1+0.25*n(id))+' burn';
+      case 'cryoStrength':return pct(0.38+0.07*n(id))+' slow';
+      case 'projectileLife':return pct(1+0.12*n(id))+' lifetime';
+      case 'criticalDamage':return pct(2+0.25*n(id))+' critical';
+    }
+  }
+  private shopOffers(p:Player, developer=false):NonNullable<Snapshot['me']['shop']>{
     if(this.mode!=='survival'||(!developer&&this.waveIntermission<=0)||!p.alive||p.downed||this.survivalGameOver)return [];
-    if(developer)return [{id:'heal',title:'Repair',cost:0,description:'Restore 40% health'},...SURVIVAL_PERKS.filter(k=>(p.survivalPerks[k.id]??0)<k.max).map(k=>({id:k.id,title:k.title,cost:0,description:k.description+' · '+(p.survivalPerks[k.id]??0)+'/'+k.max}))];
-    const offers=[{id:'heal',title:'Repair',cost:8,description:'Restore 40% health'},
-      {id:'rapidLoader',title:'Rapid Loader',cost:12,description:'One faster reload stack'},
-      {id:'heavyRounds',title:'Heavy Rounds',cost:12,description:'One damage stack'},
-      {id:'cryoRounds',title:'Cryo Rounds',cost:14,description:'Slow zombies'},
-      {id:'chainShot',title:'Chain Shot',cost:14,description:'Chain through nearby enemies; +1 jump per stack'},
-      {id:'hotRounds',title:'Hot Rounds',cost:14,description:'Burn zombies'},
-      {id:'blastRounds',title:'Blast Rounds',cost:14,description:'Area damage'},
-      {id:'lifesteal',title:'Lifesteal',cost:14,description:'Heal on hits'},
-      {id:'criticalCore',title:'Critical Core',cost:14,description:'Critical shots'},
-      {id:'droneWingman',title:'Drone Wingman',cost:15,description:'Extra drone'}];
-    return offers.filter(o=>o.id==='heal'?p.hp<p.maxHp: SURVIVAL_PERKS.some(k=>k.id===o.id&&(p.survivalPerks[o.id]??0)<k.max));
+    const legacyPrices:Record<string,number>={rapidLoader:12,heavyRounds:12,cryoRounds:14,chainShot:14,hotRounds:14,blastRounds:14,lifesteal:14,criticalCore:14,droneWingman:15};
+    const offers:NonNullable<Snapshot['me']['shop']>=[{id:'heal',title:'Repair',cost:developer?0:8,description:'Restore 40% health',category:'Defense',locked:p.hp>=p.maxHp?'Full health':undefined}];
+    for(const k of SURVIVAL_PERKS){
+      const rank=this.perkCount(p,k.id),extra=EXTRA_PERKS.find(e=>e.id===k.id);
+      const category=extra?.category??Object.keys(SHOP_GROUPS).find(g=>SHOP_GROUPS[g].includes(k.id))??'Weapons';
+      const locked=rank>=k.max?'MAX LEVEL':this.perkRequirement(p,k.id);
+      offers.push({id:k.id,title:k.title,description:k.description,category,rank,max:k.max,locked,
+        cost:developer?0:(legacyPrices[k.id]??(extra?16+rank*3:14)),value:this.upgradeValue(p,k.id),nextValue:rank<k.max?this.upgradeValue(p,k.id,1):undefined});
+    }
+    return offers;
   }
   buyShop(id:number,item:string,developer=false):boolean{
     const p=this.players.get(id);if(!p)return false;
     const offer=this.shopOffers(p,developer).find(o=>o.id===item);
-    if(!offer||(p.coins??0)<offer.cost)return false;
+    if(!offer||offer.locked||(p.coins??0)<offer.cost)return false;
     p.coins=(p.coins??0)-offer.cost;
     if(item==='heal')p.hp=Math.min(p.maxHp,p.hp+p.maxHp*0.4);
-    else {p.survivalPerks[item]=(p.survivalPerks[item]??0)+1;this.refresh(p);}
+    else{p.survivalPerks[item]=(p.survivalPerks[item]??0)+1;this.refresh(p);}
     return true;
   }
 
@@ -759,7 +799,8 @@ export class Game {
     }
     const stagger = zombie.staggerT > 0 ? (zombie.bossKind ? 1 : 0.32) : 1;
     const commanderBoost = !zombie.bossKind && this.zombies.some((ally) => ally !== zombie && ally.kind === 'commander' && ally.hp > 0 && Math.hypot(ally.x - zombie.x, ally.y - zombie.y) <= 245) ? 1.28 : 1;
-    const slowMultiplier = zombie.slowT > 0 ? 0.62 : 1;
+    const slowMultiplier = zombie.slowT > 0 ? 1-(zombie.slowStrength??0.38) : 1;
+    if(zombie.slowT<=0)zombie.slowStrength=undefined;
     desiredX *= stagger * commanderBoost * slowMultiplier; desiredY *= stagger * commanderBoost * slowMultiplier;
     const steer = 1 - Math.exp(-dt * (zombie.bossKind === 'breaker' && zombie.bossPhase === 'charge' ? 8.5 : 3.8));
     zombie.vx += (desiredX - zombie.vx) * steer; zombie.vy += (desiredY - zombie.vy) * steer;
@@ -1414,13 +1455,14 @@ export class Game {
     else if (kind === 'drone') { speed *= 0.55; life = DRONE_LIFE_S; }
 
     const perkDamage = (this.boost(p,'damage')?1.5:1)*(this.mode === 'survival' ? 1 + this.perkCount(p, 'heavyRounds') * 0.15 : 1);
-    const critical = this.mode === 'survival' && this.rng() < this.perkCount(p, 'criticalCore') * 0.06 ? 2 : 1;
+    if(this.mode==='survival'&&kind==='bullet')life*=1+0.12*this.perkCount(p,'projectileLife');
+    const critical = this.mode === 'survival' && this.rng() < this.perkCount(p, 'criticalCore') * 0.06 ? 2+0.25*this.perkCount(p,'criticalDamage') : 1;
     let explosionRadius: number | undefined, chilled = false;
     if (this.mode === 'survival') {
       if (kind !== 'drone') {
         p.shotsFired++;
-        if (this.perkCount(p, 'blastRounds') > 0 && p.shotsFired % 5 === 0) explosionRadius = 64;
-        if (this.perkCount(p, 'shrapnel') > 0 && p.shotsFired % 4 === 0)
+        if (this.perkCount(p, 'blastRounds') > 0 && p.shotsFired % Math.max(2,5-this.perkCount(p,'blastFrequency')) === 0) explosionRadius = 64;
+        if (this.perkCount(p, 'shrapnel') > 0 && p.shotsFired % Math.max(2,4-this.perkCount(p,'blastFrequency')) === 0)
           explosionRadius = Math.max(explosionRadius ?? 0, 58 + this.perkCount(p, 'shrapnel') * 12);
       }
       if (kind !== 'drone' && this.perkCount(p, 'explosiveImpact') > 0)
@@ -1787,16 +1829,18 @@ export class Game {
     if(rocket.splitDone)return;
     rocket.splitDone=true;rocket.hp = 0;
     const baseAngle = rocket.angle;
-    const speed = Math.max(260, Math.hypot(rocket.vx, rocket.vy) * 0.75);
-    for (let i = 0; i < FIREWORK_PELLETS && this.bullets.length < MAX_BULLETS; i++) {
-      const angle = baseAngle + (i / FIREWORK_PELLETS) * Math.PI * 2;
+    const owner=this.mode==='survival'?this.players.get(rocket.owner):undefined;
+    const count=FIREWORK_PELLETS+2*this.perkCount(owner,'forkCount');
+    const speed = Math.max(260, Math.hypot(rocket.vx, rocket.vy) * 0.75)*(1+0.15*this.perkCount(owner,'forkSpeed'));
+    for (let i = 0; i < count && this.bullets.length < MAX_BULLETS; i++) {
+      const angle = baseAngle + (i / count) * Math.PI * 2;
       const id=this.nextId++;
       this.link({x:rocket.x,y:rocket.y},{x:rocket.x,y:rocket.y,id},'#ffd174','fork',i===0);
       this.bullets.push({
         id, owner: rocket.owner, x: rocket.x, y: rocket.y,
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-        r: Math.max(3, rocket.r * 0.45), dmg: rocket.dmg * 0.42, hp: 1,
-        life: 0.8, hit: new Set(rocket.hit), kind: 'bullet', angle, maxSpeed: speed, turnRate: 0,
+        r: Math.max(3, rocket.r * 0.45), dmg: rocket.dmg * (0.42+0.10*this.perkCount(owner,'forkDamage')), hp: 1,
+        life: 0.8+0.12*this.perkCount(owner,'forkRange'), forkChild:true, hit: new Set(rocket.hit), kind: 'bullet', angle, maxSpeed: speed, turnRate: 0,
         ...(rocket.chilled ? { chilled: true } : {}),
       });
     }
@@ -2046,7 +2090,8 @@ export class Game {
       zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
       if (owner && this.mode === 'survival') {
         this.applySurvivalHitEffects(owner, zombie, dealt, bullet);
-        if (this.perkCount(owner, 'chainShot') > 0 && !bullet.chained) this.chainSurvivalImpact(bullet, zombie, dealt);
+        if (!bullet.forkChild && (this.perkCount(owner,'chainShot')>0||bullet.weapon==='tesla') && !bullet.chained) this.chainSurvivalImpact(bullet,zombie,dealt);
+        if(!bullet.forkChild&&!bullet.forked&&bullet.kind==='bullet'&&this.perkCount(owner,'forkShot')>0)this.forkSurvivalImpact(bullet,zombie,owner);
         if (bullet.explosionRadius && !bullet.exploded) this.explodeSurvivalImpact(bullet, zombie);
       }
       const shotSpeed = Math.hypot(bullet.vx, bullet.vy);
@@ -2095,7 +2140,7 @@ export class Game {
     const owner=this.players.get(b.owner);if(!owner||!b.weapon)return;
     if(b.weapon==='tesla'){
       // In Survival combine Tesla and Chain Shot into one path, rather than hitting the same victim twice.
-      if(this.mode==='survival'&&this.perkCount(owner,'chainShot')>0)return;
+      if(this.mode==='survival')return;
       if(b.weaponChained)return;b.weaponChained=true;
       const visited=new Set([target.id]);let from=target;
       for(let hop=0;hop<3;hop++){
@@ -2140,11 +2185,11 @@ export class Game {
     if (this.mode !== 'survival' || !owner) return;
     const lifesteal = this.perkCount(owner, 'lifesteal');
     if (lifesteal > 0) owner.hp = Math.min(owner.maxHp, owner.hp + dealt * 0.05 * lifesteal * (this.combos(owner).includes('Vampire Core')?1.5:1));
-    if (bullet.chilled) zombie.slowT = Math.max(zombie.slowT, 3);
+    if(bullet.chilled){zombie.slowT=Math.max(zombie.slowT,3+this.perkCount(owner,'cryoDuration'));zombie.slowStrength=Math.max(zombie.slowStrength??0.38,0.38+0.07*this.perkCount(owner,'cryoStrength'));}
     const hotStacks = this.perkCount(owner, 'hotRounds');
     if (hotStacks > 0) {
-      zombie.burnT = Math.max(zombie.burnT ?? 0, 3);
-      zombie.burnDps = Math.max(zombie.burnDps ?? 0, dealt * 0.09 * hotStacks);
+      zombie.burnT = Math.max(zombie.burnT ?? 0, 3+this.perkCount(owner,'burnDuration'));
+      zombie.burnDps = Math.max(zombie.burnDps ?? 0, dealt * 0.09 * hotStacks*(1+0.25*this.perkCount(owner,'burnDamage')));
       zombie.burnTick = Math.min(zombie.burnTick ?? 0.5, 0.5);
       zombie.burnOwnerId = owner.id;
     }
@@ -2170,11 +2215,11 @@ export class Game {
     if (!owner) return;
     bullet.chained = true;
     const stacks = this.perkCount(owner, 'chainShot');
-    const radius = 100 + stacks * 25;
+    const radius = (stacks?100 + stacks * 25:150)+35*this.perkCount(owner,'chainRange');
     const tesla=bullet.weapon==='tesla';
     const frozen=this.combos(owner).includes('Frozen Storm');
     const visited=new Set([directHit.id]);let from=directHit;
-    const jumps=Math.min(5,stacks+1+(tesla?1:0));
+    const jumps=Math.min(8,(stacks?stacks+1+(tesla?1:0):3)+this.perkCount(owner,'chainCount'));
     for(let hop=0;hop<jumps;hop++){
       let target:Zombie|undefined,nearest=radius;
       for(const z of this.zombies){
@@ -2186,7 +2231,7 @@ export class Game {
       if(!target)break;
       visited.add(target.id);
       this.link(from,target,frozen?'#9ce9ff':tesla?'#82c9ff':'#a5b4ff','arc',hop===0,hop);
-      const chainDamage=damage*(tesla?Math.max(0.45,0.14+stacks*0.06):0.14+stacks*0.06)*Math.pow(0.76,hop)*this.survivalDamageMultiplier(owner,target);
+      const chainDamage=damage*((tesla?Math.max(0.45,0.14+stacks*0.06):0.14+stacks*0.06)+0.10*this.perkCount(owner,'chainDamage'))*Math.pow(Math.min(0.98,(tesla&&!stacks?0.72:0.76)+0.06*this.perkCount(owner,'chainRetention')),hop)*this.survivalDamageMultiplier(owner,target);
       this.effect(target,chainDamage,'#9eeaff');
       target.hp-=chainDamage;
       if(frozen)target.slowT=Math.max(target.slowT,4);
@@ -2198,17 +2243,39 @@ export class Game {
     }
   }
 
+  private forkSurvivalImpact(bullet:Bullet,direct:Zombie,owner:Player){
+    bullet.forked=true;
+    const range=160+45*this.perkCount(owner,'forkRange'), count=2+this.perkCount(owner,'forkCount');
+    const targets=this.zombies.filter(z=>z.hp>0&&z.id!==direct.id&&!bullet.hit.has(z.id)&&Math.hypot(z.x-direct.x,z.y-direct.y)<=range)
+      .sort((a,b)=>Math.hypot(a.x-direct.x,a.y-direct.y)-Math.hypot(b.x-direct.x,b.y-direct.y)||a.id-b.id).slice(0,count);
+    const speed=Math.max(300,Math.hypot(bullet.vx,bullet.vy))*(1+0.15*this.perkCount(owner,'forkSpeed'));
+    for(const [i,z] of targets.entries()){
+      if(this.bullets.length>=MAX_BULLETS)break;
+      // Aim ahead using current velocity; the child is an actual projectile and can miss.
+      const lead=Math.min(0.30,Math.hypot(z.x-direct.x,z.y-direct.y)/speed);
+      const angle=Math.atan2(z.y+(z.vy+z.kvy)*lead-direct.y,z.x+(z.vx+z.kvx)*lead-direct.x);
+      const id=this.nextId++;
+      this.bullets.push({id,owner:owner.id,x:direct.x,y:direct.y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,r:Math.max(4,bullet.r*0.65),
+        dmg:bullet.dmg*(0.30+0.10*this.perkCount(owner,'forkDamage')),hp:1,life:Math.max(0.55,range/speed+0.22)+0.12*this.perkCount(owner,'forkRange'),
+        hit:new Set([...bullet.hit,direct.id]),kind:'bullet',angle,maxSpeed:speed,turnRate:0,forkChild:true,chilled:bullet.chilled});
+      this.link({x:direct.x,y:direct.y},{id,x:direct.x,y:direct.y},'#ffd174','fork',i===0);
+    }
+  }
+
   private explodeSurvivalImpact(bullet: Bullet, directHit: Zombie) {
     bullet.exploded = true;
-    const radius = bullet.explosionRadius ?? 0, owner = this.players.get(bullet.owner);
+    const owner = this.players.get(bullet.owner), radius = (bullet.explosionRadius ?? 0)+20*this.perkCount(owner,'blastRadius');
     if(radius<=0)return;
     this.blastVisual(bullet.x,bullet.y,radius,owner&&this.combos(owner).includes('Napalm')?'#ff8f55':'#ffba62');
-    const splash = bullet.dmg * Math.min(0.62, (this.perkCount(owner, 'blastRounds') > 0 ? 0.42 : 0.28) + this.perkCount(owner, 'shrapnel') * 0.07);
+    const splash = bullet.dmg * (Math.min(0.62, (this.perkCount(owner, 'blastRounds') > 0 ? 0.42 : 0.28) + this.perkCount(owner, 'shrapnel') * 0.07)+0.12*this.perkCount(owner,'blastDamage'));
     for (const zombie of this.zombies) {
       if (zombie === directHit || zombie.hp <= 0 || Math.hypot(zombie.x - bullet.x, zombie.y - bullet.y) > radius + zombie.r) continue;
       const dealt = splash * this.survivalDamageMultiplier(owner, zombie);
       this.effect(zombie, dealt, '#ffda83');
-      zombie.hp -= dealt; zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
+      zombie.hp -= dealt;
+      const force=25*this.perkCount(owner,'blastKnockback'),d=Math.hypot(zombie.x-bullet.x,zombie.y-bullet.y);
+      if(force>0&&!zombie.bossKind&&d>0.01){zombie.kvx+=(zombie.x-bullet.x)/d*force;zombie.kvy+=(zombie.y-bullet.y)/d*force;}
+      zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
       this.applySurvivalHitEffects(owner, zombie, dealt, bullet);
       if(owner&&this.combos(owner).includes('Napalm')) {zombie.burnT=Math.max(zombie.burnT??0,3);zombie.burnDps=Math.max(zombie.burnDps??0,dealt*0.14);zombie.burnOwnerId=owner.id;zombie.burnTick=0.5;}
     }
@@ -2376,7 +2443,7 @@ export class Game {
   private reloadDelay(p: Player): number { return p.d.reload * (this.boost(p,'rapid')?0.65:1)*Math.pow(0.9, this.mode === 'survival' ? this.perkCount(p, 'rapidLoader') : 0); }
   private queueRewardOffer(player: Player, bossReward: boolean) {
     if (player.rewardOffers.length >= 5) return;
-    const available = SURVIVAL_PERKS.filter((perk) => (player.survivalPerks[perk.id] ?? 0) < perk.max);
+    const available = SURVIVAL_PERKS.filter((perk) => (player.survivalPerks[perk.id] ?? 0) < perk.max && !this.perkRequirement(player,perk.id));
     const cards: RewardCardSnap[] = [];
     while (cards.length < 3 && available.length) {
       const perk = available.splice(Math.floor(this.rng() * available.length), 1)[0]!;
@@ -2404,7 +2471,7 @@ export class Game {
   chooseSurvivalReward(id: number, perkId: string): boolean {
     const player = this.players.get(id), offer = player?.rewardOffers[0];
     const card = offer?.cards.find((entry) => entry.id === perkId), perk = SURVIVAL_PERKS.find((entry) => entry.id === perkId);
-    if (this.mode !== 'survival' || !player?.alive || !card || !perk) return false;
+    if (this.mode !== 'survival' || !player?.alive || !card || !perk || this.perkRequirement(player,perkId)) return false;
     player.survivalPerks[perkId] = Math.min(perk.max, (player.survivalPerks[perkId] ?? 0) + 1);
     this.refresh(player);
     player.rewardOffers.shift(); return true;
@@ -2472,7 +2539,7 @@ export class Game {
       t: 's', tick: this.tick, mode: this.mode,
       crates:this.crates.filter(c=>near(c.x,c.y,c.r)).map(({id,x,y,r,kind})=>({id,x,y,r,kind})),
       explosiveIds:this.shapes.filter(s=>s.explosive&&near(s.x,s.y,s.r)).map(s=>s.id),
-      beams:this.beams.filter(b=>this.tick-b.tick<=(b.kind==='laser'?8:24)&&(near(b.x,b.y,b.radius??100)||near(b.tx,b.ty,100))),
+      beams:this.beams.filter(b=>this.tick-b.tick<=(b.kind==='laser'?8:30)&&(near(b.x,b.y,b.radius??100)||near(b.tx,b.ty,100))),
       ...(this.mode==='royale'?{royale:{phase:this.royalePhase,radius:this.royaleRadius,seconds:Math.ceil(this.royaleTimer),alive:[...this.players.values()].filter(p=>p.connected&&p.alive).length,winner:this.royaleWinner}}:{}),
       ...(this.mode === 'survival' ? { survival: { wave: this.wave, theme: this.waveTheme(), remaining: this.zombies.length + this.waveSpawnRemaining, intermission: this.waveIntermission } } : {}),
       effects: this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ && near(effect.x, effect.y, effect.radius)),

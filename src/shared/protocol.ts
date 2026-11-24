@@ -111,7 +111,7 @@ export interface SelfSnap {
   cls: string; opts: string[]; fov: number; team: TeamId | null;
   rewards: RewardCardSnap[]; rewardTimer: number;
   devShop?: boolean;
-  coins?: number; shop?: {id:string; title:string; cost:number; description:string}[]; combos?: string[]; streak?: number; streakSerial?: number; powerups?: Partial<Record<Powerup,number>>;
+  coins?: number; shop?: {id:string; title:string; cost:number; description:string; category?:string; rank?:number; max?:number; locked?:string; value?:string; nextValue?:string}[]; combos?: string[]; streak?: number; streakSerial?: number; powerups?: Partial<Record<Powerup,number>>;
 }
 export interface CombatEffect {
   tick: number; x: number; y: number; radius: number;

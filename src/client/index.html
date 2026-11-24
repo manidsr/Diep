@@ -481,6 +481,19 @@
   @media(max-width:330px){#shop-items{grid-template-columns:1fr}}
   @media(max-height:500px){.shop-header{padding-top:8px;padding-bottom:5px}.shop-heading h2{font-size:17px}.shop-header-icon{width:34px;height:34px}.shop-meta{padding-bottom:6px}.shop-combos{padding-top:5px;padding-bottom:5px}.shop-footer{display:none}#shop-items{padding-top:7px;padding-bottom:7px}}
   @media(prefers-reduced-motion:reduce){#shop-items .shop-item{transition:none}}
+  #shop-tabs{display:flex;flex:none;gap:6px;overflow-x:auto;padding:9px 12px;border-bottom:1px solid #35475b;touch-action:pan-x;scrollbar-width:thin}
+  #shop-tabs button{flex:none;display:flex;align-items:center;gap:5px;padding:8px 10px;min-height:42px;background:#223346;border:1px solid #40546a;color:#b7c8d9;font-size:11px;font-weight:800;white-space:nowrap}
+  #shop-tabs button[aria-pressed=true]{background:#2d6486;color:#fff;border-color:#80c7ed}
+  #shop-tabs svg{width:17px;height:17px;flex:none}
+  .shop-rank{display:flex;gap:3px;align-items:center;font-size:10px;color:#a9bed0;font-weight:800}
+  .shop-pip{width:10px;height:5px;border-radius:2px;background:#44566a}
+  .shop-pip.active{background:var(--item-accent)}
+  .shop-stat{grid-column:1/-1;display:flex;gap:5px;align-items:center;font-size:11px;font-weight:800;color:#bacadb;flex-wrap:wrap}
+  .shop-stat b{color:#a7efd1}
+  .shop-lock{grid-column:1/-1;font-size:10px;color:#e5b98b}
+  #shop-items .shop-item{align-content:start;grid-template-rows:auto;min-height:110px}
+  #shop-items .shop-item:disabled .shop-icon,#shop-items .shop-item:disabled .shop-info{opacity:.85}
+  @media(max-width:420px){#shop-tabs{padding:6px 9px;gap:5px}#shop-tabs button{padding:7px;font-size:10px}.shop-stat{font-size:10px}}
 </style>
 </head>
 <body>
@@ -545,6 +558,7 @@
     </header>
     <div class="shop-meta"><div class="shop-wallet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#e8bc53" stroke="#a77a28"/><path d="M12 7v10" stroke="#77551f" stroke-linecap="round"/><path d="M8 10h6a2 2 0 0 1 0 4H8" stroke="#77551f" stroke-linecap="round"/></svg><span id="shop-coins">0 coins</span></div><span class="shop-clock" id="shop-clock">Next wave</span></div>
     <div class="shop-combos"><strong>Combos</strong><span id="shop-combo-empty">Combine perks to unlock bonuses.</span><span id="shop-combo-list" style="display:contents"></span></div>
+    <div id="shop-tabs" role="group" aria-label="Upgrade categories"></div>
     <div id="shop-items" aria-label="Available upgrades"></div>
     <footer class="shop-footer">Tap a card to buy. Upgrades last for the current run.</footer>
   </section>

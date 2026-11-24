@@ -399,3 +399,33 @@ test('explosive perk reports actual radius even without secondary victims',()=>{
   const blast=game.snapshotFor(player.id)!.beams!.find(b=>b.kind==='blast');
   assert.ok(blast);assert.equal(blast.radius,64);assert.equal(blast.x,z.x);assert.equal(blast.y,z.y);
 });
+
+
+test('categorized shop enforces prerequisites and shows current and next chain stats',()=>{
+  const {game,player}=setup();
+  assert.equal(game.buyShop(player.id,'chainRange',true),false);
+  assert.ok(game.buyShop(player.id,'chainShot',true));
+  const offer=game.snapshotFor(player.id,true)!.me.shop!.find(o=>o.id==='chainRange')!;
+  assert.equal(offer.category,'Chain');assert.equal(offer.value,'125 units');assert.equal(offer.nextValue,'160 units');
+  assert.ok(game.buyShop(player.id,'chainRange',true));
+  assert.equal(player.survivalPerks.chainRange,1);
+});
+test('fork upgrades spawn finite real child projectiles, with no recursive branching',()=>{
+  const {game,player}=setup();
+  for(const id of ['forkShot','forkCount','forkDamage','forkRange','forkSpeed'])assert.ok(game.buyShop(player.id,id,true));
+  const direct=zombie({id:9920,x:442}),others=[zombie({id:9921,x:500,y:450}),zombie({id:9922,x:560,y:400}),zombie({id:9923,x:560,y:450})];
+  game.zombies=[direct,...others];
+  const b=shotFor(player,direct,{dmg:20});
+  hit(game,b,direct);
+  const children=game.bullets.filter(b=>b.forkChild);
+  assert.equal(children.length,3);assert.ok(children.every(b=>b.dmg===8&&b.hit.has(direct.id)));
+  hit(game,children[0],others[0]);
+  assert.equal(game.bullets.filter(b=>b.forkChild).length,3);
+});
+test('independent chain amount and range affect actual multi-hop attacks',()=>{
+  const {game,player}=setup();
+  for(const id of ['chainShot','chainCount','chainRange','chainDamage','chainRetention'])assert.ok(game.buyShop(player.id,id,true));
+  const z=Array.from({length:5},(_,i)=>zombie({id:9950+i,x:442+i*150,y:400}));game.zombies=z;
+  hit(game,shotFor(player,z[0],{dmg:20}),z[0]);
+  assert.ok(z.slice(1,4).every(t=>t.hp<t.maxHp));assert.equal(z[4].hp,z[4].maxHp);
+});

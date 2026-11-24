@@ -528,7 +528,15 @@ $('shop-close').addEventListener('click',()=>closeShop(true));
 $('dev-shop').addEventListener('click',()=>{if(playing&&!shopToggle.hidden&&devCheatsEnabled&&shopPanel.hidden)shopToggle.click();});
 shopPanel.addEventListener('click',event=>{if(event.target===shopPanel)closeShop(true);});
 window.addEventListener('keydown',event=>{if(shopPanel.hidden)return;if(event.key==='Escape'){event.preventDefault();closeShop(true);}else if(event.key==='Tab'){const buttons=Array.from(shopPanel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));if(!buttons.length)return;const first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});
+const shopCategories=[['All','combo'],['Chain','chainShot'],['Fork','droneWingman'],['Explosion','blastRounds'],['Elemental','hotRounds'],['Weapons','heavyRounds'],['Defense','heal'],['Mobility','rapidLoader'],['Support','droneWingman']] as const;
+let shopCategory='All',lastShopState:SelfSnap|undefined,lastShopSurvival:Snapshot['survival']|undefined;
+const shopTabs=$('shop-tabs');
+for(const [name,iconId] of shopCategories){
+  const btn=document.createElement('button');btn.type='button';btn.dataset.category=name;btn.setAttribute('aria-pressed',String(name==='All'));btn.append(shopIcon(iconId),document.createTextNode(name));
+  btn.addEventListener('click',()=>{shopCategory=name;shopKey='';$('shop-items').scrollTop=0;if(lastShopState)updateShop(lastShopState,lastShopSurvival);});shopTabs.append(btn);
+}
 function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
+  lastShopState=m;lastShopSurvival=survival;
   const offers=m.shop??[],coins=m.coins??0,developer=m.devShop===true;
   shopToggle.hidden=!offers.length;$('shop-toggle-balance').textContent=developer?'DEV':String(coins)+'¢';
   $('dev-shop').hidden=!developer||!offers.length;
@@ -536,20 +544,25 @@ function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
   const remaining=Math.max(0,Math.ceil(survival?.intermission??0));
   const clock=$('shop-clock');clock.textContent=developer?'DEV · Always open':'Next wave · '+remaining+'s';clock.classList.toggle('urgent',!developer&&remaining<=3);
   $('shop-subtitle').textContent=developer?'Test any perk and combination for free':survival?'Wave '+survival.wave+' cleared · Upgrade your tank':'Between-wave upgrades';
-  const key=JSON.stringify([offers,coins,m.combos,developer]);if(key===shopKey)return;shopKey=key;
+  const key=JSON.stringify([offers,coins,m.combos,developer,shopCategory]);if(key===shopKey)return;shopKey=key;
   $('shop-coins').textContent=developer?'Free test upgrades':coins+' coins';
   const comboList=$('shop-combo-list');comboList.replaceChildren();$('shop-combo-empty').hidden=!!m.combos?.length;
   for(const name of m.combos??[]){const chip=document.createElement('span');chip.className='shop-combo-chip';chip.append(shopIcon('combo'),document.createTextNode(name));comboList.append(chip);}
   const list=$('shop-items'),scroll=list.scrollTop,focused=(document.activeElement as HTMLElement|null)?.dataset.shopId;
   list.replaceChildren();
-  for(const offer of offers){
-    const btn=document.createElement('button');btn.type='button';btn.className='shop-item';btn.dataset.shopId=offer.id;btn.style.setProperty('--item-accent',(shopIcons[offer.id]??shopIcons.combo).color);
-    const affordable=coins>=offer.cost;btn.disabled=!affordable;btn.setAttribute('aria-label',offer.title+', '+offer.description+', '+offer.cost+' coins'+(affordable?'':', not enough coins'));
-    const icon=document.createElement('span');icon.className='shop-icon';icon.append(shopIcon(offer.id));
+  for(const tab of Array.from(shopTabs.querySelectorAll('button')))tab.setAttribute('aria-pressed',String(tab.dataset.category===shopCategory));
+  for(const offer of offers.filter(o=>shopCategory==='All'||o.category===shopCategory)){
+    const btn=document.createElement('button');btn.type='button';btn.className='shop-item';btn.dataset.shopId=offer.id;const family=shopCategories.find(c=>c[0]===offer.category)?.[1]??'combo';const iconId=shopIcons[offer.id]?offer.id:family;btn.style.setProperty('--item-accent',(shopIcons[iconId]??shopIcons.combo).color);
+    const affordable=coins>=offer.cost&&!offer.locked;btn.disabled=!affordable;btn.setAttribute('aria-label',offer.title+', '+offer.description+', '+offer.cost+' coins'+(affordable?'':', not enough coins'));
+    const icon=document.createElement('span');icon.className='shop-icon';icon.append(shopIcon(iconId));
     const info=document.createElement('span');info.className='shop-info';const title=document.createElement('strong');title.textContent=offer.title;const desc=document.createElement('small');desc.textContent=offer.description;info.append(title,desc);
+    if(offer.max){const rank=document.createElement('span');rank.className='shop-rank';rank.append(document.createTextNode((offer.rank??0)+'/'+offer.max));for(let i=0;i<offer.max;i++){const pip=document.createElement('span');pip.className='shop-pip'+(i<(offer.rank??0)?' active':'');rank.append(pip);}info.append(rank);}
+    btn.append(icon,info);
+    if(offer.value){const stat=document.createElement('span');stat.className='shop-stat';stat.append(document.createTextNode(offer.value));if(offer.nextValue&&offer.nextValue!==offer.value){const next=document.createElement('b');next.textContent='→ '+offer.nextValue;stat.append(next);}btn.append(stat);}
+    if(offer.locked&&offer.locked!=='MAX LEVEL'){const lock=document.createElement('span');lock.className='shop-lock';lock.textContent=offer.locked;btn.append(lock);}
     const bottom=document.createElement('span');bottom.className='shop-buy-row';const price=document.createElement('span');price.className='shop-price';price.append(coinIcon(),document.createTextNode(developer?'FREE':String(offer.cost)));
-    const action=document.createElement('span');action.className='shop-buy-label';action.textContent=developer?'ADD':affordable?'BUY':'NEED '+(offer.cost-coins);
-    bottom.append(price,action);btn.append(icon,info,bottom);
+    const action=document.createElement('span');action.className='shop-buy-label';action.textContent=offer.locked?(offer.locked==='MAX LEVEL'?'MAX':'LOCKED'):developer?'ADD':affordable?'BUY':'NEED '+(offer.cost-coins);
+    bottom.append(price,action);btn.append(bottom);
     btn.addEventListener('click',()=>{if(playing&&!shopPanel.hidden)send({t:'shop',id:offer.id});});list.append(btn);
   }
   list.scrollTop=scroll;
