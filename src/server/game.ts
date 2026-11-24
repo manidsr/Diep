@@ -250,6 +250,7 @@ export class Game {
     if (this.mode === 'royale' && this.royalePhase !== 'lobby') return;
     p.level = 1; p.xp = 0; p.cls = 'basic'; p.maxHp = 0;
     p.powerups = {}; p.coins = 0; p.streak = 0; p.lastKillT = -Infinity; p.shots = [];
+    this.incomingFeedback.delete(p.id);
     const spawn = this.findSafeSpawn(p.r, p.team);
     p.x = spawn.x;
     p.y = spawn.y;
@@ -361,7 +362,7 @@ export class Game {
     this.beams = this.beams.filter(b=>this.tick-b.tick<=8);
     this.updateCrates(dt);
     this.combatEffects = this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ);
-    for (const p of this.players.values()) if (p.connected && p.alive && !p.downed) this.updatePlayer(p, dt);
+    for (const p of this.players.values()) if (p.connected && p.alive && p.hp>0 && !p.downed) this.updatePlayer(p, dt);
     for (const s of this.shapes) this.updateShape(s, dt);
     if (this.mode === 'survival') for (const zombie of this.zombies) this.updateZombie(zombie, dt);
 
@@ -412,7 +413,7 @@ export class Game {
     for(const c of this.crates){
       c.life-=dt;if(c.life<=0)continue;
       for(const p of this.players.values()){
-        if(!p.connected||!p.alive||p.downed||Math.hypot(p.x-c.x,p.y-c.y)>p.r+c.r)continue;
+        if(!p.connected||!p.alive||p.hp<=0||p.downed||Math.hypot(p.x-c.x,p.y-c.y)>p.r+c.r)continue;
         if(c.kind==='heal')p.hp=Math.min(p.maxHp,p.hp+p.maxHp*0.35);
         else (p.powerups??={})[c.kind]=this.time+12;
         c.life=0;break;
@@ -1323,7 +1324,7 @@ export class Game {
 
     if (p.protT > 0) p.protT -= dt;
     p.emergencyShieldCd = Math.max(0, p.emergencyShieldCd - dt);
-    if (this.time - p.lastDamageT > REGEN_DELAY_S && p.hp < p.maxHp) {
+    if (p.hp>0 && this.time - p.lastDamageT > REGEN_DELAY_S && p.hp < p.maxHp) {
       const regenBonus = this.mode === 'survival' ? 1 + this.perkCount(p, 'fieldMedic') * 0.18 : 1;
       p.hp = Math.min(p.maxHp, p.hp + p.maxHp * p.d.regenFrac * regenBonus * dt);
     }

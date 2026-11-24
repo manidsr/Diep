@@ -1045,7 +1045,7 @@ test('A downed survivor can be revived by a nearby stationary ally in the shorte
   const helper = place(game, game.addPlayer('helper')!.id, 1050, 1000);
   downed.hp = 0; downed.lastDamageT = game.time;
   const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number; waveSpawnTimer:number };
-  state.waveSpawnRemaining = 1; state.waveSpawned = 11; state.waveSpawnTimer=999; // Still in combat; do not trigger wave-clear rescue.
+  state.waveSpawnRemaining = 1; state.waveSpawned = 10; state.waveSpawnTimer=999; // Still in combat; do not trigger wave-clear rescue.
   game.step(DT);
   assert.equal(downed.downed, true);
   assert.equal(downed.alive, true, 'the player remains in the run while waiting for rescue');
@@ -1064,7 +1064,7 @@ test('Revive progress falls when the helper leaves the downed ally', () => {
   const helper = place(game, game.addPlayer('helper')!.id, 1040, 1000);
   const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number; waveSpawnTimer:number };
   downed.hp = 0; downed.lastDamageT = game.time;
-  state.waveSpawnRemaining = 1; state.waveSpawned = 11; state.waveSpawnTimer=999; // Still in combat; do not trigger wave-clear rescue.
+  state.waveSpawnRemaining = 1; state.waveSpawned = 10; state.waveSpawnTimer=999; // Still in combat; do not trigger wave-clear rescue.
   game.step(DT); run(game, 1.5);
   assert.ok(downed.reviveProgress > 0);
   helper.x = 1500;

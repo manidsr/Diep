@@ -243,7 +243,7 @@ function connect() {
     if (m.t === 's') onSnapshot(m);
     else if (m.t === 'lb') renderLeaderboard(m);
     else if (m.t === 'welcome') {
-      audio.reset();
+      audio.reset(); frames.length=0; seenOwnBulletIds.clear();
       selfId = m.id; playing = true;
       send({t:'skin',id:skinSelect.value}); joining = false; playBtn.disabled = false;
       resumeToken = m.resumeToken;
@@ -349,6 +349,7 @@ function onSnapshot(s: Snapshot) {
   const arrival = performance.now();
   const tickTime = s.tick * TICK_MS;
   const previous = frames[frames.length - 1];
+  if(s.royale&&!playing){const rr=s.royale;$('royale-menu-status').textContent=rr.phase==='result'?'Winner: '+rr.winner+' · next lobby in '+rr.seconds+'s':rr.phase==='active'?rr.alive+' tanks left · round in progress':'Next round lobby open';}else $('royale-menu-status').textContent='';
   if (playing) audio.snapshot(s, selfId, previous?.snap);
   if (previous && s.tick <= previous.snap.tick) {
     if (s.tick === previous.snap.tick) return;
