@@ -94,6 +94,7 @@ export interface Bullet {
   explosionRadius?: number; exploded?: boolean; chilled?: boolean; chained?: boolean; splitDone?:boolean; weaponChained?:boolean; forked?:boolean; forkChild?:boolean;
 }
 export interface Zombie {
+  contactFeedback?: {damage:number;next:number};
   elite?: boolean;
   id: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
   r: number; hp: number; maxHp: number; speed: number; damage: number; xp: number;
@@ -415,6 +416,7 @@ export class Game {
     for (const [id, feedback] of this.incomingFeedback) {
       if (feedback.next <= this.time || !this.players.has(id)) this.flushIncomingFeedback(id);
     }
+    for(const z of this.zombies){const f=z.contactFeedback;if(f&&(f.next<=this.time||z.hp<=0)){this.effect(z,f.damage,'#ffda83','damage',true);z.contactFeedback=undefined;}}
     this.followCombatLinks();
     this.reap();
     if (this.mode === 'royale') this.finishRoyaleIfNeeded();
@@ -1165,7 +1167,7 @@ export class Game {
         }
         if (this.wave > 0 && this.wave % 3 === 0) this.offerSurvivalRewards(false);
       }
-      if (this.waveIntermission <= 0) this.waveIntermission = 8;
+      if (this.waveIntermission <= 0) this.waveIntermission = 30;
       else {
         this.waveIntermission = Math.max(0, this.waveIntermission - dt);
         if (this.waveIntermission === 0) this.beginSurvivalWave();
@@ -2049,7 +2051,8 @@ export class Game {
       }
       const bodyDamage = A.d.bodyDps * dt * 0.55 * (this.isZombieProtected(zombie) ? 0.58 : 1);
       if (bodyDamage > 0) {
-        this.effect(zombie, bodyDamage, '#ffda83');
+        const feedback=zombie.contactFeedback??={damage:0,next:this.time+0.85};
+        feedback.damage+=Math.min(Math.max(0,zombie.hp),bodyDamage);
       zombie.hp -= bodyDamage;
         zombie.damageBy.set(A.id, (zombie.damageBy.get(A.id) ?? 0) + bodyDamage);
         zombie.hitFlash = Math.max(zombie.hitFlash, 0.35);
@@ -2351,7 +2354,7 @@ export class Game {
     if (!p.connected || !p.alive || p.downed || amount <= 0) return;
     const reduced = (byName==='the storm'?1:this.boost(p,'shield')?0.45:1)*(this.mode === 'survival' ? amount * Math.max(0.68, 1 - this.perkCount(p, 'ironSkin') * 0.06) : amount);
     // Aggregate incoming damage across all sources, independently of outgoing ram feedback.
-    const feedback = this.incomingFeedback.get(p.id) ?? { damage: 0, next: this.time + 0.45 };
+    const feedback = this.incomingFeedback.get(p.id) ?? { damage: 0, next: this.time + 1.0 };
     feedback.damage += Math.min(Math.max(0, p.hp), reduced);
     this.incomingFeedback.set(p.id, feedback);
     if (reduced >= p.hp) this.flushIncomingFeedback(p.id);

@@ -55,6 +55,12 @@ const modeFfaBtn = $<HTMLButtonElement>('mode-ffa');
 const modeTeamsBtn = $<HTMLButtonElement>('mode-teams');
 const modeSurvivalBtn = $<HTMLButtonElement>('mode-survival');
 const modeHelpEl = $('mode-help');
+const startMode=$<HTMLSelectElement>('start-mode');
+const startMain=$('start-main'),startSettings=$('start-settings-panel'),startSettingsBtn=$('start-settings');
+function toggleStartSettings(open:boolean){startMain.hidden=open;startSettings.hidden=!open;startSettingsBtn.setAttribute('aria-expanded',String(open));if(open)$('start-back').focus();else nameEl.focus({preventScroll:true});}
+startSettingsBtn.addEventListener('click',()=>toggleStartSettings(startSettings.hidden));
+$('start-back').addEventListener('click',()=>toggleStartSettings(false));
+startMode.addEventListener('change',()=>setSelectedMode(startMode.value as GameMode));
 const modeRoyaleBtn=$<HTMLButtonElement>('mode-royale');
 const skinSelect=$<HTMLSelectElement>('skin-select');
 for(const id of Object.keys(TANK_SKINS)){const option=document.createElement('option');option.value=id;option.textContent=tr(id[0].toUpperCase()+id.slice(1));skinSelect.append(option);}
@@ -62,7 +68,7 @@ try{const saved=localStorage.getItem('tank-skin');if(saved&&Object.prototype.has
 skinSelect.addEventListener('change',()=>{try{localStorage.setItem('tank-skin',skinSelect.value);}catch{}if(playing)send({t:'skin',id:skinSelect.value});});
 function setSelectedMode(mode: GameMode) {
   if(!playing&&mode!==selectedMode){resumeToken='';try{localStorage.removeItem(RESUME_TOKEN_KEY);}catch{}}
-  selectedMode = mode;
+  selectedMode = mode;startMode.value=mode;
   modeRoyaleBtn.classList.toggle('selected',mode==='royale');modeRoyaleBtn.setAttribute('aria-pressed',String(mode==='royale'));
   modeFfaBtn.classList.toggle('selected', mode === 'ffa');
   modeTeamsBtn.classList.toggle('selected', mode === 'teams');
@@ -273,7 +279,7 @@ function connect() {
       playing = false; input.reset(); frames.length = 0; lastLv = 0;
       msgEl.textContent = '';
       showDeathReport(m);
-      playBtn.textContent = tr("Play again"); menu.classList.remove('hide');
+      playBtn.textContent = tr("Play again"); menu.classList.remove('hide');toggleStartSettings(false);
     } else if (m.t === 'err') {
       if (resumeAttempt) {
         // The grace period elapsed (or the server restarted). Fall back to a fresh join.
@@ -376,6 +382,7 @@ function onSnapshot(s: Snapshot) {
     zm: new Map(s.z.map((zombie) => [zombie.id, zombie])),
   });
   if (frames.length > 8) frames.shift();
+  if(playing&&s.survival&&s.survival.intermission>0&&(previous?.snap.survival?.intermission??0)<=0&&!s.me.devShop){showToast('Wave cleared!','Shop is open for 30 seconds.');}
   updateHud(s.me, s.survival);
   if(playing)updatePowerHud(s);
 }
@@ -598,10 +605,10 @@ function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
   shopToggle.hidden=!offers.length;$('shop-toggle-balance').textContent=developer?tr('DEV'):String(coins)+'¢';
   $('dev-shop').hidden=!developer||!offers.length;
   if(!gameMenuPanel.hidden)updateGameMenu();
-  if(!offers.length){closeShop();shopKey='';return;}
+  if(!offers.length){if(!shopPanel.hidden)closeShop(true);shopKey='';return;}
   const remaining=Math.max(0,Math.ceil(survival?.intermission??0));
   const clock=$('shop-clock');clock.textContent=developer?tr('DEV · Always open'):tr('Next wave · ','موج بعدی · ')+seconds(remaining);clock.classList.toggle('urgent',!developer&&remaining<=3);
-  $('shop-subtitle').textContent=developer?tr('Test any perk and combination for free'):survival?tr('Wave '+survival.wave+' cleared · Upgrade your tank','موج '+survival.wave+' پایان یافت · تانک خود را ارتقا دهید'):tr('Between-wave upgrades');
+  $('shop-subtitle').textContent=developer?tr('Test any perk and combination for free'):survival?tr('Wave '+survival.wave+' cleared · Upgrade your tank','موج '+survival.wave+' تمام شد؛ تانکت را ارتقا بده'):tr('Between-wave upgrades');
   const key=JSON.stringify([offers,coins,m.combos,developer,shopCategory]);if(key===shopKey)return;shopKey=key;
   $('shop-coins').textContent=developer?tr('Free test upgrades'):tr(coins+' coins');
   const comboList=$('shop-combo-list');comboList.replaceChildren();$('shop-combo-empty').hidden=!!m.combos?.length;
@@ -973,7 +980,7 @@ function frame(now: number) {
   input.update(W, H);
   document.body.classList.toggle('in-game', playing);
   // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.
-  if (!playing) { lastSent = ''; lastInputPoll = -Infinity; if(!powerStatus.hidden||!pickupNotice.hidden||powerKey)resetPowerHud(); }
+  if (!playing) { statusEl.parentElement?.classList.toggle('ready',ws?.readyState===WebSocket.OPEN&&!joining); lastSent = ''; lastInputPoll = -Infinity; if(!powerStatus.hidden||!pickupNotice.hidden||powerKey)resetPowerHud(); }
   if (playing && now - lastInputPoll >= 1000 / 60 - 1) {
     lastInputPoll = now;
     const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${input.angle.toFixed(4)},"f":${input.fire ? 1 : 0},"secondary":${input.secondary ? 1 : 0},"spin":${input.spin ? 1 : 0}}`;

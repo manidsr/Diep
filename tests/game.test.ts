@@ -750,7 +750,10 @@ test('Co-op Survival advances to a harder wave after the arena is cleared', () =
   waveState.waveSpawned = 9; // Solo Wave 1's full quota has already spawned and been cleared.
   game.zombies = [];
   game.step(DT);
-  run(game, 8.1);
+  run(game, 12);
+  assert.equal(game.wave, 1,'shop remains available well beyond the old eight-second timer');
+  assert.ok(game.snapshotFor([...game.players.values()][0].id)!.me.shop!.length>0);
+  run(game, 18.1);
   assert.equal(game.wave, 2);
   assert.ok(waveState.waveSpawnRemaining > 0, 'the next wave should queue a larger enemy group');
 });
@@ -1237,4 +1240,19 @@ test('crate pickups identify the collector, heal amount and refreshed boost',()=
   for(const id of [90002,90003]){g.crates.push({id,x:p.x,y:p.y,r:17,kind:'damage',life:20});state.updateCrates(DT);}
   const me=g.snapshotFor(p.id)!.me;
   assert.equal(me.powerups!.damage,12);assert.deepEqual(me.pickups!.map(e=>e.id),[90001,90002,90003]);
+});
+
+
+test('incoming damage aggregates rapid hits without changing actual damage',()=>{
+  const g=fresh(),p=place(g,g.addPlayer('target')!.id,1000,1000);
+  const internals=g as unknown as {hurtPlayer(p:Player,amount:number,id:number|null,name:string):void};
+  const before=p.hp;
+  for(let i=0;i<12;i++)internals.hurtPlayer(p,0.5,null,'a zombie');
+  assert.equal(p.hp,before-6);
+  assert.equal(g.snapshotFor(p.id)!.effects?.filter(e=>e.color==='#ff7777').length??0,0);
+  run(g,0.6);
+  assert.equal(g.snapshotFor(p.id)!.effects?.filter(e=>e.color==='#ff7777').length??0,0);
+  run(g,0.5);
+  const hits=g.snapshotFor(p.id)!.effects!.filter(e=>e.color==='#ff7777');
+  assert.equal(hits.length,1);assert.equal(hits[0].amount,6);
 });

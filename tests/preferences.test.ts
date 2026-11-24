@@ -22,7 +22,7 @@ test('Persian shop covers every upgrade and live stat label',()=>{
     assert.match(translate('fa',o.description),/[\u0600-\u06ff]/,o.id);
     if(o.value)assert.match(translate('fa',o.value),/[\u0600-\u06ff]/,o.id);
   }
-  assert.equal(translate('fa','Requires Chain Shot'),'نیازمند شلیک زنجیره‌ای');
+  assert.equal(translate('fa','Requires Chain Shot'),'پیش‌نیاز: شلیک زنجیره‌ای');
   assert.equal(translate('fa','125 units'),'125 واحد');
   assert.equal(translate('en','125 units'),'125 units');
 });
