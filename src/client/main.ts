@@ -1,4 +1,4 @@
-import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES, SERVER_TICK_HZ } from '../shared/config';
+import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES, SERVER_TICK_HZ, TANK_SKINS } from '../shared/config';
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
 import { GameAudio } from './audio';
@@ -51,8 +51,14 @@ const modeFfaBtn = $<HTMLButtonElement>('mode-ffa');
 const modeTeamsBtn = $<HTMLButtonElement>('mode-teams');
 const modeSurvivalBtn = $<HTMLButtonElement>('mode-survival');
 const modeHelpEl = $('mode-help');
+const modeRoyaleBtn=$<HTMLButtonElement>('mode-royale');
+const skinSelect=$<HTMLSelectElement>('skin-select');
+for(const id of Object.keys(TANK_SKINS)){const option=document.createElement('option');option.value=id;option.textContent=id[0].toUpperCase()+id.slice(1);skinSelect.append(option);}
+try{const saved=localStorage.getItem('tank-skin');if(saved&&Object.prototype.hasOwnProperty.call(TANK_SKINS,saved))skinSelect.value=saved;}catch{}
+skinSelect.addEventListener('change',()=>{try{localStorage.setItem('tank-skin',skinSelect.value);}catch{}if(playing)send({t:'skin',id:skinSelect.value});});
 function setSelectedMode(mode: GameMode) {
   selectedMode = mode;
+  modeRoyaleBtn.classList.toggle('selected',mode==='royale');modeRoyaleBtn.setAttribute('aria-pressed',String(mode==='royale'));
   modeFfaBtn.classList.toggle('selected', mode === 'ffa');
   modeTeamsBtn.classList.toggle('selected', mode === 'teams');
   modeSurvivalBtn.classList.toggle('selected', mode === 'survival');
@@ -63,11 +69,12 @@ function setSelectedMode(mode: GameMode) {
     ? 'Blue base on the left, red base on the right. Fight for the middle and defend your safe base.'
     : mode === 'survival'
       ? 'Cooperate with everyone. Fight off zombie waves, earn XP from kills and survive as long as you can.'
-      : 'Every tank fights for itself. Earn XP and climb the individual leaderboard.';
+      : mode==='royale'?'Last tank standing. At least two players required; avoid the shrinking storm.':'Every tank fights for itself. Earn XP and climb the individual leaderboard.';
 }
 modeFfaBtn.addEventListener('click', () => setSelectedMode('ffa'));
 modeTeamsBtn.addEventListener('click', () => setSelectedMode('teams'));
 modeSurvivalBtn.addEventListener('click', () => setSelectedMode('survival'));
+modeRoyaleBtn.addEventListener('click',()=>setSelectedMode('royale'));
 setSelectedMode('ffa');
 const deathPanel = $('deathpanel');
 const killFeedEl = $('killfeed');
@@ -236,7 +243,8 @@ function connect() {
     else if (m.t === 'lb') renderLeaderboard(m);
     else if (m.t === 'welcome') {
       audio.reset();
-      selfId = m.id; playing = true; joining = false; playBtn.disabled = false;
+      selfId = m.id; playing = true;
+      send({t:'skin',id:skinSelect.value}); joining = false; playBtn.disabled = false;
       resumeToken = m.resumeToken;
       resumeOnReconnect = false;
       resumeAttempt = false;
@@ -375,7 +383,7 @@ function sample(now: number): View | null {
   } else if (rt >= b.recv) a = b; else b = a;
   const t = a === b ? 1 : Math.min(1, Math.max(0, (rt - a.recv) / (b.recv - a.recv)));
   return {
-    survival: b.snap.survival,
+    survival: b.snap.survival, royale:b.snap.royale, crates:b.snap.crates, explosiveIds:b.snap.explosiveIds, beams:(b.snap.beams??[]).map(beam=>({...beam,age:(rt/TICK_MS-beam.tick)/SERVER_TICK_HZ})), renderTick:rt/TICK_MS,
     effects: (b.snap.effects ?? []).map((effect) => ({ ...effect, age: (rt / TICK_MS - effect.tick) / SERVER_TICK_HZ })),
     players: b.snap.p.map((p) => { const q = a.pm.get(p.id); return q ? { ...p, x: lerp(q.x, p.x, t), y: lerp(q.y, p.y, t), a: lerpAng(q.a, p.a, t) } : p; }),
     bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4], x[5], x[6], x[7]] as typeof x : x; }),
@@ -486,6 +494,10 @@ function showToast(big: string, sub: string) {
 let hudKey = '', optKey = '', rewardKey = '';
 let lastLv = 0, lastHudClass = '';
 let wasDowned = false;
+let streakSerial=-1, shopKey='';
+const shopPanel=$('shop-panel'),shopToggle=$('shop-toggle');
+shopToggle.addEventListener('click',()=>{shopPanel.hidden=!shopPanel.hidden;});
+$('shop-close').addEventListener('click',()=>{shopPanel.hidden=true;});
 function updateSurvivalRewards(m: SelfSnap) {
   rewardPanel.hidden = m.rewards.length === 0;
   rewardTimerEl.textContent = m.rewards.length ? `${Math.ceil(m.rewardTimer)}s` : '';
@@ -507,6 +519,11 @@ function updateSurvivalRewards(m: SelfSnap) {
 
 function updateHud(m: SelfSnap) {
   updateSurvivalRewards(m);
+  const serial=m.streakSerial??0;
+  if(streakSerial>=0&&serial!==streakSerial&&(m.streak??0)>=2){showToast((m.streak===2?'DOUBLE KILL':m.streak===3?'TRIPLE KILL':m.streak===4?'QUAD KILL':'RAMPAGE ×'+m.streak),'Kill streak');audio.cue('level');}streakSerial=serial;
+  $('power-status').textContent=Object.entries(m.powerups??{}).map(([k,v])=>k.toUpperCase()+' '+v+'s').join(' · ');
+  const offers=m.shop??[];shopToggle.hidden=!offers.length;shopToggle.textContent='SHOP · '+(m.coins??0)+'¢';if(!offers.length)shopPanel.hidden=true;
+  const nextShopKey=JSON.stringify([offers,m.coins,m.combos]);if(nextShopKey!==shopKey){shopKey=nextShopKey;$('shop-coins').textContent=(m.coins??0)+' coins · '+((m.combos??[]).join(' / ')||'Combine perks to unlock bonuses');const list=$('shop-items');list.replaceChildren();for(const offer of offers){const btn=document.createElement('button');btn.type='button';btn.textContent=offer.title+' · '+offer.cost+'¢ — '+offer.description;btn.disabled=(m.coins??0)<offer.cost;btn.addEventListener('click',()=>send({t:'shop',id:offer.id}));list.append(btn);}}
   const fraction = Math.max(0, Math.min(1, m.hp / Math.max(1, m.mhp)));
   $('mobile-hpfill').style.width = (fraction * 100) + '%';
   $('mobile-hptxt').textContent = m.downed ? 'DOWNED · REVIVE' : 'HP ' + Math.ceil(Math.max(0,m.hp)) + ' / ' + Math.ceil(m.mhp);
@@ -780,6 +797,7 @@ function frame(now: number) {
   requestAnimationFrame(frame);
   input.update(W, H);
   document.body.classList.toggle('in-game', playing);
+  if(!playing)shopPanel.hidden=true;
   // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.
   if (!playing) { lastSent = ''; lastInputPoll = -Infinity; }
   if (playing && now - lastInputPoll >= 1000 / 60 - 1) {

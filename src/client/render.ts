@@ -1,9 +1,10 @@
-import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
+import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH, TANK_SKINS, SERVER_TICK_HZ } from '../shared/config';
 import type { Snapshot, CombatEffect, DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
 import { type Input } from './input';
 
 export interface View {
   survival?: Snapshot['survival'];
+  royale?:Snapshot['royale'];crates?:Snapshot['crates'];explosiveIds?:number[];beams?:(NonNullable<Snapshot['beams']>[number]&{age:number})[];renderTick?:number;
   effects?: (CombatEffect & { age: number })[];
   players: PlayerSnap[];
   bullets: [number, number, number, number, number, number, number, number][];
@@ -59,7 +60,10 @@ export function drawFrame(
   ctx.stroke();
 
   if (view.mode === 'teams') drawTeamBases(ctx);
-  for (const shape of view.shapes) drawShape(ctx, shape);
+  if(view.royale){ctx.save();ctx.fillStyle='#e9535933';ctx.beginPath();ctx.rect(0,0,arenaSize,arenaSize);ctx.arc(arenaSize/2,arenaSize/2,view.royale.radius,0,Math.PI*2,true);ctx.fill('evenodd');ctx.strokeStyle='#da545b';ctx.lineWidth=5;ctx.beginPath();ctx.arc(arenaSize/2,arenaSize/2,view.royale.radius,0,Math.PI*2);ctx.stroke();ctx.restore();}
+  const explosive=new Set(view.explosiveIds??[]);
+  for (const shape of view.shapes) drawShape(ctx, shape,explosive.has(shape[0]));
+  for(const c of view.crates??[]){ctx.save();ctx.translate(c.x,c.y);ctx.fillStyle='#e8c65e';ctx.strokeStyle='#a17c2d';ctx.lineWidth=3;ctx.beginPath();ctx.roundRect(-c.r,-c.r,c.r*2,c.r*2,5);ctx.fill();ctx.stroke();ctx.font='bold 17px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#674d22';ctx.fillText({damage:'D',speed:'S',shield:'+',rapid:'R',heal:'H'}[c.kind],0,0);ctx.restore();}
   for (const pool of view.pools) drawDamagePool(ctx, pool);
   for (const drop of view.xpDrops) drawXpDrop(ctx, drop);
   for (const drop of view.healthDrops) drawHealthDrop(ctx, drop);
@@ -67,11 +71,13 @@ export function drawFrame(
   for (const downed of view.downed) drawDownedPlayer(ctx, downed);
   for (const bullet of view.bullets) drawBulletTrail(ctx, bullet, bullet[4] === selfId);
   for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
-  for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false);
-  for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true);
+  for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false,view.renderTick);
+  for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true,view.renderTick);
+  for(const beam of view.beams??[]){if(beam.age<0||beam.age>0.18)continue;ctx.save();ctx.globalAlpha=1-beam.age/0.18;ctx.strokeStyle=beam.color;ctx.lineWidth=6;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(beam.x,beam.y);ctx.lineTo(beam.tx,beam.ty);ctx.stroke();ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.stroke();ctx.restore();}
   for (const effect of view.effects ?? []) drawCombatEffect(ctx, effect);
   ctx.restore();
   if (view.mode === 'survival') drawSurvivalOverlay(ctx, W, H, view);
+  if(view.royale){const r=view.royale;ctx.save();ctx.textAlign='center';ctx.font='900 15px system-ui';ctx.lineWidth=4;ctx.strokeStyle='#242936';ctx.fillStyle='#fff0b0';const text=r.phase==='lobby'?(r.alive<2?'WAITING FOR 2 PLAYERS':'ROUND STARTS · '+r.seconds+'s'):r.phase==='result'?'WINNER · '+r.winner:'BATTLE ROYALE · '+r.alive+' LEFT · '+r.seconds+'s';ctx.strokeText(text,W/2,76);ctx.fillText(text,W/2,76);ctx.restore();}
 }
 
 function drawSurvivalOverlay(ctx: CanvasRenderingContext2D, W: number, H: number, view: View) {
@@ -647,7 +653,7 @@ function drawDownedPlayer(ctx: CanvasRenderingContext2D, player: DownedPlayerSna
   ctx.restore();
 }
 
-function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number]) {
+function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number],explosive=false) {
   const def = SHAPES[SHAPE_KINDS[shape[4]]];
   const hit = Math.max(0, Math.min(1, shape[6] ?? 0));
   const impactX = shape[7] ?? shape[1], impactY = shape[8] ?? shape[2];
@@ -670,7 +676,7 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number])
   };
 
   path();
-  ctx.fillStyle = def.color; ctx.fill();
+  ctx.fillStyle = explosive?'#f58b48':def.color; ctx.fill();
   ctx.lineWidth = 3; ctx.strokeStyle = hit > 0.08 ? '#fff4d6' : def.stroke;
   ctx.lineJoin = 'round'; ctx.stroke();
 
@@ -683,6 +689,7 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number])
     ctx.restore();
     drawImpactBurst(ctx, impactX, impactY, def.radius, hit, hitAngle, '#ffe27a');
   }
+  if(explosive){ctx.save();ctx.font='900 20px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#77351e';ctx.fillText('!',shape[1],shape[2]);ctx.restore();}
   if (shape[5] < 1) hpBar(ctx, shape[1], shape[2] + def.radius + 10, def.radius * 1.4, shape[5]);
 }
 function hpBar(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, fraction: number) {
@@ -691,17 +698,19 @@ function hpBar(ctx: CanvasRenderingContext2D, x: number, y: number, width: numbe
 }
 
 function drawBarrels(
-  ctx: CanvasRenderingContext2D, player: PlayerSnap, cls: (typeof CLASSES)[number], scale: number,
+  ctx: CanvasRenderingContext2D, player: PlayerSnap, cls: (typeof CLASSES)[number], scale: number, renderTick?:number,
 ) {
   ctx.save();
   ctx.translate(player.x, player.y);
   ctx.rotate(player.a);
   ctx.lineJoin = 'round';
-  for (const barrel of cls.barrels) {
+  for (const [index,barrel] of cls.barrels.entries()) {
     ctx.save();
     ctx.rotate(barrel.angle);
     const width = barrel.width * scale * BARREL_WIDTH_MUL;
-    const length = barrel.length * scale;
+    const shot=player.shots?.[index];const age=shot==null||renderTick==null?99:(renderTick-shot)/SERVER_TICK_HZ;
+    const kick=age>=0&&age<0.16?(1-age/0.16)*5*scale:0;
+    const length = Math.max(5,barrel.length * scale-kick);
     ctx.fillStyle = barrel.projectile === 'trap' ? '#c5ad83' : barrel.projectile === 'missile' ? '#c4a276' : BARREL_FILL;
     ctx.strokeStyle = BARREL_EDGE;
     ctx.lineWidth = BARREL_STROKE * scale;
@@ -723,13 +732,14 @@ function drawBarrels(
       ctx.fillStyle = '#37455255';
       ctx.fillRect(length - muzzle, barrelY + inset, Math.max(0, muzzle - inset), width - inset * 2);
     }
+    if(age>=0&&age<0.085){ctx.save();ctx.globalAlpha=1-age/0.085;ctx.fillStyle='#fff1a1';ctx.strokeStyle='#e4ac4d';ctx.lineWidth=1.5*scale;const y=barrel.offset*scale;ctx.beginPath();ctx.moveTo(length,y-width*0.25);ctx.lineTo(length+width*0.72,y);ctx.lineTo(length,y+width*0.25);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();}
     ctx.restore();
   }
   ctx.restore();
 }
 
-function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boolean) {
-  const palette = player.team ? TEAM_COLOURS[player.team] : mine ? ME : FOE;
+function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boolean,renderTick?:number) {
+  const palette = player.team ? TEAM_COLOURS[player.team] : player.skin&&player.skin!=='default' ? TANK_SKINS[player.skin]??(mine?ME:FOE) : mine ? ME : FOE;
   const cls = CLASSES[player.cls] ?? CLASSES[0];
   const scale = player.r / PLAYER_BASE_RADIUS;
   ctx.save(); // Keep the whole tank draw isolated from the arena camera state.
@@ -737,7 +747,7 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
   ctx.globalAlpha *= Math.max(0.04, Math.min(1, player.vis ?? 1));
 
   // Main barrels sit beneath the hull first, so their roots blend naturally into it.
-  drawBarrels(ctx, player, cls, scale);
+  drawBarrels(ctx, player, cls, scale,renderTick);
 
   // Draw the hull once, above the barrel roots. No duplicate outlines or clipping seam.
   ctx.restore();
@@ -772,7 +782,7 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
     ctx.restore();
   }
   ctx.restore();
-  if (player.prot) {
+  if (player.prot || player.powerups?.shield) {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
     ctx.beginPath(); ctx.arc(player.x, player.y, player.r + 7 + pulse * 3, 0, Math.PI * 2);
     ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.4})`; ctx.stroke();

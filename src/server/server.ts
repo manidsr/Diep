@@ -35,6 +35,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   const game = opts.game ?? new Game();
   const teamGame = opts.teamGame ?? new Game(undefined, undefined, 'teams');
   const survivalGame = opts.survivalGame ?? new Game(undefined, 0, 'survival');
+  const royaleGame = new Game(undefined,undefined,'royale');
   if (teamGame.mode !== 'teams') throw new Error('teamGame must use Team Mode');
   if (survivalGame.mode !== 'survival') throw new Error('survivalGame must use Co-op Survival');
   const conns = new Set<Conn>();
@@ -52,7 +53,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
       res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         addresses: lanAddresses(), port,
-        players: game.players.size + teamGame.players.size + survivalGame.players.size,
+        players: game.players.size + teamGame.players.size + survivalGame.players.size + royaleGame.players.size,
         ffaPlayers: game.players.size, teamPlayers: teamGame.players.size, survivalPlayers: survivalGame.players.size,
       }));
       return;
@@ -119,7 +120,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
               c.mode = session.game.mode;
               c.sessionToken = m.resumeToken;
               session.game.resumePlayer(session.playerId);
-              if (!resumedPlayer.alive) session.game.respawn(session.playerId);
+              if (!resumedPlayer.alive && session.game.mode!=='royale') session.game.respawn(session.playerId);
               send(ws, {
                 t: 'welcome', id: session.playerId, arena: ARENA_SIZE, hz: SERVER_TICK_HZ,
                 devCheats: devCheatsEnabled && devCheatOwnerSession === m.resumeToken,
@@ -129,9 +130,9 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
             }
 
             const mode: GameMode = m.mode ?? 'ffa';
-            const selectedGame = mode === 'teams' ? teamGame : mode === 'survival' ? survivalGame : game;
+            const selectedGame = mode === 'teams' ? teamGame : mode === 'survival' ? survivalGame : mode==='royale'?royaleGame:game;
             const np = selectedGame.addPlayer(m.name);
-            if (!np) { send(ws, { t: 'err', msg: 'Room is full' }); return; }
+            if (!np) { send(ws, { t: 'err', msg: mode==='royale'?'Round in progress or room full. Try again after the round.':'Room is full' }); return; }
             const sessionToken = randomUUID();
             c.playerId = np.id;
             c.game = selectedGame;
@@ -144,6 +145,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
               devCheats: devCheatsEnabled && devCheatOwnerSession === sessionToken, mode, resumeToken: sessionToken,
             });
           } else if (p && !p.alive) {
+            if(activeGame.mode==='royale'&&activeGame.royalePhase!=='lobby'){send(ws,{t:'err',msg:'Round in progress. Wait for the next round.'});return;}
             activeGame.respawn(p.id, m.name);
             send(ws, {
               t: 'welcome', id: p.id, arena: ARENA_SIZE, hz: SERVER_TICK_HZ,
@@ -166,6 +168,8 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
           break;
         }
         case 'input': if (p) activeGame?.setInput(p.id, m); break;
+        case 'skin': if(p)activeGame?.setSkin(p.id,m.id);break;
+        case 'shop': if(p)activeGame?.buyShop(p.id,m.id);break;
         case 'reward': if (p) activeGame?.chooseSurvivalReward(p.id, m.id); break;
         case 'class': if (p) activeGame?.chooseClass(p.id, m.id); break;
         case 'devClass':
@@ -211,12 +215,13 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
       game.step(dt);
       teamGame.step(dt);
       survivalGame.step(dt);
+      royaleGame.step(dt);
       acc -= dt;
       stepped = true;
     }
     if (!stepped) return;
 
-    for (const world of [game, teamGame, survivalGame]) {
+    for (const world of [game, teamGame, survivalGame, royaleGame]) {
       for (const ev of world.drainEvents()) {
         if (ev.type === 'dead') {
           const feed = {

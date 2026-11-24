@@ -1,7 +1,7 @@
 import {
   ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_ZOMBIES, SURVIVAL_ARENA_SIZE, TEAM_BASE_DEPTH,
   PLAYER_PIERCE_COST, PROJECTILE_KIND_IDS, REGEN_DELAY_S, RESPAWN_PROTECTION_S, SHAPES,
-  SHAPE_KINDS, SHAPE_TARGET_COUNT, SERVER_TICK_HZ, VIEW_HALF,
+  SHAPE_KINDS, SHAPE_TARGET_COUNT, SERVER_TICK_HZ, VIEW_HALF, POWERUPS, TANK_SKINS, type Powerup, type TankSkin,
   type BarrelDef, type ProjectileKind,
 } from '../shared/config';
 import {
@@ -60,6 +60,7 @@ export interface Player {
   input: { mx: number; my: number; a: number; f: boolean; secondary: boolean; spin: boolean };
   wasFiring: boolean; wasSecondary: boolean; cd: number[]; autoCd: number[];
   droneSpawnCd: number; stealthT: number; visibility: number; d: DerivedStats;
+  skin?: TankSkin; powerups?: Partial<Record<Powerup,number>>; coins?: number; streak?: number; streakSerial?: number; lastKillT?: number; shots?: number[];
   survivalPerks: Record<string, number>; rewardOffers: RewardOffer[]; shotsFired: number; emergencyShieldCd: number;
 }
 export interface Bullet {
@@ -78,6 +79,7 @@ export interface Bullet {
   attackEscapeAngle?: number;
   attackSide?: number;
   /** Hostile projectiles are used by survival bosses, never by player weapons. */
+  bounces?: number; weapon?: string; turretNext?: number;
   hostile?: boolean;
   hostileName?: string;
   explosionRadius?: number; exploded?: boolean; chilled?: boolean; chained?: boolean;
@@ -98,6 +100,7 @@ export interface Shape {
   id: number; kind: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
   r: number; hp: number; maxHp: number; rot: number; rotSpeed: number; lastHitBy: number | null;
   hitFlash?: number; hitX?: number; hitY?: number; hitAngle?: number;
+  explosive?: boolean;
   ramCooldowns?: Map<number, number>;
   ramFeedback?: Map<number, { damage: number; next: number }>;
 }
@@ -136,6 +139,13 @@ export class Game {
   damagePools: DamagePool[] = [];
   events: GameEvent[] = [];
   private combatEffects: CombatEffect[] = [];
+  crates: {id:number;x:number;y:number;r:number;kind:Powerup;life:number}[] = [];
+  private nextCrate = 10;
+  private beams: {tick:number;x:number;y:number;tx:number;ty:number;color:string}[] = [];
+  royalePhase: 'lobby'|'active'|'result' = 'lobby';
+  private royaleTimer = 10;
+  private royaleWinner = '';
+  private royaleRadius = ARENA_SIZE * 0.71;
   private incomingFeedback = new Map<number, { damage: number; next: number }>();
   wave = 0;
   zombieKills = 0;
@@ -167,7 +177,7 @@ export class Game {
   }
 
   addPlayer(name: string): Player | null {
-    if (this.players.size >= MAX_PLAYERS) return null;
+    if (this.players.size >= MAX_PLAYERS || (this.mode === 'royale' && this.royalePhase !== 'lobby')) return null;
     const p: Player = {
       id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
       r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, cls: 'basic',
@@ -235,7 +245,9 @@ export class Game {
     p.connected = true;
     if (this.mode === 'survival' && this.survivalGameOver) this.resetSurvivalRun();
     if (name) p.name = name;
+    if (this.mode === 'royale' && this.royalePhase !== 'lobby') return;
     p.level = 1; p.xp = 0; p.cls = 'basic'; p.maxHp = 0;
+    p.powerups = {}; p.coins = 0; p.streak = 0; p.lastKillT = -Infinity; p.shots = [];
     const spawn = this.findSafeSpawn(p.r, p.team);
     p.x = spawn.x;
     p.y = spawn.y;
@@ -342,6 +354,9 @@ export class Game {
     if (this.mode === 'survival' && this.survivalGameOver) { this.tick++; return; }
     this.time += dt;
     this.tick++;
+    if (this.mode === 'royale' && !this.updateRoyale(dt)) return;
+    this.beams = this.beams.filter(b=>this.tick-b.tick<=8);
+    this.updateCrates(dt);
     this.combatEffects = this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ);
     for (const p of this.players.values()) if (p.connected && p.alive && !p.downed) this.updatePlayer(p, dt);
     for (const s of this.shapes) this.updateShape(s, dt);
@@ -351,6 +366,13 @@ export class Game {
       if (b.kind === 'drone') this.updateDrone(b, dt);
       else if (b.kind === 'missile') this.updateMissile(b, dt);
       else if (b.kind !== 'trap') { b.x += b.vx * dt; b.y += b.vy * dt; }
+      if ((b.bounces ?? 0)>0 && b.kind==='bullet') {
+        let bounced=false;
+        if(b.x<b.r || b.x>this.arenaSize-b.r){b.x=clamp(b.x,b.r,this.arenaSize-b.r);b.vx=-b.vx;bounced=true;}
+        if(b.y<b.r || b.y>this.arenaSize-b.r){b.y=clamp(b.y,b.r,this.arenaSize-b.r);b.vy=-b.vy;bounced=true;}
+        if(bounced){b.bounces!--;b.angle=Math.atan2(b.vy,b.vx);}
+      }
+      if(b.weapon==='engineer' && b.kind==='trap') this.updateEngineer(b);
       b.life -= dt;
     }
     this.bullets = this.bullets.filter((bullet) => !this.isBlockedByEnemyBase(bullet));
@@ -361,6 +383,7 @@ export class Game {
       if (feedback.next <= this.time || !this.players.has(id)) this.flushIncomingFeedback(id);
     }
     this.reap();
+    if (this.mode === 'royale') this.finishRoyaleIfNeeded();
     if (this.mode === 'survival') {
       this.updateHealthDrops(dt); this.updateXpDrops(dt); this.updateDamagePools(dt); this.updateSurvivalWaves(dt);
     }
@@ -368,6 +391,92 @@ export class Game {
       b.hp > 0 && b.life > 0 && b.x > -80 && b.y > -80 && b.x < this.arenaSize + 80 && b.y < this.arenaSize + 80,
     );
     if (this.mode !== 'survival' && this.shapes.length < SHAPE_TARGET_COUNT && this.rng() < dt * 4) this.spawnShape();
+  }
+
+  setSkin(id:number, skin:TankSkin) {
+    const p=this.players.get(id);if(p && Object.prototype.hasOwnProperty.call(TANK_SKINS,skin)) p.skin=skin;
+  }
+  private boost(p:Player,kind:Powerup){return (p.powerups?.[kind]??0)>this.time;}
+  private powerupStatus(p:Player){const out:Partial<Record<Powerup,number>>={};for(const k of POWERUPS){if(this.boost(p,k))out[k]=Math.ceil(p.powerups![k]!-this.time);}return out;}
+  private updateCrates(dt:number){
+    if(![...this.players.values()].some(p=>p.connected&&p.alive))return;
+    if(this.time>=this.nextCrate && this.crates.length<5){
+      this.nextCrate=this.time+12;
+      const x=100+this.rng()*(this.arenaSize-200),y=100+this.rng()*(this.arenaSize-200);
+      if((this.mode!=='royale'||Math.hypot(x-ARENA_SIZE/2,y-ARENA_SIZE/2)<this.royaleRadius-30)&&!this.shapes.some(s=>Math.hypot(s.x-x,s.y-y)<s.r+25))
+        this.crates.push({id:this.nextId++,x,y,r:17,kind:POWERUPS[Math.min(POWERUPS.length-1,Math.floor(this.rng()*POWERUPS.length))],life:35});
+    }
+    for(const c of this.crates){
+      c.life-=dt;if(c.life<=0)continue;
+      for(const p of this.players.values()){
+        if(!p.connected||!p.alive||p.downed||Math.hypot(p.x-c.x,p.y-c.y)>p.r+c.r)continue;
+        if(c.kind==='heal')p.hp=Math.min(p.maxHp,p.hp+p.maxHp*0.35);
+        else (p.powerups??={})[c.kind]=this.time+12;
+        c.life=0;break;
+      }
+    }
+    this.crates=this.crates.filter(c=>c.life>0);
+  }
+  private updateRoyale(dt:number):boolean{
+    const alive=[...this.players.values()].filter(p=>p.connected&&p.alive);
+    if(this.royalePhase==='lobby'){
+      if(alive.length<2){this.royaleTimer=10;return false;}
+      this.royaleTimer-=dt;if(this.royaleTimer>0)return false;
+      for(const p of alive){this.respawn(p.id);this.addXp(p,totalXpForLevel(15));}
+      this.royalePhase='active';this.royaleTimer=180;this.royaleRadius=ARENA_SIZE*0.71;
+      this.royaleWinner='';this.crates=[];this.bullets=[];
+    }else if(this.royalePhase==='result'){
+      this.royaleTimer-=dt;
+      if(this.royaleTimer<=0){this.royalePhase='lobby';this.royaleTimer=10;this.royaleRadius=ARENA_SIZE*0.71;this.royaleWinner='';this.bullets=[];this.crates=[];for(const p of alive)this.respawn(p.id);}
+      return false;
+    }
+    this.royaleTimer=Math.max(0,this.royaleTimer-dt);
+    this.royaleRadius=90+(ARENA_SIZE*0.71-90)*Math.pow(this.royaleTimer/180,1.15);
+    for(const p of alive)if(Math.hypot(p.x-ARENA_SIZE/2,p.y-ARENA_SIZE/2)+p.r>this.royaleRadius)
+      this.hurtPlayer(p,p.maxHp*(this.royaleTimer>0?0.065:0.25)*dt,null,'the storm');
+    return true;
+  }
+  private finishRoyaleIfNeeded(){
+    if(this.royalePhase!=='active')return;
+    const alive=[...this.players.values()].filter(p=>p.connected&&p.alive);
+    if(alive.length>1)return;
+    this.royaleWinner=alive[0]?.name??'No survivor';this.royalePhase='result';this.royaleTimer=9;
+  }
+  private recordKill(p:Player){
+    p.streak=this.time-(p.lastKillT??-Infinity)<=6?(p.streak??0)+1:1;
+    p.lastKillT=this.time;p.streakSerial=(p.streakSerial??0)+1;
+    if(this.mode==='survival')p.coins=(p.coins??0)+1;
+  }
+  private combos(p:Player):string[]{
+    const has=(id:string)=>this.perkCount(p,id)>0;const out:string[]=[];
+    if(has('hotRounds')&&has('blastRounds'))out.push('Napalm');
+    if(has('cryoRounds')&&has('chainShot'))out.push('Frozen Storm');
+    if(has('lifesteal')&&has('criticalCore'))out.push('Vampire Core');
+    if(has('droneWingman')&&has('rapidLoader'))out.push('Drone Army');
+    return out;
+  }
+  private shopOffers(p:Player){
+    if(this.mode!=='survival'||this.waveIntermission<=0||!p.alive||p.downed)return [];
+    const offers=[{id:'heal',title:'Repair',cost:8,description:'Restore 40% health'},
+      {id:'rapidLoader',title:'Rapid Loader',cost:12,description:'One faster reload stack'},
+      {id:'heavyRounds',title:'Heavy Rounds',cost:12,description:'One damage stack'},
+      {id:'cryoRounds',title:'Cryo Rounds',cost:14,description:'Slow zombies'},
+      {id:'chainShot',title:'Chain Shot',cost:14,description:'Chain damage'},
+      {id:'hotRounds',title:'Hot Rounds',cost:14,description:'Burn zombies'},
+      {id:'blastRounds',title:'Blast Rounds',cost:14,description:'Area damage'},
+      {id:'lifesteal',title:'Lifesteal',cost:14,description:'Heal on hits'},
+      {id:'criticalCore',title:'Critical Core',cost:14,description:'Critical shots'},
+      {id:'droneWingman',title:'Drone Wingman',cost:15,description:'Extra drone'}];
+    return offers.filter(o=>o.id==='heal'?p.hp<p.maxHp: SURVIVAL_PERKS.some(k=>k.id===o.id&&(p.survivalPerks[o.id]??0)<k.max));
+  }
+  buyShop(id:number,item:string):boolean{
+    const p=this.players.get(id);if(!p)return false;
+    const offer=this.shopOffers(p).find(o=>o.id===item);
+    if(!offer||(p.coins??0)<offer.cost)return false;
+    p.coins=(p.coins??0)-offer.cost;
+    if(item==='heal')p.hp=Math.min(p.maxHp,p.hp+p.maxHp*0.4);
+    else {p.survivalPerks[item]=(p.survivalPerks[item]??0)+1;this.refresh(p);}
+    return true;
   }
 
   /** Restart a completed Survival run for every connected squad member. */
@@ -383,8 +492,9 @@ export class Game {
   private resetSurvivalRun() {
     this.combatEffects = [];
     this.incomingFeedback.clear();
+    this.crates=[];this.beams=[];
     for (const player of this.players.values()) {
-      player.survivalPerks = {};
+      player.survivalPerks = {}; player.coins=0;player.powerups={};player.streak=0;
       player.rewardOffers = [];
       player.shotsFired = 0;
       player.emergencyShieldCd = 0;
@@ -974,6 +1084,7 @@ export class Game {
         this.waveRewardIssued = true;
         for (const player of this.players.values()) {
           if (!player.connected || !player.alive) continue;
+          player.coins=(player.coins??0)+8+Math.min(12,this.wave);
           if (player.downed) {
             player.downed = false; player.reviveProgress = 0; player.bleedoutT = 0;
             player.hp = player.maxHp * 0.35; player.protT = Math.max(player.protT, 2);
@@ -983,7 +1094,7 @@ export class Game {
         }
         if (this.wave > 0 && this.wave % 3 === 0) this.offerSurvivalRewards(false);
       }
-      if (this.waveIntermission <= 0) this.waveIntermission = 5;
+      if (this.waveIntermission <= 0) this.waveIntermission = 8;
       else {
         this.waveIntermission = Math.max(0, this.waveIntermission - dt);
         if (this.waveIntermission === 0) this.beginSurvivalWave();
@@ -1026,7 +1137,7 @@ export class Game {
     const killer = player.lastHit?.id != null ? this.players.get(player.lastHit.id) : undefined;
     if (killer && killer.alive && !killer.downed && killer.id !== player.id &&
         (killer.team == null || player.team == null || killer.team !== player.team)) {
-      killer.kills++; killer.matchKills++;
+      killer.kills++; killer.matchKills++; this.recordKill(killer);
       if (killer.team) this.teamStats[killer.team].kills++;
       this.addXp(killer, Math.max(25, Math.floor(player.xp * 0.6)));
     }
@@ -1191,9 +1302,9 @@ export class Game {
     if (inputLen > 1) { ix /= inputLen; iy /= inputLen; }
     const k = 1 - Math.exp(-dt * 7);
     const lowHealth = p.hp <= p.maxHp * 0.35;
-    const moveBonus = this.mode === 'survival'
+    const moveBonus = (this.boost(p,'speed')?1.35:1)*(p.cls==='berserker'?1+0.30*(1-p.hp/Math.max(1,p.maxHp)):1)*(this.mode === 'survival'
       ? 1 + this.perkCount(p, 'fleetfoot') * 0.06 + (f ? this.perkCount(p, 'overdrive') * 0.06 : 0) + (lowHealth ? this.perkCount(p, 'adrenaline') * 0.025 : 0)
-      : 1;
+      : 1);
     p.vx += (ix * p.d.moveSpeed * moveBonus - p.vx) * k;
     p.vy += (iy * p.d.moveSpeed * moveBonus - p.vy) * k;
     p.x += (p.vx + p.kvx + p.rvx) * dt;
@@ -1223,6 +1334,7 @@ export class Game {
     }
 
     const barrels = cls.barrels;
+    if(p.cls==='berserker')p.d.bodyDps=deriveStats(p.level,p.cls).bodyDps*(1+0.65*(1-p.hp/Math.max(1,p.maxHp)));
     for (let i = 0; i < p.cd.length; i++) p.cd[i] = Math.max(0, p.cd[i] - dt);
 
     if (f && !p.wasFiring) {
@@ -1249,6 +1361,7 @@ export class Game {
       const requested = trigger === 'secondary' ? p.input.secondary : p.input.f;
       if (!requested || barrel.projectile === 'drone' || p.cd[i] > 0 || this.bullets.length >= MAX_BULLETS) continue;
       this.fireBarrel(p, barrel, p.angle + barrel.angle);
+      (p.shots??=[])[i]=this.tick;
       p.cd[i] = this.reloadDelay(p);
     }
   }
@@ -1271,7 +1384,7 @@ export class Game {
     else if (kind === 'firework') { life = 1.45; }
     else if (kind === 'drone') { speed *= 0.55; life = DRONE_LIFE_S; }
 
-    const perkDamage = this.mode === 'survival' ? 1 + this.perkCount(p, 'heavyRounds') * 0.15 : 1;
+    const perkDamage = (this.boost(p,'damage')?1.5:1)*(this.mode === 'survival' ? 1 + this.perkCount(p, 'heavyRounds') * 0.15 : 1);
     const critical = this.mode === 'survival' && this.rng() < this.perkCount(p, 'criticalCore') * 0.06 ? 2 : 1;
     let explosionRadius: number | undefined, chilled = false;
     if (this.mode === 'survival') {
@@ -1285,8 +1398,22 @@ export class Game {
         explosionRadius = Math.max(explosionRadius ?? 0, 34 + this.perkCount(p, 'explosiveImpact') * 8);
       chilled = this.perkCount(p, 'cryoRounds') > 0;
     }
+    if(p.cls==='engineer'&&kind==='trap'){
+      const old=this.bullets.filter(b=>b.owner===p.id&&b.kind==='trap'&&b.weapon==='engineer'&&b.hp>0);if(old.length>=3)old[0].hp=0;
+    }
+    if(p.cls==='laser' && kind==='bullet'){
+      const beam={tick:this.tick,x:muzzleX,y:muzzleY,tx:muzzleX+cx*550,ty:muzzleY+cy*550,color:'#91dcff'};
+      let nearest: {id:number;x:number;y:number;r:number}|undefined, distance=550;
+      for(const t of this.weaponTargets(p)){
+        const dx=t.x-muzzleX,dy=t.y-muzzleY,along=dx*cx+dy*cy,side=Math.abs(dx*cy-dy*cx);
+        if(along>=0&&along<distance&&side<=t.r){nearest=t;distance=along;}
+      }
+      if(nearest){beam.tx=muzzleX+cx*distance;beam.ty=muzzleY+cy*distance;this.specialDamage(p,nearest.id,p.d.bulletDamage*perkDamage*critical);}
+      this.beams.push(beam);return;
+    }
     const bullet: Bullet = {
       id: this.nextId++, owner: p.id, x: muzzleX, y: muzzleY,
+      weapon:p.cls,...(p.cls==='ricochet'?{bounces:2}:{}),
       vx: Math.cos(spreadAngle) * speed, vy: Math.sin(spreadAngle) * speed,
       r: bulletRadius, dmg: p.d.bulletDamage * (barrel.damageMul ?? 1) * perkDamage * critical,
       hp: kind === 'drone' ? 8 : kind === 'trap' ? 100 : p.d.bulletHp,
@@ -1353,7 +1480,7 @@ export class Game {
     drone.x += Math.cos(slotAngle) * Math.min(8, length * 0.1);
     drone.y += Math.sin(slotAngle) * Math.min(8, length * 0.1);
     this.bullets.push(drone);
-    p.droneSpawnCd = cls.droneBehavior === 'factory' ? 0.28 : 0.38;
+    p.droneSpawnCd = (cls.droneBehavior === 'factory' ? 0.28 : 0.38)*(this.combos(p).includes('Drone Army')?0.65:1);
   }
 
   private updateDrone(drone: Bullet, dt: number) {
@@ -1364,6 +1491,10 @@ export class Game {
     }
 
     const cls = CLASS_BY_ID[owner.cls];
+    if(cls.id==='orbiter'){
+      const angle=this.time*2.1+(drone.formationSlot??0)*Math.PI*2/3,rad=owner.r+44;
+      drone.x=owner.x+Math.cos(angle)*rad;drone.y=owner.y+Math.sin(angle)*rad;drone.angle=angle+Math.PI/2;drone.attackState='dive';return;
+    }
     const isOverlord = cls.id === 'overlord';
     const manualCommand = owner.input.secondary;
     const ownerDistance = Math.hypot(drone.x - owner.x, drone.y - owner.y);
@@ -1686,6 +1817,7 @@ export class Game {
     if (!point) return;
     this.shapes.push({
       id: this.nextId++, kind, x: point.x, y: point.y,
+      explosive: kind===1 && this.nextId%4===0,
       vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kvx: 0, kvy: 0,
       r: def.radius, hp: def.hp, maxHp: def.hp, rot: this.rng() * 6.28,
       rotSpeed: (this.rng() - 0.5) * 0.8, lastHitBy: null,
@@ -1819,6 +1951,7 @@ export class Game {
       }
       if (owner?.team != null && owner.team === A.team) return;
       this.hurtPlayer(A, bullet.dmg, bullet.owner, owner?.name ?? 'Someone');
+      this.weaponImpact(bullet,A);
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : PLAYER_PIERCE_COST;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
       A.kvx += bullet.vx / 8; A.kvy += bullet.vy / 8;
@@ -1855,6 +1988,7 @@ export class Game {
       if (bullet.kind === 'drone') bullet.hit.add(shape.id);
       this.effect(shape, bullet.dmg, '#fff0a0');
       shape.hp -= bullet.dmg; shape.lastHitBy = bullet.owner;
+      this.weaponImpact(bullet,shape);
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : SHAPES[SHAPE_KINDS[shape.kind]].pierceCost;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
       const def = SHAPES[SHAPE_KINDS[shape.kind]];
@@ -1876,6 +2010,7 @@ export class Game {
       const dealt = bullet.dmg * this.survivalDamageMultiplier(owner, zombie);
       this.effect(zombie, dealt, '#ffda83');
       zombie.hp -= dealt;
+      this.weaponImpact(bullet,zombie);
       zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
       if (owner && this.mode === 'survival') {
         this.applySurvivalHitEffects(owner, zombie, dealt, bullet);
@@ -1915,6 +2050,36 @@ export class Game {
     }
   }
 
+  private weaponTargets(owner:Player){
+    return [...(this.mode==='survival'?this.zombies.filter(z=>z.hp>0):[...this.players.values()].filter(p=>p.id!==owner.id&&p.connected&&p.alive&&p.hp>0&&p.protT<=0&&(owner.team==null||p.team!==owner.team))),
+      ...this.shapes.filter(s=>s.hp>0)];
+  }
+  private specialDamage(owner:Player,id:number,amount:number){
+    const p=this.players.get(id);if(p){if(p.alive&&p.protT<=0)this.hurtPlayer(p,amount,owner.id,owner.name);return;}
+    const z=this.zombies.find(z=>z.id===id&&z.hp>0);if(z){const dealt=amount*this.survivalDamageMultiplier(owner,z);this.effect(z,dealt,'#b6e5ff');z.hp-=dealt;z.damageBy.set(owner.id,(z.damageBy.get(owner.id)??0)+dealt);z.hitFlash=1;return;}
+    const s=this.shapes.find(s=>s.id===id&&s.hp>0);if(s){this.effect(s,amount,'#b6e5ff');s.hp-=amount;s.lastHitBy=owner.id;s.hitFlash=1;}
+  }
+  private weaponImpact(b:Bullet,target:{id:number;x:number;y:number}){
+    const owner=this.players.get(b.owner);if(!owner||!b.weapon)return;
+    if(b.weapon==='tesla'){
+      const next=this.weaponTargets(owner).filter(t=>t.id!==target.id&&Math.hypot(t.x-target.x,t.y-target.y)<150).sort((a,c)=>Math.hypot(a.x-target.x,a.y-target.y)-Math.hypot(c.x-target.x,c.y-target.y))[0];
+      if(next){this.specialDamage(owner,next.id,b.dmg*0.45);this.beams.push({tick:this.tick,x:target.x,y:target.y,tx:next.x,ty:next.y,color:'#9bdcff'});}
+    }else if(b.weapon==='gravity'){
+      for(const t of this.weaponTargets(owner)){
+        const dx=target.x-t.x,dy=target.y-t.y,d=Math.hypot(dx,dy);
+        if(d>1&&d<145){t.kvx+=dx/d*45*(1-d/145);t.kvy+=dy/d*45*(1-d/145);}
+      }
+    }
+  }
+  private updateEngineer(b:Bullet){
+    if(b.hp<=0||b.life<=0||this.time<(b.turretNext??0)||this.bullets.length>=MAX_BULLETS)return;
+    const p=this.players.get(b.owner);if(!p?.alive||p.cls!=='engineer'){b.hp=0;return;}
+    const t=this.weaponTargets(p).filter(t=>Math.hypot(t.x-b.x,t.y-b.y)<300).sort((a,c)=>Math.hypot(a.x-b.x,a.y-b.y)-Math.hypot(c.x-b.x,c.y-b.y))[0];
+    if(!t)return;
+    const angle=Math.atan2(t.y-b.y,t.x-b.x),speed=600;
+    b.angle=angle;b.turretNext=this.time+0.65;
+    this.bullets.push({id:this.nextId++,owner:p.id,x:b.x+Math.cos(angle)*b.r,y:b.y+Math.sin(angle)*b.r,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,r:5,dmg:p.d.bulletDamage*0.48,hp:2,life:0.75,hit:new Set(),kind:'bullet',angle,maxSpeed:speed,turnRate:0});
+  }
   private survivalDamageMultiplier(owner: Player | undefined, zombie: Zombie): number {
     const guardianMul = this.isZombieProtected(zombie) ? 0.58 : 1;
     const armourStacks = this.mode === 'survival' ? this.perkCount(owner, 'armorPiercer') : 0;
@@ -1932,7 +2097,7 @@ export class Game {
   private applySurvivalHitEffects(owner: Player | undefined, zombie: Zombie, dealt: number, bullet: Bullet) {
     if (this.mode !== 'survival' || !owner) return;
     const lifesteal = this.perkCount(owner, 'lifesteal');
-    if (lifesteal > 0) owner.hp = Math.min(owner.maxHp, owner.hp + dealt * 0.05 * lifesteal);
+    if (lifesteal > 0) owner.hp = Math.min(owner.maxHp, owner.hp + dealt * 0.05 * lifesteal * (this.combos(owner).includes('Vampire Core')?1.5:1));
     if (bullet.chilled) zombie.slowT = Math.max(zombie.slowT, 3);
     const hotStacks = this.perkCount(owner, 'hotRounds');
     if (hotStacks > 0) {
@@ -1975,6 +2140,7 @@ export class Game {
     const chainDamage = damage * (0.14 + stacks * 0.06) * this.survivalDamageMultiplier(owner, target);
     this.effect(target, chainDamage, '#9eeaff');
       target.hp -= chainDamage;
+    if(this.combos(owner).includes('Frozen Storm'))target.slowT=Math.max(target.slowT,4);
     target.damageBy.set(owner.id, (target.damageBy.get(owner.id) ?? 0) + chainDamage);
     this.applySurvivalHitEffects(owner, target, chainDamage, bullet);
     target.hitFlash = Math.max(target.hitFlash, 0.65);
@@ -1990,6 +2156,7 @@ export class Game {
       this.effect(zombie, dealt, '#ffda83');
       zombie.hp -= dealt; zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
       this.applySurvivalHitEffects(owner, zombie, dealt, bullet);
+      if(owner&&this.combos(owner).includes('Napalm')) {zombie.burnT=Math.max(zombie.burnT??0,3);zombie.burnDps=Math.max(zombie.burnDps??0,dealt*0.14);zombie.burnOwnerId=owner.id;zombie.burnTick=0.5;}
     }
   }
 
@@ -2058,7 +2225,7 @@ export class Game {
 
   private hurtPlayer(p: Player, amount: number, byId: number | null, byName: string) {
     if (!p.connected || !p.alive || p.downed || amount <= 0) return;
-    const reduced = this.mode === 'survival' ? amount * Math.max(0.68, 1 - this.perkCount(p, 'ironSkin') * 0.06) : amount;
+    const reduced = (byName==='the storm'?1:this.boost(p,'shield')?0.45:1)*(this.mode === 'survival' ? amount * Math.max(0.68, 1 - this.perkCount(p, 'ironSkin') * 0.06) : amount);
     // Aggregate incoming damage across all sources, independently of outgoing ram feedback.
     const feedback = this.incomingFeedback.get(p.id) ?? { damage: 0, next: this.time + 0.45 };
     feedback.damage += Math.min(Math.max(0, p.hp), reduced);
@@ -2105,9 +2272,18 @@ export class Game {
       this.zombieKills++;
       const killer = [...zombie.damageBy.entries()].sort((a, b) => b[1] - a[1])[0];
       const player = killer ? this.players.get(killer[0]) : undefined;
-      if (player) { player.kills++; player.matchKills++; }
+      if (player) { player.kills++; player.matchKills++; this.recordKill(player); }
     }
     this.zombies = this.zombies.filter((zombie) => zombie.hp > 0);
+    // Resolve chained explosive objects once before collecting destroyed shapes.
+    const exploded=new Set<number>();
+    for(let pass=0;pass<this.shapes.length;pass++){
+      const source=this.shapes.find(s=>s.explosive&&s.hp<=0&&!exploded.has(s.id));if(!source)break;exploded.add(source.id);
+      this.effect({...source,r:80},0,'#ff8954','destroy');
+      const owner=source.lastHitBy==null?undefined:this.players.get(source.lastHitBy);
+      for(const t of this.shapes){if(t.hp<=0||Math.hypot(t.x-source.x,t.y-source.y)>125+t.r)continue;this.effect(t,28,'#ffcf75');t.hp-=28;t.lastHitBy=source.lastHitBy;}
+      for(const p of this.players.values()){if(!p.connected||!p.alive||p.protT>0||Math.hypot(p.x-source.x,p.y-source.y)>125+p.r||(owner?.team!=null&&owner.team===p.team&&owner.id!==p.id))continue;this.hurtPlayer(p,24,owner?.id??null,owner?.name??'an explosive object');}
+    }
     if (this.shapes.some((shape) => shape.hp <= 0)) {
       for (const shape of this.shapes) {
         if (shape.hp > 0) continue;
@@ -2141,7 +2317,7 @@ export class Game {
   }
 
   private perkCount(p: Player | undefined, id: string): number { return p?.survivalPerks[id] ?? 0; }
-  private reloadDelay(p: Player): number { return p.d.reload * Math.pow(0.9, this.mode === 'survival' ? this.perkCount(p, 'rapidLoader') : 0); }
+  private reloadDelay(p: Player): number { return p.d.reload * (this.boost(p,'rapid')?0.65:1)*Math.pow(0.9, this.mode === 'survival' ? this.perkCount(p, 'rapidLoader') : 0); }
   private queueRewardOffer(player: Player, bossReward: boolean) {
     if (player.rewardOffers.length >= 5) return;
     const available = SURVIVAL_PERKS.filter((perk) => (player.survivalPerks[perk.id] ?? 0) < perk.max);
@@ -2237,6 +2413,10 @@ export class Game {
     const focus = myClass.id === 'predator' && me.input.secondary ? 1.55 : 1;
     return {
       t: 's', tick: this.tick, mode: this.mode,
+      crates:this.crates.filter(c=>near(c.x,c.y,c.r)).map(({id,x,y,r,kind})=>({id,x,y,r,kind})),
+      explosiveIds:this.shapes.filter(s=>s.explosive&&near(s.x,s.y,s.r)).map(s=>s.id),
+      beams:this.beams.filter(b=>near(b.x,b.y,550)),
+      ...(this.mode==='royale'?{royale:{phase:this.royalePhase,radius:this.royaleRadius,seconds:Math.ceil(this.royaleTimer),alive:[...this.players.values()].filter(p=>p.connected&&p.alive).length,winner:this.royaleWinner}}:{}),
       ...(this.mode === 'survival' ? { survival: { wave: this.wave, theme: this.waveTheme(), remaining: this.zombies.length + this.waveSpawnRemaining, intermission: this.waveIntermission } } : {}),
       effects: this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ && near(effect.x, effect.y, effect.radius)),
       z: this.zombies.map((zombie) => ({
@@ -2260,6 +2440,7 @@ export class Game {
         hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
         xpCur: currentXp, xpNext: nextXp,
         cls: me.cls, opts: me.alive && !me.downed ? classOptions(me.cls, me.level) : [], fov: me.d.fovMul * focus,
+        coins:me.coins??0,shop:this.shopOffers(me),combos:this.combos(me),streak:me.streak??0,streakSerial:me.streakSerial??0,powerups:this.powerupStatus(me),
         team: me.team, rewards: me.rewardOffers[0]?.cards ?? [], rewardTimer: r1(me.rewardOffers[0]?.timeRemaining ?? 0),
       },
       p: [...this.players.values()].filter((player) => player.connected && player.alive && !player.downed &&
@@ -2267,7 +2448,7 @@ export class Game {
         id: player.id, name: player.name, x: r1(player.x), y: r1(player.y), a: r2(player.angle),
         hp: r1(player.hp), mhp: r1(player.maxHp), r: r1(player.r), lv: player.level,
         cls: CLASS_IDS.indexOf(player.cls), prot: player.protT > 0 ? 1 : 0, vis: player.visibility,
-        team: player.team,
+        team: player.team,skin:player.skin,powerups:this.powerupStatus(player),shots:player.shots,
       })),
       b: this.bullets.filter((bullet) => near(bullet.x, bullet.y, bullet.r)).map((bullet) => [
         bullet.id, r1(bullet.x), r1(bullet.y), r1(bullet.r), bullet.owner,

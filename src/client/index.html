@@ -429,6 +429,15 @@
   .audio-card input[type=checkbox] { accent-color:#4bc4ef; width:20px; height:20px; vertical-align:middle; }
   .audio-card button { min-height:44px; width:100%; margin-top:7px; background:#2469ad; font-weight:800; }
   @media (pointer:coarse), (max-width:760px) { #audio-hud { top:calc(env(safe-area-inset-top) + 158px); bottom:auto; left:calc(env(safe-area-inset-left) + 8px); min-height:42px; font-size:11px; } }
+  #power-status {position:fixed;top:8px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:900;color:#fff2ad;text-shadow:0 1px 3px #111;pointer-events:none;z-index:8;white-space:nowrap;}
+  #shop-toggle {position:fixed;z-index:16;left:50%;bottom:65px;transform:translateX(-50%);background:#205c82;min-height:44px;font-weight:900;}
+  #shop-toggle[hidden],#shop-panel[hidden],body:not(.in-game) #power-status,body:not(.in-game) #shop-toggle {display:none!important;}
+  #shop-panel {position:fixed;inset:0;display:grid;place-items:center;background:#101725aa;z-index:51;touch-action:pan-y;}
+  #shop-items {display:grid;gap:7px;margin:10px 0;max-height:50dvh;overflow:auto;touch-action:pan-y;}
+  #shop-items button {text-align:left;min-height:44px;}
+  #skin-select {width:100%;padding:10px;border:1px solid #52657b;border-radius:8px;background:#172231;color:#fff;font:inherit;margin:5px 0;}
+  #mode-select {grid-template-columns:repeat(2,minmax(0,1fr));}
+  @media(pointer:coarse),(max-width:760px){#power-status{top:calc(env(safe-area-inset-top) + 48px);font-size:9px;}#shop-toggle{bottom:calc(env(safe-area-inset-bottom) + 108px);}}
 </style>
 </head>
 <body>
@@ -481,6 +490,8 @@
     <button id="audio-close" type="button">Done</button>
   </section>
 </div>
+<div id="power-status"></div><button id="shop-toggle" type="button" hidden>SHOP</button>
+<div id="shop-panel" hidden><section class="audio-card" role="dialog" aria-label="Survival shop"><h2>Survival Shop</h2><div id="shop-coins"></div><div id="shop-items"></div><button id="shop-close" type="button">Close</button></section></div>
 <div id="menu">
   <div class="card">
     <h1>Tank Arena</h1>
@@ -498,9 +509,11 @@
       <button id="mode-ffa" type="button" class="selected" aria-pressed="true">FREE FOR ALL<br><small>Every tank for itself</small></button>
       <button id="mode-teams" type="button" aria-pressed="false">TEAM MODE<br><small>Blue vs Red · Protected bases</small></button>
       <button id="mode-survival" type="button" aria-pressed="false">CO-OP SURVIVAL<br><small>Zombie waves · Earn XP</small></button>
+      <button id="mode-royale" type="button" aria-pressed="false">BATTLE ROYALE<br><small>Last tank standing</small></button>
     </div>
     <p id="mode-help" class="small">Every tank fights for itself. Earn XP and climb the individual leaderboard.</p>
     <input id="name" maxlength="16" placeholder="Nickname" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label for="skin-select" class="small">Tank color</label><select id="skin-select"></select>
     <button id="play" disabled>Play</button>
     <button id="fullscreen-btn" type="button">Enter fullscreen</button>
     <button id="audio-menu" type="button">♪ Audio settings</button>
@@ -509,7 +522,7 @@
     <b>Phone:</b> left thumb moves, right thumb aims and fires.</p>
     <p id="lan" class="small"></p>
     <details id="classguide-details">
-      <summary>Tank guide · specialties and class stat bonuses for all 54 classes</summary>
+      <summary>Tank guide · specialties and class stat bonuses for all classes</summary>
       <div id="classguide"></div>
     </details>
   </div>

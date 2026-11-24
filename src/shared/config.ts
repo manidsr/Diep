@@ -99,6 +99,17 @@ export const SHAPES: Record<(typeof SHAPE_KINDS)[number], ShapeDef> = {
   pentagon: { sides: 5, radius: 44, hp: 120, xp: 130, bodyDps: 14, pierceCost: 3, weight: 12, color: '#768dfc', stroke: '#5869bd' },
 };
 export const PLAYER_PIERCE_COST = 3;
+export const TANK_SKINS = {
+  default: { fill: '#00b2e1', stroke: '#0083a8' },
+  lime: { fill: '#8dcc62', stroke: '#568e38' },
+  violet: { fill: '#b096e8', stroke: '#785db3' },
+  gold: { fill: '#f5c65c', stroke: '#b88b35' },
+  coral: { fill: '#f68b75', stroke: '#b85b49' },
+  graphite: { fill: '#a5a9b3', stroke: '#656b78' },
+} as const;
+export type TankSkin = keyof typeof TANK_SKINS;
+export const POWERUPS = ['damage','speed','shield','rapid','heal'] as const;
+export type Powerup = typeof POWERUPS[number];
 
 // ---- Weapons and tank classes ----
 export type ProjectileKind = 'bullet' | 'drone' | 'trap' | 'missile' | 'firework';
@@ -320,6 +331,14 @@ export const CLASSES: TankClassDef[] = [
     noBarrels, { smasher: true, sizeMul: 1.2, maxHpMul: 1.45, bodyDamageMul: 2.65, moveSpeedMul: 1.02 }),
   T('autoTank', 'Auto Tank', 'A standard cannon supported by one tracking auto turret.', 'basic', 45,
     [B(0, 0, 42, 18, 0, 0, 0.75)], { turretCount: 1, turretRange: 600 }),
+  T('tesla','Tesla','Shots arc to one additional nearby enemy.','gunner',45,[B(0,0,45,20,0,0,0.5)],{specialty:'rapidFire',reloadMul:0.85,damageMul:0.85}),
+  T('gravity','Gravity','Heavy rounds pull nearby targets toward the impact.','destroyer',45,[B(0,0,46,30,0,0,1.7)],{specialty:'heavyArtillery',reloadMul:1.6,damageMul:1.3,bulletSpeedMul:0.85}),
+  T('ricochet','Ricochet','Rounds bounce off arena walls twice.','triple',45,[B(0,0,46,18),B(-0.24,0,35,12,0.5),B(0.24,0,35,12,0.5)],{damageMul:0.85,bulletLifeMul:1.7,reloadMul:1.2}),
+  T('engineer','Engineer','Places up to three automatic defense turrets.','trapper',45,[B(0,0,40,26,0,0,0.6,'trap')],{specialty:'areaControl',reloadMul:2.3,trapLife:13,damageMul:0.75}),
+  T('laser','Laser','Rapid focused energy pulses hit targets along a beam.','hunter',45,[B(0,0,60,16,0,0,0.12)],{specialty:'sniper',reloadMul:0.30,damageMul:0.32}),
+  T('orbiter','Orbiter','Three drones orbit and damage enemies on contact.','overseer',45,[B(0,0,32,13,0,0,0,'drone')],{specialty:'droneController',droneLimit:3,droneBehavior:'overseer',droneDamageMul:0.8}),
+  T('berserker','Berserker','Body damage and movement grow as health falls.','smasher',45,noBarrels,{specialty:'rammer',smasher:true,maxHpMul:1.5,bodyDamageMul:2.0,moveSpeedMul:1.1,sizeMul:1.12}),
+  T('railgun','Railgun','Extremely fast, powerful long-range rounds.','assassin',45,[B(0,0,82,16,0,0,2.0)],{specialty:'sniper',reloadMul:2.5,damageMul:2.0,bulletSpeedMul:2.7,bulletLifeMul:1.3,fovMul:1.35}),
 ];
 
 export const CLASS_IDS = CLASSES.map((c) => c.id);

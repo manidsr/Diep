@@ -5,8 +5,8 @@ import { CLASSES, CLASS_BY_ID, CLASS_IDS, MAX_LEVEL } from '../src/shared/config
 import { classOptions, totalXpForLevel } from '../src/shared/progression';
 import { seeded } from './helpers';
 
-test('full class roster has 54 unique, valid definitions and reachable parents', () => {
-  assert.equal(CLASSES.length, 54);
+test('full class roster has 62 unique, valid definitions and reachable parents', () => {
+  assert.equal(CLASSES.length, 62);
   assert.equal(new Set(CLASS_IDS).size, CLASSES.length);
   for (const cls of CLASSES) {
     assert.ok(cls.minLevel <= MAX_LEVEL, cls.id);
@@ -35,9 +35,9 @@ test('the first and second evolution tiers unlock at their intended levels', () 
   assert.deepEqual(classOptions('flank', 30).sort(), ['quad', 'triAngle', 'twinFlank']);
 });
 
-test('all 36 level-45 classes unlock only at level 45 from a valid parent', () => {
+test('all 44 level-45 classes unlock only at level 45 from a valid parent', () => {
   const tierThree = CLASSES.filter((cls) => cls.minLevel === 45);
-  assert.equal(tierThree.length, 36);
+  assert.equal(tierThree.length, 44);
   for (const cls of tierThree) {
     const parents = [...(cls.parent ? [cls.parent] : []), ...(cls.alternateParents ?? [])];
     assert.ok(parents.length > 0, cls.id);

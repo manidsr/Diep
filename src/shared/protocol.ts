@@ -1,15 +1,17 @@
-import { CLASS_IDS, MAX_NAME_LEN } from './config';
+import { CLASS_IDS, MAX_NAME_LEN, TANK_SKINS, type TankSkin, type Powerup } from './config';
 
 export const MAX_MESSAGE_BYTES = 256;
 
 // Client messages express intent only. The server owns all state and outcomes.
 export type TeamId = 'blue' | 'red';
-export type GameMode = 'ffa' | 'teams' | 'survival';
+export type GameMode = 'ffa' | 'teams' | 'survival' | 'royale';
 
 export type ClientMessage =
   | { t: 'join'; name: string; mode?: GameMode; resumeToken?: string }
   | { t: 'input'; mx: number; my: number; a: number; f: boolean; secondary?: boolean; spin?: boolean }
   | { t: 'reward'; id: string }
+  | { t: 'skin'; id: TankSkin }
+  | { t: 'shop'; id: string }
   | { t: 'restart' }
   | { t: 'class'; id: string }
   | { t: 'devClass'; id: string };
@@ -39,7 +41,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return {
         t: 'join',
         name: sanitizeName(message.name),
-        mode: message.mode === 'teams' ? 'teams' : message.mode === 'survival' ? 'survival' : 'ffa',
+        mode: message.mode === 'teams' ? 'teams' : message.mode === 'survival' ? 'survival' : message.mode === 'royale' ? 'royale' : 'ffa',
         ...(typeof message.resumeToken === 'string' ? { resumeToken: message.resumeToken } : {}),
       };
     case 'input':
@@ -56,6 +58,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case 'reward':
       if (typeof message.id !== 'string' || !/^[a-zA-Z][a-zA-Z0-9]{1,31}$/.test(message.id)) return null;
       return { t: 'reward', id: message.id };
+    case 'skin':
+      return typeof message.id === 'string' && Object.prototype.hasOwnProperty.call(TANK_SKINS,message.id) ? {t:'skin',id:message.id as TankSkin} : null;
+    case 'shop':
+      return typeof message.id === 'string' && /^[a-zA-Z][a-zA-Z0-9]{1,31}$/.test(message.id) ? {t:'shop',id:message.id} : null;
     case 'restart':
       return { t: 'restart' };
     case 'class':
@@ -72,6 +78,7 @@ export interface PlayerSnap {
   id: number; name: string; x: number; y: number; a: number;
   hp: number; mhp: number; r: number; lv: number; cls: number; prot: 0 | 1; vis: number;
   team: TeamId | null;
+  skin?: TankSkin; powerups?: Partial<Record<Powerup,number>>; shots?: number[];
 }
 export type ZombieBossKind = 'breaker' | 'spitter' | 'summoner' | 'colossus' | 'nestMother' | 'lich' | 'devourer' | 'abomination';
 export type ZombieBossPhase = 'idle' | 'windup' | 'charge' | 'recovery';
@@ -103,6 +110,7 @@ export interface SelfSnap {
   xp: number; xpCur: number; xpNext: number;
   cls: string; opts: string[]; fov: number; team: TeamId | null;
   rewards: RewardCardSnap[]; rewardTimer: number;
+  coins?: number; shop?: {id:string; title:string; cost:number; description:string}[]; combos?: string[]; streak?: number; streakSerial?: number; powerups?: Partial<Record<Powerup,number>>;
 }
 export interface CombatEffect {
   tick: number; x: number; y: number; radius: number;
@@ -112,6 +120,10 @@ export interface Snapshot {
   t: 's';
   tick: number;
   effects?: CombatEffect[];
+  crates?: {id:number;x:number;y:number;r:number;kind:Powerup}[];
+  explosiveIds?: number[];
+  beams?: {tick:number;x:number;y:number;tx:number;ty:number;color:string}[];
+  royale?: {phase:'lobby'|'active'|'result'; radius:number; seconds:number; alive:number; winner:string};
   survival?: { wave: number; theme: WaveTheme; remaining: number; intermission: number };
   me: SelfSnap;
   p: PlayerSnap[];
