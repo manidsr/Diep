@@ -666,16 +666,16 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
     ctx.beginPath(); ctx.arc(player.x, player.y, player.r + 7 + pulse * 3, 0, Math.PI * 2);
     ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.4})`; ctx.stroke();
   }
-  let y = player.y + player.r;
+  let labelY = player.y + player.r;
   if (player.hp < player.mhp && player.vis > 0.5) {
-    hpBar(ctx, player.x, y + HP_GAP, player.r * 1.8, player.hp / player.mhp);
-    y += HP_GAP + 8;
+    hpBar(ctx, player.x, labelY + HP_GAP, player.r * 1.8, player.hp / player.mhp);
+    labelY += HP_GAP + 8;
   }
   ctx.font = 'bold 15px system-ui, sans-serif';
   ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = '#000b'; ctx.fillStyle = '#fff';
   if (player.vis > 0.5) {
-    ctx.strokeText(player.name, player.x, y + NAME_GAP + 4);
-    ctx.fillText(player.name, player.x, y + NAME_GAP + 4);
+    ctx.strokeText(player.name, player.x, labelY + NAME_GAP + 4);
+    ctx.fillText(player.name, player.x, labelY + NAME_GAP + 4);
   }
   ctx.restore();
 }
