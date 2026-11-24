@@ -21,11 +21,11 @@ const TEAM_RED = { fill: '#f0525c', stroke: '#a92735' };
 const TEAM_COLOURS: Record<TeamId, { fill: string; stroke: string }> = {
   blue: TEAM_BLUE, red: TEAM_RED,
 };
-const BODY_STROKE = 4.5;
-const BARREL_STROKE = 4;
-const BARREL_FILL = '#999999';
-const BARREL_EDGE = '#727272';
-const BARREL_WIDTH_MUL = 1.15;
+const BODY_STROKE = 3.5;
+const BARREL_STROKE = 3;
+const BARREL_FILL = '#a4adb5';
+const BARREL_EDGE = '#4e5965';
+const BARREL_WIDTH_MUL = 1.08;
 const NAME_GAP = 16;
 const HP_GAP = 10;
 
@@ -591,21 +591,27 @@ function drawBarrels(
     ctx.rotate(barrel.angle);
     const width = barrel.width * scale * BARREL_WIDTH_MUL;
     const length = barrel.length * scale;
-    ctx.fillStyle = barrel.projectile === 'trap' ? '#b8a17e' : barrel.projectile === 'missile' ? '#bd9b70' : BARREL_FILL;
+    ctx.fillStyle = barrel.projectile === 'trap' ? '#c5ad83' : barrel.projectile === 'missile' ? '#c4a276' : BARREL_FILL;
     ctx.strokeStyle = BARREL_EDGE;
-    ctx.lineWidth = BARREL_STROKE;
+    ctx.lineWidth = BARREL_STROKE * scale;
     const barrelY = barrel.offset * scale - width / 2;
-    const corner = Math.min(width * 0.18, 5 * scale);
+    const corner = Math.min(width * 0.16, 3 * scale, length / 2);
     ctx.beginPath();
     ctx.roundRect(0, barrelY, length, width, corner);
     ctx.fill();
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(5 * scale, barrelY + 2 * scale);
-    ctx.lineTo(Math.max(5 * scale, length - 3 * scale), barrelY + 2 * scale);
-    ctx.strokeStyle = '#ffffff35';
-    ctx.lineWidth = Math.max(1, 1.2 * scale);
-    ctx.stroke();
+
+    // Inset bevels and a muzzle band give the barrel depth without changing its silhouette.
+    const inset = 2.5 * scale;
+    const muzzle = Math.min(length * 0.22, 7 * scale);
+    if (length > inset * 2 && width > inset * 2) {
+      ctx.fillStyle = '#ffffff38';
+      ctx.fillRect(inset, barrelY + inset, length - inset * 2, width * 0.17);
+      ctx.fillStyle = '#26374626';
+      ctx.fillRect(inset, barrelY + width - inset - width * 0.19, length - inset * 2, width * 0.19);
+      ctx.fillStyle = '#37455255';
+      ctx.fillRect(length - muzzle, barrelY + inset, Math.max(0, muzzle - inset), width - inset * 2);
+    }
     ctx.restore();
   }
   ctx.restore();
@@ -622,42 +628,39 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
   // Main barrels sit beneath the hull first, so their roots blend naturally into it.
   drawBarrels(ctx, player, cls, scale);
 
-  // Auto turrets are mounted on the body and can aim independently on the server.
+  // Draw the hull once, above the barrel roots. No duplicate outlines or clipping seam.
+  ctx.restore();
+  const x = player.x, y = player.y, r = player.r;
+  circle(ctx, x, y, r, palette.fill, palette.stroke, BODY_STROKE * scale);
+
+  // A restrained lower rim and upper highlight retain the classic flat 2D style.
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.84, 0.22 * Math.PI, 0.82 * Math.PI);
+  ctx.strokeStyle = '#172b4826'; ctx.lineWidth = Math.max(1, 2.8 * scale); ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.84, 1.12 * Math.PI, 1.78 * Math.PI);
+  ctx.strokeStyle = '#ffffff62'; ctx.lineWidth = Math.max(1, 2.1 * scale); ctx.stroke();
+
+  // Auto-turret mounts use the same world-space offsets as the server.
+  // Aim is not included in PlayerSnap; use a stable outward-facing visual.
+  ctx.save();
+  ctx.globalAlpha *= Math.max(0.04, Math.min(1, player.vis ?? 1));
   const turretCount = cls.turretCount ?? 0;
   for (let i = 0; i < turretCount; i++) {
-    const angle = (i / turretCount) * Math.PI * 2;
-    const mountRadius = player.r * 0.42;
-    const tx = Math.cos(angle) * mountRadius;
-    const ty = Math.sin(angle) * mountRadius;
+    const orbit = (i / turretCount) * Math.PI * 2;
     ctx.save();
-    ctx.translate(tx, ty);
-    ctx.rotate(angle - player.a);
-    ctx.fillStyle = '#777'; ctx.strokeStyle = '#555'; ctx.lineWidth = 2.5;
-    ctx.fillRect(-2, -5 * scale, 18 * scale, 10 * scale);
-    ctx.strokeRect(-2, -5 * scale, 18 * scale, 10 * scale);
-    circle(ctx, 0, 0, 6 * scale, '#888', '#555', 2);
+    ctx.translate(x + Math.cos(orbit) * r * 0.48, y + Math.sin(orbit) * r * 0.48);
+    ctx.rotate(orbit);
+    ctx.fillStyle = BARREL_FILL; ctx.strokeStyle = BARREL_EDGE; ctx.lineWidth = 2.2 * scale;
+    ctx.beginPath();
+    ctx.roundRect(-2 * scale, -4.5 * scale, 24 * scale, 9 * scale, 2 * scale);
+    ctx.fill(); ctx.stroke();
+    circle(ctx, 0, 0, 7 * scale, '#aab4bd', BARREL_EDGE, 2 * scale);
+    circle(ctx, 0, 0, 3 * scale, palette.fill, palette.stroke, 1.2 * scale);
     ctx.restore();
   }
   ctx.restore();
-
-  // Body and shield.
-  circle(ctx, player.x, player.y, player.r, palette.fill, palette.stroke, BODY_STROKE);
-
-  // The hull masks the roots, but should never hide the exposed barrel tips.
-  // An even-odd clip selects everything outside the body circle and redraws
-  // the same barrel geometry there, preserving the clean under-hull connection.
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(player.x - player.r * 8, player.y - player.r * 8, player.r * 16, player.r * 16);
-  ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-  ctx.clip('evenodd');
-  drawBarrels(ctx, player, cls, scale);
-  ctx.restore();
-
-  // Soft upper-left sheen, kept subtle to preserve the original flat arena aesthetic.
-  ctx.beginPath();
-  ctx.arc(player.x - player.r * 0.08, player.y - player.r * 0.08, player.r * 0.82, Math.PI * 1.08, Math.PI * 1.78);
-  ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = Math.max(2, player.r * 0.055); ctx.stroke();
   if (player.prot) {
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
     ctx.beginPath(); ctx.arc(player.x, player.y, player.r + 7 + pulse * 3, 0, Math.PI * 2);
