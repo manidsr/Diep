@@ -22,8 +22,8 @@ effectsSlider.value = String(Math.round(audio.effectsVolume*100));
 muteAudio.checked = audio.muted;
 const saveAudio = () => audio.settings(Number(musicSlider.value)/100, Number(effectsSlider.value)/100, muteAudio.checked);
 for (const control of [musicSlider,effectsSlider,muteAudio]) control.addEventListener('input',saveAudio);
-for (const id of ['audio-menu','audio-hud']) $(id).addEventListener('click',() => { audioPanel.hidden = false; void audio.unlock(); });
-$('audio-close').addEventListener('click',() => { audioPanel.hidden = true; });
+for (const id of ['audio-menu','audio-hud']) $(id).addEventListener('click',() => { if(id==='audio-hud')closeGameMenu(); input.reset(); audioPanel.hidden = false; void audio.unlock(); $('audio-close').focus(); });
+$('audio-close').addEventListener('click',() => { audioPanel.hidden = true; if(playing)$('hamburger-toggle').focus(); });
 $('audio-test').addEventListener('click',() => { void audio.unlock().then(() => audio.cue('heavy')); });
 document.addEventListener('pointerdown', () => { void audio.unlock(); }, { passive:true });
 document.addEventListener('keydown', () => { void audio.unlock(); });
@@ -470,14 +470,16 @@ for (const id of CLASS_IDS) {
   option.textContent = CLASS_BY_ID[id]?.name ?? id;
   devClassSelect.append(option);
 }
-devToggle.addEventListener('click', () => devTools.classList.toggle('open'));
+function setDevPanel(open:boolean){devTools.classList.toggle('open',open);devToggle.setAttribute('aria-expanded',String(open));}
+devToggle.addEventListener('click', () => setDevPanel(!devTools.classList.contains('open')));
 devApply.addEventListener('click', () => {
   if (playing && devCheatsEnabled) send({ t: 'devClass', id: devClassSelect.value });
 });
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'F2' && devCheatsEnabled && (e.target as HTMLElement | null)?.tagName !== 'INPUT') {
+  if (e.key === 'F2' && playing && devCheatsEnabled && shopPanel.hidden && audioPanel.hidden && survivalGameOverEl.hidden && !e.repeat && (e.target as HTMLElement | null)?.tagName !== 'INPUT') {
     e.preventDefault();
-    devTools.classList.toggle('open');
+    const open=gameMenuPanel.hidden||!devTools.classList.contains('open');
+    if(gameMenuPanel.hidden)openGameMenu();setDevPanel(open);if(open)devToggle.focus();
   }
 });
 
@@ -526,12 +528,56 @@ function coinIcon():SVGSVGElement{
   const c=document.createElementNS('http://www.w3.org/2000/svg','circle');c.setAttribute('cx','12');c.setAttribute('cy','12');c.setAttribute('r','9');c.setAttribute('fill','#e8bc53');c.setAttribute('stroke','#a77a28');c.setAttribute('stroke-width','2');svg.append(c);
   const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d','M12 7v10M8 10h6a2 2 0 0 1 0 4H8');p.setAttribute('fill','none');p.setAttribute('stroke','#77551f');p.setAttribute('stroke-width','1.7');p.setAttribute('stroke-linecap','round');svg.append(p);return svg;
 }
+const gameMenuPanel=$('game-menu-panel'),hamburger=$('hamburger-toggle');
 function closeShop(restoreFocus=false){shopPanel.hidden=true;shopToggle.setAttribute('aria-expanded','false');if(restoreFocus&&!shopToggle.hidden)shopToggle.focus();}
-shopToggle.addEventListener('click',()=>{if(!shopPanel.hidden){closeShop(true);return;}if(!playing||shopToggle.hidden)return;input.reset();shopPanel.hidden=false;shopToggle.setAttribute('aria-expanded','true');$('shop-close').focus();});
+shopToggle.addEventListener('click',()=>{if(!shopPanel.hidden){closeShop(true);return;}if(!playing||shopToggle.hidden)return;closeGameMenu();input.reset();shopPanel.hidden=false;shopToggle.setAttribute('aria-expanded','true');$('shop-close').focus();});
 $('shop-close').addEventListener('click',()=>closeShop(true));
 $('dev-shop').addEventListener('click',()=>{if(playing&&!shopToggle.hidden&&devCheatsEnabled&&shopPanel.hidden)shopToggle.click();});
 shopPanel.addEventListener('click',event=>{if(event.target===shopPanel)closeShop(true);});
 window.addEventListener('keydown',event=>{if(shopPanel.hidden)return;if(event.key==='Escape'){event.preventDefault();closeShop(true);}else if(event.key==='Tab'){const buttons=Array.from(shopPanel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));if(!buttons.length)return;const first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});
+function closeGameMenu(restoreFocus=false){
+  gameMenuPanel.hidden=true;hamburger.setAttribute('aria-expanded','false');setDevPanel(false);
+  if(restoreFocus&&playing)hamburger.focus();
+}
+function updateGameMenu(){
+  const modeNames:Record<GameMode,string>={ffa:'Free for All',teams:'Team Mode',survival:'Co-op Survival',royale:'Battle Royale'};
+  $('game-menu-mode').textContent=modeNames[selectedMode];
+  const shop=$<HTMLButtonElement>('game-menu-shop');shop.hidden=selectedMode!=='survival';shop.disabled=shopToggle.hidden;
+  $('game-menu-shop-status').textContent=shopToggle.hidden?'Opens between waves':($('shop-toggle-balance').textContent==='DEV'?'Free test upgrades':'Available · '+$('shop-toggle-balance').textContent);
+  const full=$('game-menu-fullscreen-label');full.textContent=document.fullscreenElement?'Exit fullscreen':'Enter fullscreen';
+  const visible=!document.body.classList.contains('hide-leaderboard');
+  $('game-menu-leaderboard').setAttribute('aria-pressed',String(visible));$('game-menu-lb-label').textContent=visible?'Hide leaderboard':'Show leaderboard';
+}
+function openGameMenu(){
+  if(!playing||!shopPanel.hidden||!audioPanel.hidden||!survivalGameOverEl.hidden)return;
+  input.reset();closeEvolution();updateGameMenu();$('game-menu-message').textContent='';
+  gameMenuPanel.hidden=false;hamburger.setAttribute('aria-expanded','true');$('game-menu-resume').focus();
+}
+hamburger.addEventListener('click',()=>{if(gameMenuPanel.hidden)openGameMenu();else closeGameMenu(true);});
+for(const id of ['game-menu-close','game-menu-resume'])$(id).addEventListener('click',()=>closeGameMenu(true));
+gameMenuPanel.addEventListener('click',e=>{if(e.target===gameMenuPanel)closeGameMenu(true);});
+$('game-menu-shop').addEventListener('click',()=>{if(!shopToggle.hidden)shopToggle.click();});
+$('game-menu-fullscreen').addEventListener('click',async()=>{
+  try{
+    if(document.fullscreenElement)await document.exitFullscreen();
+    else {await document.documentElement.requestFullscreen({navigationUI:'hide'});}
+    $('game-menu-message').textContent='';
+  }catch{$('game-menu-message').textContent='Fullscreen is unavailable in this browser.';}
+  updateGameMenu();
+});
+document.addEventListener('fullscreenchange',()=>{if(!gameMenuPanel.hidden)updateGameMenu();});
+$('game-menu-leaderboard').addEventListener('click',()=>{document.body.classList.toggle('hide-leaderboard');updateGameMenu();});
+window.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&playing&&shopPanel.hidden&&audioPanel.hidden&&survivalGameOverEl.hidden&&!e.repeat){
+    e.preventDefault();if(gameMenuPanel.hidden)openGameMenu();else closeGameMenu(true);return;
+  }
+  if(gameMenuPanel.hidden||e.key!=='Tab')return;
+  const items=Array.from(gameMenuPanel.querySelectorAll<HTMLElement>('button:not(:disabled),select,summary')).filter(el=>el.getClientRects().length>0);
+  if(!items.length)return;
+  const first=items[0],last=items[items.length-1];
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+});
 const shopCategories=[['All','combo'],['Chain','chainShot'],['Fork','droneWingman'],['Explosion','blastRounds'],['Elemental','hotRounds'],['Weapons','heavyRounds'],['Defense','heal'],['Mobility','rapidLoader'],['Support','droneWingman']] as const;
 let shopCategory='All',lastShopState:SelfSnap|undefined,lastShopSurvival:Snapshot['survival']|undefined;
 const shopTabs=$('shop-tabs');
@@ -544,6 +590,7 @@ function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
   const offers=m.shop??[],coins=m.coins??0,developer=m.devShop===true;
   shopToggle.hidden=!offers.length;$('shop-toggle-balance').textContent=developer?'DEV':String(coins)+'¢';
   $('dev-shop').hidden=!developer||!offers.length;
+  if(!gameMenuPanel.hidden)updateGameMenu();
   if(!offers.length){closeShop();shopKey='';return;}
   const remaining=Math.max(0,Math.ceil(survival?.intermission??0));
   const clock=$('shop-clock');clock.textContent=developer?'DEV · Always open':'Next wave · '+remaining+'s';clock.classList.toggle('urgent',!developer&&remaining<=3);
@@ -912,7 +959,8 @@ let lastSent = '', lastSendT = 0, lastInputPoll = -Infinity;
 function frame(now: number) {
   requestAnimationFrame(frame);
   if(!playing&&!shopPanel.hidden)closeShop();
-  if(!shopPanel.hidden)input.reset();
+  if((!playing||!survivalGameOverEl.hidden)&&!gameMenuPanel.hidden)closeGameMenu();
+  if(!shopPanel.hidden||!gameMenuPanel.hidden||!audioPanel.hidden)input.reset();
   input.update(W, H);
   document.body.classList.toggle('in-game', playing);
   // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.

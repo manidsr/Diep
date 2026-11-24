@@ -13,7 +13,7 @@ export class Input {
   private everAimed = false;
 
   constructor(private canvas: HTMLCanvasElement) {
-    const typing = (event: Event) => (event.target as HTMLElement | null)?.tagName === 'INPUT';
+    const typing = (event: Event) => {const target=event.target as HTMLElement|null;return !!target?.closest('input,select,textarea,button,summary,[contenteditable=true]')||!!document.querySelector('#game-menu-panel:not([hidden]),#shop-panel:not([hidden]),#audio-panel:not([hidden])');};
     window.addEventListener('keydown', (event) => {
       if (typing(event)) return;
       const key = event.key.toLowerCase();

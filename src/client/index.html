@@ -512,6 +512,38 @@
   @media(pointer:coarse),(max-width:760px){#power-status{top:calc(env(safe-area-inset-top) + 105px);grid-template-columns:repeat(2,minmax(0,120px));max-width:min(250px,62vw);gap:3px}.power-chip{padding:4px;gap:4px}.power-chip-icon{width:23px;height:23px}.power-chip-icon svg{width:16px;height:16px}.power-chip-top{font-size:9px}.power-chip-body small{font-size:8px}.pickup-row{padding:6px 8px}.pickup-row strong{font-size:11px}.pickup-row small{font-size:10px}}
   @media(max-height:500px) and (orientation:landscape){#power-status{top:calc(env(safe-area-inset-top) + 75px)}}
   @media(prefers-reduced-motion:reduce){.power-track span{transition:none}}
+  #hamburger-toggle{display:none;position:fixed;left:max(10px,env(safe-area-inset-left));bottom:max(10px,env(safe-area-inset-bottom));width:48px;height:48px;padding:0;z-index:17;background:#172231ee;border:2px solid #546b81;border-radius:11px;color:#e9f5ff;box-shadow:0 3px 9px #0004}
+  #hamburger-toggle svg{width:25px;height:25px}
+  body.in-game #hamburger-toggle{display:grid;place-items:center}
+  body.hide-leaderboard #lb{display:none!important}
+  #game-menu-panel[hidden],#game-menu-shop[hidden]{display:none!important}
+  #game-menu-panel{position:fixed;inset:0;z-index:45;background:#101725b5;display:grid;place-items:center;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));touch-action:pan-y}
+  .game-menu-card{display:flex;flex-direction:column;min-height:0;width:min(370px,100%);max-height:calc(100dvh - 32px);background:#172231;border:2px solid #44576b;border-radius:16px;overflow:hidden;box-shadow:0 12px 35px #0008;touch-action:pan-y}
+  .game-menu-header{display:flex;align-items:center;gap:11px;padding:14px;border-bottom:1px solid #35475b}
+  .game-menu-logo{width:43px;height:43px;display:grid;place-items:center;background:#101d2b;border:1px solid #3c5369;border-radius:10px;flex:none}
+  .game-menu-logo svg{width:32px;height:32px}
+  .game-menu-header h2{margin:0;font-size:21px}.game-menu-header p{margin:2px 0 0;font-size:11px;color:#abc0d4}
+  #game-menu-close{margin-left:auto;width:44px;height:44px;display:grid;place-items:center;padding:0;background:#27394b;border:1px solid #4c6075;flex:none}
+  #game-menu-close svg{width:21px;height:21px}
+  .game-menu-actions{display:grid;gap:7px;padding:12px;min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;scrollbar-width:thin}
+  #game-menu-panel .game-menu-row{position:static;display:flex;align-items:center;text-align:left;gap:10px;width:100%;min-height:52px;margin:0;padding:9px 10px;background:#203042;border:1px solid #40546a;border-radius:9px;color:#eaf2fa;font-size:13px;letter-spacing:normal;box-shadow:none}
+  #game-menu-panel .game-menu-row svg{width:23px;height:23px;flex:none;color:#8bd5fa}
+  #game-menu-panel .game-menu-row strong,#game-menu-panel .game-menu-row small{display:block}
+  #game-menu-panel .game-menu-row small{color:#b4c4d3;font-size:10px;font-weight:500;margin-top:2px}
+  #game-menu-panel .game-menu-row.resume{background:#246648;border-color:#4a9670}
+  #game-menu-panel .game-menu-row.resume svg{color:#bbf4cf}
+  #game-menu-panel .game-menu-row:focus-visible,#game-menu-close:focus-visible{outline:2px solid #80c7ed;outline-offset:1px}
+  #game-menu-panel .game-menu-row:hover:not(:disabled){border-color:#80c7ed}
+  #game-menu-panel #devtools{position:static;z-index:auto}
+  #game-menu-panel #devpanel{position:static;width:100%;margin-top:7px;box-shadow:none;padding:10px}
+  #game-menu-panel #devpanel button{min-height:44px}
+  #game-menu-panel #devtoggle svg{color:#aaffc8}
+  .game-menu-help{font-size:11px;color:#b4c4d3;background:#101b28;border:1px solid #35475b;border-radius:8px;padding:9px}
+  .game-menu-help summary{cursor:pointer;font-weight:800;color:#dbe9f6}.game-menu-help p{margin:7px 0 0}
+  #game-menu-message:not(:empty){color:#ffd19a;font-size:11px;padding:0 12px 8px}
+  .game-menu-card footer{font-size:10px;color:#a9bed0;text-align:center;padding:8px 12px 11px;border-top:1px solid #35475b}
+  @media(pointer:coarse),(max-width:760px){#hamburger-toggle{left:calc(env(safe-area-inset-left) + 8px);bottom:calc(env(safe-area-inset-bottom) + 8px);width:44px;height:44px}.game-menu-card{max-height:calc(100dvh - 28px)}}
+  @media(max-height:500px){.game-menu-header{padding:7px 10px}.game-menu-header h2{font-size:17px}.game-menu-actions{padding:8px;gap:5px}.game-menu-card footer{padding:6px}.game-menu-logo{width:36px;height:36px}}
 </style>
 </head>
 <body>
@@ -539,8 +571,26 @@
     <small class="survival-gameover-note">One survivor can restart the next run for the whole squad.</small>
   </section>
 </div>
-<div id="devtools" hidden>
-  <button id="devtoggle" type="button" title="Developer tools (F2)">DEV · F2</button>
+<div id="mobile-vitals"><span id="mobile-hptxt">HP</span><div class="track"><div id="mobile-hpfill"></div></div></div>
+<button id="evolve-toggle" type="button" aria-expanded="false">EVOLVE ↑</button>
+<div id="xp" class="hud"><div class="bar"><div class="fill" id="xpfill"></div></div><div class="txt" id="xptxt"></div></div>
+<div id="toast" class="hud"><div class="big" id="toastbig"></div><div class="sub" id="toastsub"></div></div>
+<button id="hamburger-toggle" type="button" aria-label="Open game menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="game-menu-panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+<div id="game-menu-panel" hidden>
+  <section class="game-menu-card" role="dialog" aria-modal="true" aria-labelledby="game-menu-title">
+    <header class="game-menu-header">
+      <div class="game-menu-logo"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="14" y="11" width="16" height="10" rx="1.5" fill="#a4adb5" stroke="#4e5965" stroke-width="2"/><circle cx="13" cy="16" r="10" fill="#00b2e1" stroke="#0083a8" stroke-width="2.5"/></svg></div>
+      <div><h2 id="game-menu-title">Game Menu</h2><p id="game-menu-mode">Tank Arena</p></div>
+      <button id="game-menu-close" type="button" aria-label="Close game menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </header>
+    <div class="game-menu-actions">
+      <button id="game-menu-resume" type="button" class="game-menu-row resume"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l14-8z"/></svg><span><strong>Resume game</strong><small>Return to the arena</small></span></button>
+      <button id="game-menu-shop" type="button" class="game-menu-row" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h16l-2 12H6L4 9Zm3 0 5-6 5 6M9 13v4m6-4v4"/></svg><span><strong>Survival Shop</strong><small id="game-menu-shop-status">Between-wave upgrades</small></span></button>
+      <button id="audio-hud" type="button" class="game-menu-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9h4l5-4v14l-5-4H3zM16 8a6 6 0 0 1 0 8M19 5a10 10 0 0 1 0 14"/></svg><span><strong>Audio settings</strong><small>Music and sound effects</small></span></button>
+      <button id="game-menu-fullscreen" type="button" class="game-menu-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"/></svg><span><strong id="game-menu-fullscreen-label">Enter fullscreen</strong><small>Change display mode</small></span></button>
+      <button id="game-menu-leaderboard" type="button" class="game-menu-row" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V11h4v10m1 0V3h4v18m1 0V8h4v13"/></svg><span><strong id="game-menu-lb-label">Hide leaderboard</strong><small>Keep the arena clear</small></span></button>
+      <div id="devtools" hidden>
+  <button id="devtoggle" type="button" class="game-menu-row" aria-expanded="false" title="Developer tools (F2)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18"/></svg><span><strong>Developer tools</strong><small>Test tanks and upgrades · F2</small></span></button>
   <div id="devpanel">
     <strong>Developer tools</strong>
     <label for="devclass">Switch to any tank</label>
@@ -550,11 +600,13 @@
     <small>Ignores evolution requirements. Your level and XP stay unchanged.</small>
   </div>
 </div>
-<div id="mobile-vitals"><span id="mobile-hptxt">HP</span><div class="track"><div id="mobile-hpfill"></div></div></div>
-<button id="evolve-toggle" type="button" aria-expanded="false">EVOLVE ↑</button>
-<div id="xp" class="hud"><div class="bar"><div class="fill" id="xpfill"></div></div><div class="txt" id="xptxt"></div></div>
-<div id="toast" class="hud"><div class="big" id="toastbig"></div><div class="sub" id="toastsub"></div></div>
-<button id="audio-hud" type="button" aria-label="Audio settings">♪ AUDIO</button>
+
+      <details class="game-menu-help"><summary>Controls</summary><p><b>PC:</b> WASD/arrows to move, mouse to aim, click/Space/E to fire, right-click or Shift for secondary controls, C for auto-spin.</p><p><b>Mobile:</b> left thumb moves; right thumb aims and fires.</p></details>
+    </div>
+    <div id="game-menu-message" role="status"></div>
+    <footer>Multiplayer continues while the menu is open.</footer>
+  </section>
+</div>
 <div id="audio-panel" hidden>
   <section class="audio-card" role="dialog" aria-modal="true" aria-label="Audio settings">
     <h2>Audio settings</h2>
