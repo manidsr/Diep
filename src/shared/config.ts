@@ -18,25 +18,25 @@ export const REGEN_DELAY_S = 3;
 
 export type StatKey =
   | 'regen' | 'maxHealth' | 'bodyDamage' | 'bulletSpeed'
-  | 'bulletPenetration' | 'bulletDamage' | 'reload' | 'moveSpeed';
+  | 'bulletDamage' | 'reload' | 'moveSpeed';
 
 export const TANK_SPECIALTIES = {
   balanced: {
     label: 'Balanced', summary: 'All stats +6%',
     bonuses: { regen: 0.06, maxHealth: 0.06, bodyDamage: 0.06, bulletSpeed: 0.06,
-      bulletPenetration: 0.06, bulletDamage: 0.06, reload: 0.06, moveSpeed: 0.06 },
+      bulletDamage: 0.06, reload: 0.06, moveSpeed: 0.06 },
   },
   sniper: {
-    label: 'Sharpshooter', summary: 'Bullet damage +18% · speed +22% · penetration +14%',
-    bonuses: { bulletDamage: 0.18, bulletSpeed: 0.22, bulletPenetration: 0.14 },
+    label: 'Sharpshooter', summary: 'Bullet damage +18% · speed +22%',
+    bonuses: { bulletDamage: 0.18, bulletSpeed: 0.22 },
   },
   rapidFire: {
-    label: 'Rapid Fire', summary: 'Reload speed +22% · bullet speed +12% · penetration +12%',
-    bonuses: { reload: 0.22, bulletSpeed: 0.12, bulletPenetration: 0.12 },
+    label: 'Rapid Fire', summary: 'Reload speed +22% · bullet speed +12%',
+    bonuses: { reload: 0.22, bulletSpeed: 0.12 },
   },
   heavyArtillery: {
-    label: 'Heavy Artillery', summary: 'Bullet damage +22% · penetration +18% · health +8%',
-    bonuses: { bulletDamage: 0.22, bulletPenetration: 0.18, maxHealth: 0.08 },
+    label: 'Heavy Artillery', summary: 'Bullet damage +22% · health +8%',
+    bonuses: { bulletDamage: 0.22, maxHealth: 0.08 },
   },
   droneController: {
     label: 'Drone Controller', summary: 'Drone/projectile damage +20% · health +10% · regen +8%',

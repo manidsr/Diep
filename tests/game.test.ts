@@ -69,7 +69,7 @@ test('leveling automatically improves every stat without manual point allocation
   assert.ok(player.d.regenFrac > base.regenFrac);
   assert.ok(player.d.bodyDps > base.bodyDps);
   assert.ok(player.d.bulletSpeed > base.bulletSpeed);
-  assert.ok(player.d.bulletHp > base.bulletHp);
+  assert.equal(player.d.bulletHp, base.bulletHp);
   assert.ok(player.d.bulletDamage > base.bulletDamage);
   assert.ok(player.d.reload < base.reload);
   assert.ok(player.d.moveSpeed > base.moveSpeed);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, type Bullet, type Player, type Zombie } from '../src/server/game';
-import { CLASS_BY_ID, PLAYER_PIERCE_COST, REGEN_DELAY_S, type BarrelDef } from '../src/shared/config';
+import { CLASS_BY_ID, REGEN_DELAY_S, type BarrelDef } from '../src/shared/config';
 import { seeded } from './helpers';
 
 const DT = 1 / 30;
@@ -60,16 +60,16 @@ function hit(g: Game, b: Bullet, z: Zombie) {
 
 const ids = [
   'heavyRounds','rapidLoader','blastRounds','lifesteal','droneWingman','cryoRounds',
-  'medicalSupplies','emergencyShield','piercingRounds','explosiveImpact','longshot',
+  'medicalSupplies','emergencyShield','explosiveImpact','longshot',
   'ironSkin','fleetfoot','fieldMedic','criticalCore','bossHunter','executioner',
   'scavenger','luckyFind','xpMagnet','steadyAim','recoilDampers','hotRounds',
   'rescueProtocol','secondWind','armorPiercer','overdrive','chainShot','adrenaline',
   'shrapnel','vitalCore','concussiveRounds','droneTactician',
 ] as const;
 
-test('all 33 Survival upgrade cards are selectable and grant their advertised ID', () => {
+test('all 32 Survival upgrade cards are selectable and grant their advertised ID', () => {
   const { game, player } = setup();
-  assert.equal(ids.length, 33);
+  assert.equal(ids.length, 32);
   for (const id of ids) {
     player.rewardOffers.push({ cards: [{ id, title: id, description: id, rarity: 'common' }], timeRemaining: 20 });
     assert.equal(game.chooseSurvivalReward(player.id, id), true, id);
@@ -77,7 +77,7 @@ test('all 33 Survival upgrade cards are selectable and grant their advertised ID
   }
 });
 
-test('damage, reload, critical, speed, spread, recoil and penetration cards affect real shots', () => {
+test('damage, reload, critical, speed, spread, and recoil cards affect real shots', () => {
   {
     const { game, player, c } = setup();
     player.survivalPerks.heavyRounds = 2;
@@ -114,14 +114,8 @@ test('damage, reload, critical, speed, spread, recoil and penetration cards affe
   }
   {
     const { game, player } = setup();
-    player.survivalPerks.piercingRounds = 1;
     const b = fire(game, player);
-    assert.equal(b.hp, player.d.bulletHp + PLAYER_PIERCE_COST);
-    const z1 = zombie({ id: 901, x: b.x, y: b.y }), z2 = zombie({ id: 902, x: b.x, y: b.y });
-    hit(game, b, z1);
     assert.equal(b.hp, player.d.bulletHp);
-    hit(game, b, z2);
-    assert.ok(z1.hp < z1.maxHp && z2.hp < z2.maxHp);
   }
 });
 
