@@ -122,6 +122,52 @@ function circle(ctx: CanvasRenderingContext2D, x: number, y: number, radius: num
   ctx.lineWidth = lineWidth; ctx.strokeStyle = stroke; ctx.stroke();
 }
 
+// Deterministic, world-space impact effects: no random flicker or persistent particles.
+function drawImpactBurst(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, flash: number, angle: number, accent: string) {
+  const strength = Math.max(0, Math.min(1, flash));
+  if (strength <= 0.025) return;
+  const age = 1 - strength;
+  const size = Math.max(12, Math.min(45, radius));
+  const alpha = Math.sqrt(strength);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.lineCap = 'round';
+
+  // Expanding double shockwave with a dark rim for contrast on the pale arena.
+  const ring = size * (0.22 + age * 1.15);
+  ctx.globalAlpha *= alpha;
+  ctx.beginPath(); ctx.arc(0, 0, ring, 0, Math.PI * 2);
+  ctx.strokeStyle = '#59432f'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.strokeStyle = accent; ctx.lineWidth = 2.4; ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, ring * 0.62, 0, Math.PI * 2);
+  ctx.strokeStyle = '#fff5d6'; ctx.lineWidth = 1.6; ctx.stroke();
+
+  // Long directional streaks with warm edges and bright cores.
+  for (let i = -3; i <= 3; i++) {
+    const direction = i * 0.32;
+    const inner = size * (0.18 + age * 0.65);
+    const outer = inner + size * (0.95 - Math.abs(i) * 0.13) * (0.6 + strength * 0.4);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(direction) * inner, Math.sin(direction) * inner);
+    ctx.lineTo(Math.cos(direction) * outer, Math.sin(direction) * outer);
+    ctx.strokeStyle = '#a66336'; ctx.lineWidth = 4; ctx.stroke();
+    ctx.strokeStyle = i % 2 === 0 ? '#ffffff' : accent;
+    ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  // Small flying debris, animated by the existing hit timer.
+  ctx.fillStyle = accent;
+  for (let i = 0; i < 6; i++) {
+    const direction = (i - 2.5) * 0.75;
+    const distance = size * (0.5 + age * (1.1 + (i % 3) * 0.23));
+    const px = Math.cos(direction) * distance, py = Math.sin(direction) * distance;
+    const particle = 1.2 + strength * 1.8;
+    ctx.fillRect(px - particle / 2, py - particle / 2, particle, particle);
+  }
+  ctx.restore();
+}
+
 function drawProjectile(ctx: CanvasRenderingContext2D, bullet: View['bullets'][number], mine: boolean, players: PlayerSnap[]) {
   const [, x, y, radius, , kind, angle, droneState = 0] = bullet;
   const owner = players.find((player) => player.id === bullet[4]);
@@ -449,20 +495,9 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
   ctx.restore();
 
   // Directional impact sparks and a brief bright ring make each shot feel physical.
-  if (hit > 0.08) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(zombie.hitAngle);
-    ctx.globalAlpha = hit * 0.85;
-    ctx.strokeStyle = '#fff1c4';
-    ctx.lineWidth = 2 + hit * 1.5;
-    ctx.beginPath();
-    ctx.arc(0, 0, r * (1.15 + (1 - hit) * 0.25), -0.6, 0.6);
-    ctx.moveTo(r * 0.7, 0); ctx.lineTo(r * (1.8 + hit), 0);
-    ctx.moveTo(r * 1.1, -r * 0.4); ctx.lineTo(r * (1.9 + hit), -r * 0.8);
-    ctx.moveTo(r * 1.1, r * 0.4); ctx.lineTo(r * (1.9 + hit), r * 0.8);
-    ctx.stroke();
-    ctx.restore();
+  if (hit > 0.025) {
+    drawImpactBurst(ctx, x + Math.cos(zombie.hitAngle) * r * 0.65,
+      y + Math.sin(zombie.hitAngle) * r * 0.65, r, hit, zombie.hitAngle, '#ffd36b');
   }
 
   if (boss) {
@@ -551,26 +586,11 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: View['shapes'][number])
   if (hit > 0.025) {
     ctx.save();
     path();
-    ctx.globalAlpha = hit * 0.32;
+    ctx.globalAlpha = hit * 0.62;
     ctx.fillStyle = '#ffffff'; ctx.fill();
 
-    // A quick expanding impact ring and short directional sparks make hits readable.
-    ctx.globalAlpha = hit * 0.9;
-    ctx.strokeStyle = '#fff9df';
-    ctx.lineWidth = 1.8 + hit * 1.2;
-    ctx.beginPath();
-    ctx.arc(impactX, impactY, 4 + (1 - hit) * 13, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = -2; i <= 2; i++) {
-      const angle = hitAngle + i * 0.58;
-      const inner = 5 + (1 - hit) * 4, outer = inner + 5 + hit * 6;
-      ctx.moveTo(impactX + Math.cos(angle) * inner, impactY + Math.sin(angle) * inner);
-      ctx.lineTo(impactX + Math.cos(angle) * outer, impactY + Math.sin(angle) * outer);
-    }
-    ctx.stroke();
     ctx.restore();
+    drawImpactBurst(ctx, impactX, impactY, def.radius, hit, hitAngle, '#ffe27a');
   }
   if (shape[5] < 1) hpBar(ctx, shape[1], shape[2] + def.radius + 10, def.radius * 1.4, shape[5]);
 }
