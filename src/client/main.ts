@@ -83,7 +83,9 @@ modeRoyaleBtn.addEventListener('click',()=>setSelectedMode('royale'));
 setSelectedMode('ffa');
 const deathPanel = $('deathpanel');
 const killFeedEl = $('killfeed');
-const recentFeed: string[] = [];
+type FeedItem=Parameters<typeof formatFeedLine>[0];
+const recentFeed: FeedItem[] = [];
+let lastDeath:Extract<ServerMessage,{t:'dead'}>|undefined;
 
 interface ClassProfile { role: string; strength: string; tradeoff: string; bonuses: string }
 
@@ -147,7 +149,7 @@ function renderKillFeed(item: {
   killerTeam?: string | null; victimTeam?: string | null;
 }) {
   const line = formatFeedLine(item);
-  recentFeed.unshift(line);
+  recentFeed.unshift(item);
   if (recentFeed.length > 5) recentFeed.length = 5;
   const row = document.createElement('div');
   row.className = 'killfeed-row';
@@ -161,13 +163,14 @@ function renderKillFeed(item: {
     for (const entry of recentFeed) {
       const li = document.createElement('div');
       li.className = 'death-feed-row';
-      li.textContent = entry;
+      li.textContent = formatFeedLine(entry);
       deathFeed.append(li);
     }
   }
 }
 
 function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
+  lastDeath=m;
   const killerClass = m.killerClass ? tr(CLASS_BY_ID[m.killerClass]?.name??m.killerClass) : null;
   $('deathkiller').textContent = killerClass ? m.killer + ' · ' + killerClass : m.killer;
   $('deathclass').textContent = tr('You were playing ','تانک شما: ') + tr(CLASS_BY_ID[m.victimClass]?.name ?? m.victimClass);
@@ -175,7 +178,7 @@ function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
     ['Kills', String(m.kills)],
     ['Damage dealt', m.damageDealt.toLocaleString()],
     ['Damage received', m.damageTaken.toLocaleString()],
-    ['Survived', m.lifetime.toFixed(1) + 's'],
+    ['Survived', seconds(Number(m.lifetime.toFixed(1)))],
     ['Final score', m.score.toLocaleString()],
     ['Level', String(m.level)],
   ];
@@ -202,7 +205,7 @@ function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
     for (const entry of recentFeed) {
       const li = document.createElement('div');
       li.className = 'death-feed-row';
-      li.textContent = entry;
+      li.textContent = formatFeedLine(entry);
       deathFeed.append(li);
     }
   }
@@ -325,7 +328,7 @@ try { nameEl.value = localStorage.getItem('nick') ?? ''; } catch { /* ignore */ 
 fetch('/api/info').then((r) => r.json()).then((i: { addresses: string[]; port: number }) => {
   if (!i.addresses.length) return;
   const el = $('lan');
-  el.textContent = 'Friends on the same hotspot/Wi-Fi can join at: ';
+  el.textContent = tr('Friends on the same hotspot/Wi-Fi can join at:')+' ';
   for (const a of i.addresses) { const c = document.createElement('code'); c.textContent = `http://${a}:${i.port}`; el.append(c, ' '); }
 }).catch(() => { /* optional */ });
 
@@ -353,7 +356,7 @@ function onSnapshot(s: Snapshot) {
   const arrival = performance.now();
   const tickTime = s.tick * TICK_MS;
   const previous = frames[frames.length - 1];
-  if(s.royale&&!playing){const rr=s.royale;$('royale-menu-status').textContent=rr.phase==='result'?'Winner: '+rr.winner+' · next lobby in '+rr.seconds+'s':rr.phase==='active'?rr.alive+' tanks left · round in progress':'Next round lobby open';}else $('royale-menu-status').textContent='';
+  if(s.royale&&!playing){const rr=s.royale;$('royale-menu-status').textContent=rr.phase==='result'?tr('Winner: ','برنده: ')+rr.winner+tr(' · next lobby in ',' · دور بعدی تا ')+seconds(rr.seconds):rr.phase==='active'?tr(rr.alive+' tanks left · round in progress',rr.alive+' تانک باقی‌مانده · دور در حال اجرا'):tr('Next round lobby open','آماده ورود به دور بعدی');}else $('royale-menu-status').textContent='';
   if (playing) audio.snapshot(s, selfId, previous?.snap);
   if (previous && s.tick <= previous.snap.tick) {
     if (s.tick === previous.snap.tick) return;
@@ -608,7 +611,7 @@ function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
   for(const tab of Array.from(shopTabs.querySelectorAll('button')))tab.setAttribute('aria-pressed',String(tab.dataset.category===shopCategory));
   for(const offer of offers.filter(o=>shopCategory==='All'||o.category===shopCategory)){
     const btn=document.createElement('button');btn.type='button';btn.className='shop-item';btn.dataset.shopId=offer.id;const family=shopCategories.find(c=>c[0]===offer.category)?.[1]??'combo';const iconId=shopIcons[offer.id]?offer.id:family;btn.style.setProperty('--item-accent',(shopIcons[iconId]??shopIcons.combo).color);
-    const affordable=coins>=offer.cost&&!offer.locked;btn.disabled=!affordable;btn.setAttribute('aria-label',offer.title+', '+offer.description+', '+offer.cost+' coins'+(affordable?'':', not enough coins'));
+    const affordable=coins>=offer.cost&&!offer.locked;btn.disabled=!affordable;btn.setAttribute('aria-label',tr(offer.title)+'، '+tr(offer.description)+'، '+tr(offer.cost+' coins')+(offer.locked?'، '+tr(offer.locked):affordable?'':tr(', not enough coins','، سکه کافی نیست')));
     const icon=document.createElement('span');icon.className='shop-icon';icon.append(shopIcon(iconId));
     const info=document.createElement('span');info.className='shop-info';const title=document.createElement('strong');title.textContent=tr(offer.title);const desc=document.createElement('small');desc.textContent=tr(offer.description);info.append(title,desc);
     if(offer.max){const rank=document.createElement('span');rank.className='shop-rank';rank.append(document.createTextNode((offer.rank??0)+'/'+offer.max));for(let i=0;i<offer.max;i++){const pip=document.createElement('span');pip.className='shop-pip'+(i<(offer.rank??0)?' active':'');rank.append(pip);}info.append(rank);}
@@ -856,7 +859,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
       row.className = 'survival-player-row' + (player.id === selfId ? ' me' : '') +
         (player.downed ? ' downed' : !player.alive ? ' out' : '');
       const name = document.createElement('span');
-      name.textContent = player.name + (player.alive ? '' : ' · OUT');
+      name.textContent = player.name + (player.alive ? '' : ' · '+tr('OUT'));
       const stat = document.createElement('b');
       stat.textContent = player.downed ? tr('DOWNED · REVIVE') : player.alive ? tr(player.kills+' kills') : tr('OUT');
       row.append(name, stat);
@@ -1009,10 +1012,17 @@ for(const select of Array.from(document.querySelectorAll<HTMLSelectElement>('[da
   const key=select.dataset.preference==='language'?'language':'theme';setPreference(key,select.value);
   if(key==='language'){
     setSelectedMode(selectedMode);renderClassGuide();
+    playBtn.textContent=tr(lastDeath&&!deathPanel.hidden?'Play again':'Play');
+    fullscreenBtn.textContent=tr(document.fullscreenElement?'Fullscreen is on':'Enter fullscreen');
+    if(!deathPanel.hidden&&lastDeath)showDeathReport(lastDeath);
+    const feedRows=Array.from(killFeedEl.children);for(const [i,item] of recentFeed.entries())if(feedRows[i])feedRows[i].textContent=formatFeedLine(item);
+    const lan=$('lan');if(lan.firstChild?.nodeType===Node.TEXT_NODE)lan.firstChild.nodeValue=tr('Friends on the same hotspot/Wi-Fi can join at:')+' ';
+    pickupNotice.hidden=true;
     for(const o of Array.from(devClassSelect.options))o.textContent=tr(CLASS_BY_ID[o.value]?.name??o.value);
     for(const o of Array.from(skinSelect.options))o.textContent=tr(o.value[0].toUpperCase()+o.value.slice(1));
     for(const tab of Array.from(shopTabs.querySelectorAll<HTMLButtonElement>('button'))){const name=tab.dataset.category??'All';const icon=shopCategories.find(c=>c[0]===name)?.[1]??'combo';tab.replaceChildren(shopIcon(icon),document.createTextNode(tr(name)));}
     hudKey='';optKey='';rewardKey='';shopKey='';powerKey='';
+    statusEl.textContent=playing||ws?.readyState===WebSocket.OPEN?tr('Connected'):tr('Connecting…');
     const snap=frames[frames.length-1]?.snap;if(snap){updateHud(snap.me,snap.survival);updatePowerHud(snap);}
     if(lastLeaderboard)renderLeaderboard(lastLeaderboard);
     if(!gameMenuPanel.hidden)updateGameMenu();
