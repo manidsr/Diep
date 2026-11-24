@@ -99,6 +99,7 @@ export interface Shape {
   r: number; hp: number; maxHp: number; rot: number; rotSpeed: number; lastHitBy: number | null;
   hitFlash?: number; hitX?: number; hitY?: number; hitAngle?: number;
   ramCooldowns?: Map<number, number>;
+  ramFeedback?: Map<number, { damage: number; next: number }>;
 }
 export interface HealthDrop { id: number; x: number; y: number; r: number; heal: number; life: number; }
 export interface XpDrop { id: number; x: number; y: number; r: number; xp: number; life: number; age: number; }
@@ -1641,6 +1642,12 @@ export class Game {
     if (knockback > 180) { s.kvx *= 180 / knockback; s.kvy *= 180 / knockback; }
     s.rotSpeed = clamp(s.rotSpeed, -2.5, 2.5);
     if (s.ramCooldowns) for (const [id, until] of s.ramCooldowns) if (until <= this.time) s.ramCooldowns.delete(id);
+    if (s.ramFeedback) for (const [id, feedback] of s.ramFeedback) {
+      if (feedback.next <= this.time) {
+        if (feedback.damage > 0) this.effect(s, feedback.damage, '#fff0a0', 'damage', true);
+        s.ramFeedback.delete(id);
+      }
+    }
     s.hitFlash = Math.max(0, (s.hitFlash ?? 0) * Math.exp(-dt * 7));
     if (s.x < s.r || s.x > ARENA_SIZE - s.r) { s.vx = -s.vx; s.x = clamp(s.x, s.r, ARENA_SIZE - s.r); }
     if (s.y < s.r || s.y > ARENA_SIZE - s.r) { s.vy = -s.vy; s.y = clamp(s.y, s.r, ARENA_SIZE - s.r); }
@@ -1757,7 +1764,16 @@ export class Game {
       const slam = approach > 100 && this.time >= (cooldowns.get(A.id) ?? -Infinity);
       const damage = A.d.bodyDps * (dt + (slam ? Math.min(0.36, approach / 950) : 0));
       if (A.protT <= 0) this.hurtPlayer(A, def.bodyDps * dt, null, 'a shape');
-      this.effect(shape, damage, slam ? '#ffd06b' : '#fff0a0');
+      // Display only actual accumulated contact damage, not a number every tick.
+      const pending = shape.ramFeedback ?? (shape.ramFeedback = new Map<number, { damage: number; next: number }>());
+      const feedback = pending.get(A.id) ?? { damage: 0, next: this.time + 0.25 };
+      feedback.damage += Math.min(shape.hp, damage);
+      if (slam || this.time >= feedback.next || damage >= shape.hp) {
+        this.effect(shape, feedback.damage, slam ? '#ffd06b' : '#fff0a0', 'damage', true);
+        feedback.damage = 0;
+        feedback.next = this.time + 0.4;
+      }
+      pending.set(A.id, feedback);
       shape.hp -= damage; shape.lastHitBy = A.id;
       if (slam) cooldowns.set(A.id, this.time + 0.25);
       const impulse = slam ? clamp(approach * massRatio * 0.75 + A.d.bodyDps * 0.4, 24, 145) : clamp(approach * massRatio * 0.15, 0, 12);
@@ -2012,8 +2028,8 @@ export class Game {
     return true;
   }
 
-  private effect(target: { x: number; y: number; r: number; hp: number }, amount: number, color: string, kind: CombatEffect['kind'] = 'damage') {
-    const damage = Math.min(Math.max(0, target.hp), amount);
+  private effect(target: { x: number; y: number; r: number; hp: number }, amount: number, color: string, kind: CombatEffect['kind'] = 'damage', alreadyClamped = false) {
+    const damage = alreadyClamped ? amount : Math.min(Math.max(0, target.hp), amount);
     if (kind === 'damage' && damage <= 0) return;
     // Coalesce rapid contact damage per target position within a short window.
     const last = this.combatEffects[this.combatEffects.length - 1];
