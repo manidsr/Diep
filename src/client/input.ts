@@ -14,14 +14,15 @@ export class Input {
 
   constructor(private canvas: HTMLCanvasElement) {
     const typing = (event: Event) => {const target=event.target as HTMLElement|null;return !!target?.closest('input,select,textarea,[contenteditable=true]')||!!document.querySelector('#game-menu-panel:not([hidden]),#shop-panel:not([hidden]),#audio-panel:not([hidden])');};
+    const keyFor=(event:KeyboardEvent)=>/^Key[A-Z]$/.test(event.code)?event.code.slice(3).toLowerCase():event.key.toLowerCase();
     window.addEventListener('keydown', (event) => {
       if (typing(event)) return;
-      const key = event.key.toLowerCase();
+      const key = keyFor(event);
       if (key === 'c' && !event.repeat) this.spin = !this.spin;
       this.keys.add(key);
       if (event.key === ' ' || event.key.startsWith('Arrow')) event.preventDefault();
     });
-    window.addEventListener('keyup', (event) => this.keys.delete(event.key.toLowerCase()));
+    window.addEventListener('keyup', (event) => this.keys.delete(keyFor(event)));
     window.addEventListener('blur', () => this.reset());
     canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     canvas.addEventListener('pointerdown', (event) => this.down(event));

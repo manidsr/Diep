@@ -2,6 +2,8 @@ import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES, SERVER_TICK_HZ, TANK_SKINS } 
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
 import { GameAudio } from './audio';
+import { initializePreferences, setPreference, tr, seconds, language } from './preferences';
+initializePreferences();
 import { POWER_META, powerIcon } from './powerups';
 import { POWERUPS } from '../shared/config';
 import { drawFrame, drawMinimap, drawSticks, tankPreviewDataUrl, type View } from './render';
@@ -55,7 +57,7 @@ const modeSurvivalBtn = $<HTMLButtonElement>('mode-survival');
 const modeHelpEl = $('mode-help');
 const modeRoyaleBtn=$<HTMLButtonElement>('mode-royale');
 const skinSelect=$<HTMLSelectElement>('skin-select');
-for(const id of Object.keys(TANK_SKINS)){const option=document.createElement('option');option.value=id;option.textContent=id[0].toUpperCase()+id.slice(1);skinSelect.append(option);}
+for(const id of Object.keys(TANK_SKINS)){const option=document.createElement('option');option.value=id;option.textContent=tr(id[0].toUpperCase()+id.slice(1));skinSelect.append(option);}
 try{const saved=localStorage.getItem('tank-skin');if(saved&&Object.prototype.hasOwnProperty.call(TANK_SKINS,saved))skinSelect.value=saved;}catch{}
 skinSelect.addEventListener('change',()=>{try{localStorage.setItem('tank-skin',skinSelect.value);}catch{}if(playing)send({t:'skin',id:skinSelect.value});});
 function setSelectedMode(mode: GameMode) {
@@ -68,11 +70,11 @@ function setSelectedMode(mode: GameMode) {
   modeFfaBtn.setAttribute('aria-pressed', String(mode === 'ffa'));
   modeTeamsBtn.setAttribute('aria-pressed', String(mode === 'teams'));
   modeSurvivalBtn.setAttribute('aria-pressed', String(mode === 'survival'));
-  modeHelpEl.textContent = mode === 'teams'
+  modeHelpEl.textContent = tr(mode === 'teams'
     ? 'Blue base on the left, red base on the right. Fight for the middle and defend your safe base.'
     : mode === 'survival'
       ? 'Cooperate with everyone. Fight off zombie waves, earn XP from kills and survive as long as you can.'
-      : mode==='royale'?'Last tank standing. At least two players required; avoid the shrinking storm.':'Every tank fights for itself. Earn XP and climb the individual leaderboard.';
+      : mode==='royale'?'Last tank standing. At least two players required; avoid the shrinking storm.':'Every tank fights for itself. Earn XP and climb the individual leaderboard.');
 }
 modeFfaBtn.addEventListener('click', () => setSelectedMode('ffa'));
 modeTeamsBtn.addEventListener('click', () => setSelectedMode('teams'));
@@ -125,17 +127,17 @@ function classProfile(classId: string): ClassProfile {
   else if (cls.bulletSpeedMul <= 0.9) tradeoff = 'Slower shots are easier to dodge at range';
   else if (cls.barrels.length <= 1 && !(cls.turretCount ?? 0)) tradeoff = 'Limited firing lanes reward precise aim';
 
-  return { role, strength, tradeoff, bonuses: specialty.summary };
+  return { role:tr(role), strength:tr(strength), tradeoff:tr(tradeoff), bonuses:tr(specialty.summary) };
 }
 
 function formatFeedLine(item: {
   killer: string; victim: string; killerClass: string | null; victimClass: string;
   killerTeam?: string | null; victimTeam?: string | null;
 }): string {
-  const killerClass = item.killerClass ? CLASS_BY_ID[item.killerClass]?.name : null;
-  const victimClass = CLASS_BY_ID[item.victimClass]?.name ?? item.victimClass;
-  const killerTeam = item.killerTeam ? '[' + item.killerTeam.toUpperCase() + '] ' : '';
-  const victimTeam = item.victimTeam ? '[' + item.victimTeam.toUpperCase() + '] ' : '';
+  const killerClass = item.killerClass ? tr(CLASS_BY_ID[item.killerClass]?.name??item.killerClass) : null;
+  const victimClass = tr(CLASS_BY_ID[item.victimClass]?.name ?? item.victimClass);
+  const killerTeam = item.killerTeam ? '[' + tr(item.killerTeam.toUpperCase()) + '] ' : '';
+  const victimTeam = item.victimTeam ? '[' + tr(item.victimTeam.toUpperCase()) + '] ' : '';
   return killerTeam + (killerClass ? item.killer + ' · ' + killerClass : item.killer) + '  →  ' +
     victimTeam + item.victim + ' · ' + victimClass;
 }
@@ -166,9 +168,9 @@ function renderKillFeed(item: {
 }
 
 function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
-  const killerClass = m.killerClass ? CLASS_BY_ID[m.killerClass]?.name : null;
+  const killerClass = m.killerClass ? tr(CLASS_BY_ID[m.killerClass]?.name??m.killerClass) : null;
   $('deathkiller').textContent = killerClass ? m.killer + ' · ' + killerClass : m.killer;
-  $('deathclass').textContent = 'You were playing ' + (CLASS_BY_ID[m.victimClass]?.name ?? m.victimClass);
+  $('deathclass').textContent = tr('You were playing ','تانک شما: ') + tr(CLASS_BY_ID[m.victimClass]?.name ?? m.victimClass);
   const values: [string, string][] = [
     ['Kills', String(m.kills)],
     ['Damage dealt', m.damageDealt.toLocaleString()],
@@ -185,7 +187,7 @@ function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
     const strong = document.createElement('strong');
     strong.textContent = value;
     const caption = document.createElement('span');
-    caption.textContent = label;
+    caption.textContent = tr(label);
     cell.append(strong, caption);
     grid.append(cell);
   }
@@ -194,7 +196,7 @@ function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
   if (!recentFeed.length) {
     const empty = document.createElement('div');
     empty.className = 'death-feed-row';
-    empty.textContent = 'No recent arena eliminations';
+    empty.textContent = tr("No recent arena eliminations");
     deathFeed.append(empty);
   } else {
     for (const entry of recentFeed) {
@@ -210,17 +212,17 @@ function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
 function send(m: object) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); }
 
 function connect() {
-  statusEl.textContent = resumeOnReconnect ? 'Restoring your tank…' : 'Connecting…';
+  statusEl.textContent = tr(resumeOnReconnect ? 'Restoring your tank…' : 'Connecting…');
   playBtn.disabled = true;
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
   ws.onopen = () => {
     if (resumeOnReconnect && resumeToken) {
       joining = true;
       resumeAttempt = true;
-      statusEl.textContent = 'Restoring your tank…';
+      statusEl.textContent = tr("Restoring your tank…");
       send({ t: 'join', name: nameEl.value, mode: selectedMode, resumeToken });
     } else {
-      statusEl.textContent = 'Connected';
+      statusEl.textContent = tr("Connected");
       playBtn.disabled = false;
       joining = false;
     }
@@ -231,11 +233,11 @@ function connect() {
     if (shouldResume && resumeToken) {
       resumeOnReconnect = true;
       menu.classList.add('hide');
-      statusEl.textContent = 'Connection lost – restoring your tank…';
+      statusEl.textContent = tr("Connection lost – restoring your tank…");
     } else {
       resumeOnReconnect = false;
       menu.classList.remove('hide');
-      statusEl.textContent = 'Disconnected – reconnecting…';
+      statusEl.textContent = tr("Disconnected – reconnecting…");
     }
     setTimeout(connect, 1500);
   };
@@ -255,9 +257,9 @@ function connect() {
       setSelectedMode(m.mode);
       survivalGameOverEl.hidden = true;
       survivalRestartBtn.disabled = false;
-      survivalRestartBtn.textContent = 'RESTART RUN FOR EVERYONE';
+      survivalRestartBtn.textContent = tr("RESTART RUN FOR EVERYONE");
       lastLv = 0; lastHudClass = ''; wasDowned = false;
-      msgEl.textContent = ''; deathPanel.hidden = true; playBtn.textContent = 'Play'; menu.classList.add('hide');
+      msgEl.textContent = ''; deathPanel.hidden = true; playBtn.textContent = tr("Play"); menu.classList.add('hide');
       devCheatsEnabled = m.devCheats;
       devTools.hidden = !devCheatsEnabled;
       if (!devCheatsEnabled) devTools.classList.remove('open');
@@ -268,7 +270,7 @@ function connect() {
       playing = false; input.reset(); frames.length = 0; lastLv = 0;
       msgEl.textContent = '';
       showDeathReport(m);
-      playBtn.textContent = 'Play again'; menu.classList.remove('hide');
+      playBtn.textContent = tr("Play again"); menu.classList.remove('hide');
     } else if (m.t === 'err') {
       if (resumeAttempt) {
         // The grace period elapsed (or the server restarted). Fall back to a fresh join.
@@ -278,13 +280,13 @@ function connect() {
         try { localStorage.removeItem(RESUME_TOKEN_KEY); } catch { /* ignore */ }
         if (ws && ws.readyState === WebSocket.OPEN) {
           joining = true;
-          statusEl.textContent = 'Previous session expired. Starting a new tank…';
+          statusEl.textContent = tr("Previous session expired. Starting a new tank…");
           send({ t: 'join', name: nameEl.value, mode: selectedMode });
           return;
         }
       }
       joining = false; playing = false; playBtn.disabled = false;
-      statusEl.textContent = m.msg; msgEl.textContent = m.msg; menu.classList.remove('hide');
+      statusEl.textContent = tr(m.msg); msgEl.textContent = tr(m.msg); menu.classList.remove('hide');
     }
   };
 }
@@ -295,7 +297,7 @@ async function enterFullscreen() {
     try {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
     } catch {
-      msgEl.textContent = 'Fullscreen is unavailable here. Try Chrome menu → Add to Home screen for an app-style launch.';
+      msgEl.textContent = tr("Fullscreen is unavailable here. Try Chrome menu → Add to Home screen for an app-style launch.");
       return;
     }
   }
@@ -306,13 +308,13 @@ async function enterFullscreen() {
 }
 fullscreenBtn.addEventListener('click', () => { void enterFullscreen(); });
 document.addEventListener('fullscreenchange', () => {
-  fullscreenBtn.textContent = document.fullscreenElement ? 'Fullscreen is on' : 'Enter fullscreen';
+  fullscreenBtn.textContent = tr(document.fullscreenElement ? 'Fullscreen is on' : 'Enter fullscreen');
 });
 
 function play() {
   if (joining || playing || !ws || ws.readyState !== WebSocket.OPEN) return;
   try { localStorage.setItem('nick', nameEl.value); } catch { /* storage may be blocked */ }
-  joining = true; playBtn.disabled = true; statusEl.textContent = 'Joining…'; msgEl.textContent = '';
+  joining = true; playBtn.disabled = true; statusEl.textContent = tr("Joining…"); msgEl.textContent = '';
   send({ t: 'join', name: nameEl.value, mode: selectedMode, ...(resumeToken ? { resumeToken } : {}) });
 }
 playBtn.addEventListener('click', play);
@@ -405,6 +407,7 @@ function sample(now: number): View | null {
 
 // Populate the optional full-roster guide once; evolution cards reuse the same profiles.
 const classGuide = $('classguide');
+function renderClassGuide(){classGuide.replaceChildren();
 for (const id of CLASS_IDS) {
   const cls = CLASS_BY_ID[id];
   const profile = classProfile(id);
@@ -413,24 +416,25 @@ for (const id of CLASS_IDS) {
   const heading = document.createElement('div');
   heading.className = 'guide-heading';
   const name = document.createElement('strong');
-  name.textContent = cls.name;
+  name.textContent = tr(cls.name);
   const role = document.createElement('span');
   role.textContent = profile.role;
   heading.append(name, role);
   const description = document.createElement('p');
-  description.textContent = cls.description;
+  description.textContent = tr(cls.description);
   const strength = document.createElement('p');
   strength.className = 'guide-strength';
-  strength.textContent = '+ Best at: ' + profile.strength;
+  strength.textContent = tr('+ Best at: ','+ نقطه قوت: ') + profile.strength;
   const bonus = document.createElement('p');
   bonus.className = 'guide-bonus';
-  bonus.textContent = 'CLASS BONUS: ' + profile.bonuses;
+  bonus.textContent = tr('CLASS BONUS: ','امتیاز کلاس: ') + profile.bonuses;
   const tradeoff = document.createElement('p');
   tradeoff.className = 'guide-tradeoff';
-  tradeoff.textContent = '− Trade-off: ' + profile.tradeoff;
+  tradeoff.textContent = tr('− Trade-off: ','− محدودیت: ') + profile.tradeoff;
   article.append(heading, description, bonus, strength, tradeoff);
   classGuide.append(article);
-}
+}}
+renderClassGuide();
 
 // ---------- HUD ----------
 const classesEl = $('classes');
@@ -467,7 +471,7 @@ const devApply = $<HTMLButtonElement>('devapply');
 for (const id of CLASS_IDS) {
   const option = document.createElement('option');
   option.value = id;
-  option.textContent = CLASS_BY_ID[id]?.name ?? id;
+  option.textContent = tr(CLASS_BY_ID[id]?.name ?? id);
   devClassSelect.append(option);
 }
 function setDevPanel(open:boolean){devTools.classList.toggle('open',open);devToggle.setAttribute('aria-expanded',String(open));}
@@ -492,8 +496,8 @@ function retrigger(el: HTMLElement, cls: string) {
 
 let toastTimer = 0;
 function showToast(big: string, sub: string) {
-  $('toastbig').textContent = big;
-  $('toastsub').textContent = sub;
+  $('toastbig').textContent = tr(big);
+  $('toastsub').textContent = tr(sub);
   retrigger(toastEl, 'go');
   clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toastEl.classList.remove('go'), 2100);
@@ -541,12 +545,12 @@ function closeGameMenu(restoreFocus=false){
 }
 function updateGameMenu(){
   const modeNames:Record<GameMode,string>={ffa:'Free for All',teams:'Team Mode',survival:'Co-op Survival',royale:'Battle Royale'};
-  $('game-menu-mode').textContent=modeNames[selectedMode];
+  $('game-menu-mode').textContent=tr(modeNames[selectedMode]);
   const shop=$<HTMLButtonElement>('game-menu-shop');shop.hidden=selectedMode!=='survival';shop.disabled=shopToggle.hidden;
-  $('game-menu-shop-status').textContent=shopToggle.hidden?'Opens between waves':($('shop-toggle-balance').textContent==='DEV'?'Free test upgrades':'Available · '+$('shop-toggle-balance').textContent);
-  const full=$('game-menu-fullscreen-label');full.textContent=document.fullscreenElement?'Exit fullscreen':'Enter fullscreen';
+  $('game-menu-shop-status').textContent=shopToggle.hidden?tr('Opens between waves'):(lastShopState?.devShop?tr('Free test upgrades'):tr('Available · ','در دسترس · ')+$('shop-toggle-balance').textContent);
+  const full=$('game-menu-fullscreen-label');full.textContent=tr(document.fullscreenElement?'Exit fullscreen':'Enter fullscreen');
   const visible=!document.body.classList.contains('hide-leaderboard');
-  $('game-menu-leaderboard').setAttribute('aria-pressed',String(visible));$('game-menu-lb-label').textContent=visible?'Hide leaderboard':'Show leaderboard';
+  $('game-menu-leaderboard').setAttribute('aria-pressed',String(visible));$('game-menu-lb-label').textContent=tr(visible?'Hide leaderboard':'Show leaderboard');
 }
 function openGameMenu(){
   if(!playing||!shopPanel.hidden||!audioPanel.hidden||!survivalGameOverEl.hidden)return;
@@ -562,7 +566,7 @@ $('game-menu-fullscreen').addEventListener('click',async()=>{
     if(document.fullscreenElement)await document.exitFullscreen();
     else {await document.documentElement.requestFullscreen({navigationUI:'hide'});}
     $('game-menu-message').textContent='';
-  }catch{$('game-menu-message').textContent='Fullscreen is unavailable in this browser.';}
+  }catch{$('game-menu-message').textContent=tr("Fullscreen is unavailable in this browser.");}
   updateGameMenu();
 });
 document.addEventListener('fullscreenchange',()=>{if(!gameMenuPanel.hidden)updateGameMenu();});
@@ -582,23 +586,23 @@ const shopCategories=[['All','combo'],['Chain','chainShot'],['Fork','droneWingma
 let shopCategory='All',lastShopState:SelfSnap|undefined,lastShopSurvival:Snapshot['survival']|undefined;
 const shopTabs=$('shop-tabs');
 for(const [name,iconId] of shopCategories){
-  const btn=document.createElement('button');btn.type='button';btn.dataset.category=name;btn.setAttribute('aria-pressed',String(name==='All'));btn.append(shopIcon(iconId),document.createTextNode(name));
+  const btn=document.createElement('button');btn.type='button';btn.dataset.category=name;btn.setAttribute('aria-pressed',String(name==='All'));btn.append(shopIcon(iconId),document.createTextNode(tr(name)));
   btn.addEventListener('click',()=>{shopCategory=name;shopKey='';$('shop-items').scrollTop=0;if(lastShopState)updateShop(lastShopState,lastShopSurvival);});shopTabs.append(btn);
 }
 function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
   lastShopState=m;lastShopSurvival=survival;
   const offers=m.shop??[],coins=m.coins??0,developer=m.devShop===true;
-  shopToggle.hidden=!offers.length;$('shop-toggle-balance').textContent=developer?'DEV':String(coins)+'¢';
+  shopToggle.hidden=!offers.length;$('shop-toggle-balance').textContent=developer?tr('DEV'):String(coins)+'¢';
   $('dev-shop').hidden=!developer||!offers.length;
   if(!gameMenuPanel.hidden)updateGameMenu();
   if(!offers.length){closeShop();shopKey='';return;}
   const remaining=Math.max(0,Math.ceil(survival?.intermission??0));
-  const clock=$('shop-clock');clock.textContent=developer?'DEV · Always open':'Next wave · '+remaining+'s';clock.classList.toggle('urgent',!developer&&remaining<=3);
-  $('shop-subtitle').textContent=developer?'Test any perk and combination for free':survival?'Wave '+survival.wave+' cleared · Upgrade your tank':'Between-wave upgrades';
+  const clock=$('shop-clock');clock.textContent=developer?tr('DEV · Always open'):tr('Next wave · ','موج بعدی · ')+seconds(remaining);clock.classList.toggle('urgent',!developer&&remaining<=3);
+  $('shop-subtitle').textContent=developer?tr('Test any perk and combination for free'):survival?tr('Wave '+survival.wave+' cleared · Upgrade your tank','موج '+survival.wave+' پایان یافت · تانک خود را ارتقا دهید'):tr('Between-wave upgrades');
   const key=JSON.stringify([offers,coins,m.combos,developer,shopCategory]);if(key===shopKey)return;shopKey=key;
-  $('shop-coins').textContent=developer?'Free test upgrades':coins+' coins';
+  $('shop-coins').textContent=developer?tr('Free test upgrades'):tr(coins+' coins');
   const comboList=$('shop-combo-list');comboList.replaceChildren();$('shop-combo-empty').hidden=!!m.combos?.length;
-  for(const name of m.combos??[]){const chip=document.createElement('span');chip.className='shop-combo-chip';chip.append(shopIcon('combo'),document.createTextNode(name));comboList.append(chip);}
+  for(const name of m.combos??[]){const chip=document.createElement('span');chip.className='shop-combo-chip';chip.append(shopIcon('combo'),document.createTextNode(tr(name)));comboList.append(chip);}
   const list=$('shop-items'),scroll=list.scrollTop,focused=(document.activeElement as HTMLElement|null)?.dataset.shopId;
   list.replaceChildren();
   for(const tab of Array.from(shopTabs.querySelectorAll('button')))tab.setAttribute('aria-pressed',String(tab.dataset.category===shopCategory));
@@ -606,13 +610,13 @@ function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
     const btn=document.createElement('button');btn.type='button';btn.className='shop-item';btn.dataset.shopId=offer.id;const family=shopCategories.find(c=>c[0]===offer.category)?.[1]??'combo';const iconId=shopIcons[offer.id]?offer.id:family;btn.style.setProperty('--item-accent',(shopIcons[iconId]??shopIcons.combo).color);
     const affordable=coins>=offer.cost&&!offer.locked;btn.disabled=!affordable;btn.setAttribute('aria-label',offer.title+', '+offer.description+', '+offer.cost+' coins'+(affordable?'':', not enough coins'));
     const icon=document.createElement('span');icon.className='shop-icon';icon.append(shopIcon(iconId));
-    const info=document.createElement('span');info.className='shop-info';const title=document.createElement('strong');title.textContent=offer.title;const desc=document.createElement('small');desc.textContent=offer.description;info.append(title,desc);
+    const info=document.createElement('span');info.className='shop-info';const title=document.createElement('strong');title.textContent=tr(offer.title);const desc=document.createElement('small');desc.textContent=tr(offer.description);info.append(title,desc);
     if(offer.max){const rank=document.createElement('span');rank.className='shop-rank';rank.append(document.createTextNode((offer.rank??0)+'/'+offer.max));for(let i=0;i<offer.max;i++){const pip=document.createElement('span');pip.className='shop-pip'+(i<(offer.rank??0)?' active':'');rank.append(pip);}info.append(rank);}
     btn.append(icon,info);
-    if(offer.value){const stat=document.createElement('span');stat.className='shop-stat';stat.append(document.createTextNode(offer.value));if(offer.nextValue&&offer.nextValue!==offer.value){const next=document.createElement('b');next.textContent='→ '+offer.nextValue;stat.append(next);}btn.append(stat);}
-    if(offer.locked&&offer.locked!=='MAX LEVEL'){const lock=document.createElement('span');lock.className='shop-lock';lock.textContent=offer.locked;btn.append(lock);}
-    const bottom=document.createElement('span');bottom.className='shop-buy-row';const price=document.createElement('span');price.className='shop-price';price.append(coinIcon(),document.createTextNode(developer?'FREE':String(offer.cost)));
-    const action=document.createElement('span');action.className='shop-buy-label';action.textContent=offer.locked?(offer.locked==='MAX LEVEL'?'MAX':'LOCKED'):developer?'ADD':affordable?'BUY':'NEED '+(offer.cost-coins);
+    if(offer.value){const stat=document.createElement('span');stat.className='shop-stat';stat.append(document.createTextNode(tr(offer.value)));if(offer.nextValue&&offer.nextValue!==offer.value){const next=document.createElement('b');next.textContent=(language==='fa'?'← ':'→ ')+tr(offer.nextValue);stat.append(next);}btn.append(stat);}
+    if(offer.locked&&offer.locked!=='MAX LEVEL'){const lock=document.createElement('span');lock.className='shop-lock';lock.textContent=tr(offer.locked);btn.append(lock);}
+    const bottom=document.createElement('span');bottom.className='shop-buy-row';const price=document.createElement('span');price.className='shop-price';price.append(coinIcon(),document.createTextNode(developer?tr('FREE'):String(offer.cost)));
+    const action=document.createElement('span');action.className='shop-buy-label';action.textContent=tr(offer.locked?(offer.locked==='MAX LEVEL'?'MAX':'LOCKED'):developer?'ADD':affordable?'BUY':'NEED '+(offer.cost-coins));
     bottom.append(price,action);btn.append(bottom);
     btn.addEventListener('click',()=>{if(playing&&!shopPanel.hidden)send({t:'shop',id:offer.id});});list.append(btn);
   }
@@ -621,7 +625,7 @@ function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
 }
 function updateSurvivalRewards(m: SelfSnap) {
   rewardPanel.hidden = m.rewards.length === 0;
-  rewardTimerEl.textContent = m.rewards.length ? `${Math.ceil(m.rewardTimer)}s` : '';
+  rewardTimerEl.textContent = m.rewards.length ? seconds(Math.ceil(m.rewardTimer)) : '';
   const key = m.rewards.map((card) => `${card.id}:${card.title}:${card.description}:${card.rarity}`).join('|');
   if (key === rewardKey) return;
   rewardKey = key;
@@ -629,9 +633,9 @@ function updateSurvivalRewards(m: SelfSnap) {
   for (const card of m.rewards) {
     const button = document.createElement('button');
     button.type = 'button'; button.className = `reward-card rarity-${card.rarity}`;
-    const rarity = document.createElement('span'); rarity.className = 'reward-rarity'; rarity.textContent = card.rarity.toUpperCase();
-    const title = document.createElement('strong'); title.textContent = card.title;
-    const description = document.createElement('small'); description.textContent = card.description;
+    const rarity = document.createElement('span'); rarity.className = 'reward-rarity'; rarity.textContent = tr(card.rarity.toUpperCase());
+    const title = document.createElement('strong'); title.textContent = tr(card.title);
+    const description = document.createElement('small'); description.textContent = tr(card.description);
     button.append(rarity, title, description);
     button.addEventListener('click', () => { if (playing) send({ t: 'reward', id: card.id }); });
     rewardCardsEl.append(button);
@@ -657,9 +661,9 @@ function updatePowerHud(s:Snapshot){
       const icon=document.createElement('span');icon.className='power-chip-icon';icon.append(powerIcon(kind));
       const body=document.createElement('span');body.className='power-chip-body';
       const top=document.createElement('span');top.className='power-chip-top';
-      const title=document.createElement('strong');title.textContent=m.name;
-      const timer=document.createElement('b');timer.textContent=seconds+'s';top.append(title,timer);
-      const detail=document.createElement('small');detail.textContent=m.detail;
+      const title=document.createElement('strong');title.textContent=tr(m.name);
+      const timer=document.createElement('b');timer.textContent=tr(seconds+'s');top.append(title,timer);
+      const detail=document.createElement('small');detail.textContent=tr(m.detail);
       const track=document.createElement('span');track.className='power-track';const fill=document.createElement('span');fill.style.width=Math.max(0,Math.min(100,seconds/12*100))+'%';track.append(fill);
       body.append(top,detail,track);card.append(icon,body);powerStatus.append(card);
     }
@@ -674,8 +678,8 @@ function updatePowerHud(s:Snapshot){
     const m=POWER_META[e.kind],row=document.createElement('div');row.className='pickup-row';row.style.setProperty('--power-color',m.fill);
     const icon=document.createElement('span');icon.className='power-chip-icon';icon.append(powerIcon(e.kind));
     const text=document.createElement('span'),title=document.createElement('strong'),detail=document.createElement('small');
-    title.textContent=m.name+' collected';
-    detail.textContent=e.kind==='heal'?(e.healed?('+'+e.healed+' HP restored'):'Health already full'):m.detail+' · 12 seconds';
+    title.textContent=tr(m.name+' collected',tr(m.name)+' دریافت شد');
+    detail.textContent=e.kind==='heal'?(e.healed?tr('+'+e.healed+' HP restored',e.healed+' واحد سلامت بازیابی شد'):tr('Health already full')):tr(m.detail)+' · '+seconds(12);
     text.append(title,detail);row.append(icon,text);pickupNotice.append(row);
   }
   pickupNotice.hidden=false;window.clearTimeout(pickupTimer);pickupTimer=window.setTimeout(()=>{pickupNotice.hidden=true;},2400);
@@ -689,7 +693,7 @@ function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
   updateShop(m,survival);
   const fraction = Math.max(0, Math.min(1, m.hp / Math.max(1, m.mhp)));
   $('mobile-hpfill').style.width = (fraction * 100) + '%';
-  $('mobile-hptxt').textContent = m.downed ? 'DOWNED · REVIVE' : 'HP ' + Math.ceil(Math.max(0,m.hp)) + ' / ' + Math.ceil(m.mhp);
+  $('mobile-hptxt').textContent = m.downed ? tr('DOWNED · REVIVE') : tr('HP') + ' ' + Math.ceil(Math.max(0,m.hp)) + ' / ' + Math.ceil(m.mhp);
   $('mobile-vitals').classList.toggle('low', fraction < 0.3);
   // Only sync the selector when the server-confirmed class actually changes.
   // Do not overwrite the user's pending dropdown choice on every snapshot.
@@ -711,7 +715,7 @@ function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
     }
     if (lastHudClass && m.cls !== lastHudClass) {
       const profile = classProfile(m.cls);
-      showToast((CLASS_BY_ID[m.cls]?.name ?? 'NEW TANK').toUpperCase(), `${profile.role} bonus: ${profile.bonuses}`);
+      showToast((CLASS_BY_ID[m.cls]?.name ?? 'NEW TANK').toUpperCase(), tr(profile.role+' bonus: '+profile.bonuses,'امتیاز '+profile.role+': '+profile.bonuses));
     }
     lastLv = m.lv;
     lastHudClass = m.cls;
@@ -720,7 +724,7 @@ function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
   const key = `${m.lv}|${m.xp}|${m.cls}|${m.downed}`;
   if (key !== hudKey) {
     hudKey = key;
-    $('xptxt').textContent = m.downed ? 'DOWNED · stay close to an ally to be revived' : `Lv ${m.lv} ${CLASS_BY_ID[m.cls]?.name ?? ''} — ${m.xp} xp`;
+    $('xptxt').textContent = m.downed ? tr('DOWNED · stay close to an ally to be revived') : tr('Lv '+m.lv,'سطح '+m.lv)+' · '+tr(CLASS_BY_ID[m.cls]?.name??'')+' — '+m.xp+' '+tr('XP');
   }
 
   const ok = m.opts.join(',');
@@ -730,7 +734,7 @@ function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
     closeEvolution();
     classesEl.replaceChildren();
     if (m.opts.length) {
-      const evo = document.createElement('div'); evo.className = 'evo'; evo.textContent = 'EVOLVE!';
+      const evo = document.createElement('div'); evo.className = 'evo'; evo.textContent = tr('EVOLVE!');
       classesEl.append(evo);
       if (lastLv > 0) showToast('EVOLUTION READY', 'Choose a new tank class');
     }
@@ -738,11 +742,11 @@ function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
       const cls = CLASS_BY_ID[id];
       const profile = classProfile(id);
       const b = document.createElement('button'); b.className = 'evo-card';
-      b.title = (cls?.description ?? id) + ' Best at: ' + profile.strength + '. Trade-off: ' + profile.tradeoff + '.';
+      b.title = tr(cls?.description ?? id) + tr(' Best at: ',' نقطه قوت: ') + profile.strength + tr('. Trade-off: ','؛ محدودیت: ') + profile.tradeoff + '.';
       const preview = document.createElement('img');
-      preview.className = 'evo-preview'; preview.alt = cls?.name ?? id;
+      preview.className = 'evo-preview'; preview.alt = tr(cls?.name ?? id);
       preview.src = tankPreviewDataUrl(id);
-      const name = document.createElement('span'); name.className = 'evo-name'; name.textContent = cls?.name ?? id;
+      const name = document.createElement('span'); name.className = 'evo-name'; name.textContent = tr(cls?.name ?? id);
       const role = document.createElement('span'); role.className = 'evo-role'; role.textContent = profile.role;
       const strength = document.createElement('span'); strength.className = 'evo-strength'; strength.textContent = '+ ' + profile.strength;
       const bonus = document.createElement('span'); bonus.className = 'evo-bonus'; bonus.textContent = profile.bonuses;
@@ -768,7 +772,7 @@ const survivalRestartBtn = $<HTMLButtonElement>('survival-restart');
 survivalRestartBtn.addEventListener('click', () => {
   if (!playing || survivalRestartBtn.disabled) return;
   survivalRestartBtn.disabled = true;
-  survivalRestartBtn.textContent = 'RESTARTING…';
+  survivalRestartBtn.textContent = tr("RESTARTING…");
   send({ t: 'restart' });
 });
 
@@ -783,7 +787,9 @@ function makeLbRow(): LbRow {
   return { el, bar, rk, nm, lv, sc };
 }
 
+let lastLeaderboard:Extract<ServerMessage,{t:'lb'}>|undefined;
 function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
+  lastLeaderboard=message;
   const title = $('lbtitle');
   if (message.mode !== 'survival') survivalGameOverEl.hidden = true;
   const teamScore = $('teamscore');
@@ -793,7 +799,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
     if (message.gameOver) {
       if (survivalGameOverEl.hidden) {
         survivalRestartBtn.disabled = false;
-        survivalRestartBtn.textContent = 'RESTART RUN FOR EVERYONE';
+        survivalRestartBtn.textContent = tr("RESTART RUN FOR EVERYONE");
       }
       survivalGameOverEl.hidden = false;
       $('survival-over-wave').textContent = String(message.wave);
@@ -805,16 +811,16 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
         const row = document.createElement('div');
         row.className = 'survival-final-row';
         const name = document.createElement('span');
-        name.textContent = `${player.name}${player.downed ? ' · DOWNED' : player.alive ? '' : ' · OUT'}`;
+        name.textContent = `${player.name}${player.downed ? ' · '+tr('DOWNED') : player.alive ? '' : ' · '+tr('OUT')}`;
         const stat = document.createElement('b');
-        stat.textContent = `${player.kills} kills · Lv ${player.lv}`;
+        stat.textContent = tr(player.kills+' kills')+' · '+tr('Lv '+player.lv,'سطح '+player.lv);
         row.append(name, stat);
         finalRoster.append(row);
       }
     } else {
       survivalGameOverEl.hidden = true;
     }
-    title.textContent = message.gameOver ? 'HORDE OVER · GAME OVER' : 'CO-OP SURVIVAL';
+    title.textContent = tr(message.gameOver ? 'HORDE OVER · GAME OVER' : 'CO-OP SURVIVAL');
     box.hidden = true;
     for (const row of lbRows.values()) row.el.remove();
     lbRows.clear();
@@ -825,15 +831,15 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
     const summary = document.createElement('div');
     summary.className = 'survival-summary';
     const wave = document.createElement('strong');
-    wave.textContent = 'WAVE ' + message.wave + (message.theme && message.theme !== 'standard' ? ' · ' + message.theme.toUpperCase() : '');
+    wave.textContent = tr('WAVE')+' ' + message.wave + (message.theme && message.theme !== 'standard' ? ' · ' + tr(message.theme.toUpperCase()) : '');
     const kills = document.createElement('span');
-    kills.textContent = message.zombieKills + ' ZOMBIES KILLED';
+    kills.textContent = message.zombieKills + ' '+tr('ZOMBIES KILLED');
     const remaining = document.createElement('span');
     remaining.textContent = message.gameOver
-      ? 'SURVIVED ' + Math.floor(message.elapsed / 60) + ':' + String(message.elapsed % 60).padStart(2, '0')
+      ? tr('SURVIVED')+' ' + Math.floor(message.elapsed / 60) + ':' + String(message.elapsed % 60).padStart(2, '0')
       : message.nextWaveIn > 0
-        ? 'NEXT WAVE IN ' + message.nextWaveIn + 's'
-        : message.zombiesRemaining + ' ZOMBIES REMAINING';
+        ? tr('NEXT WAVE IN ','موج بعدی تا ')+seconds(message.nextWaveIn)
+        : tr(message.zombiesRemaining+' ZOMBIES REMAINING',message.zombiesRemaining+' زامبی باقی‌مانده');
     summary.append(wave, kills, remaining);
     teamScore.append(summary);
 
@@ -842,7 +848,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
     if (!message.top.length) {
       const empty = document.createElement('div');
       empty.className = 'team-player-empty';
-      empty.textContent = 'Waiting for survivors';
+      empty.textContent = tr("Waiting for survivors");
       roster.append(empty);
     }
     for (const player of message.top) {
@@ -852,7 +858,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
       const name = document.createElement('span');
       name.textContent = player.name + (player.alive ? '' : ' · OUT');
       const stat = document.createElement('b');
-      stat.textContent = player.downed ? 'DOWNED · REVIVE' : player.alive ? player.kills + ' kills' : 'OUT';
+      stat.textContent = player.downed ? tr('DOWNED · REVIVE') : player.alive ? tr(player.kills+' kills') : tr('OUT');
       row.append(name, stat);
       roster.append(row);
     }
@@ -861,7 +867,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
   }
 
   if (message.mode === 'teams') {
-    title.textContent = 'TEAM LEADERBOARD';
+    title.textContent = tr("TEAM LEADERBOARD");
     box.hidden = true;
     for (const row of lbRows.values()) row.el.remove();
     lbRows.clear();
@@ -879,16 +885,16 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
       const heading = document.createElement('div');
       heading.className = 'team-panel-heading';
       const name = document.createElement('strong');
-      name.textContent = team.toUpperCase();
+      name.textContent = tr(team.toUpperCase());
       const score = document.createElement('span');
-      score.textContent = totalKills + ' KILLS';
+      score.textContent = tr(totalKills+' kills');
       heading.append(name, score);
       const list = document.createElement('div');
       list.className = 'team-player-list';
       if (!players.length) {
         const empty = document.createElement('div');
         empty.className = 'team-player-empty';
-        empty.textContent = 'Waiting for players';
+        empty.textContent = tr("Waiting for players");
         list.append(empty);
       }
       for (const player of players) {
@@ -911,7 +917,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
     return;
   }
 
-  title.textContent = 'LEADERBOARD';
+  title.textContent = tr("LEADERBOARD");
   teamScore.hidden = true;
   teamScore.replaceChildren();
   box.hidden = false;
@@ -933,7 +939,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
     r.bar.style.width = `${Math.max(4, (e.score / max) * 100)}%`;
     r.rk.textContent = String(i + 1);
     r.nm.textContent = e.name;
-    r.lv.textContent = e.lv != null ? `Lv${e.lv}` : '';
+    r.lv.textContent = e.lv != null ? tr('Lv'+e.lv,'سطح '+e.lv) : '';
     r.sc.textContent = fmtScore(e.score);
   });
   for (const [id, r] of lbRows) if (!seen.has(id)) { r.el.remove(); lbRows.delete(id); }
@@ -999,5 +1005,18 @@ function frame(now: number) {
   drawFrame(ctx, W, H, cam, view, selfId, frames[frames.length - 1]?.snap.me.fov ?? 1);
   if (playing) drawSticks(ctx, W, H, input);
 }
+for(const select of Array.from(document.querySelectorAll<HTMLSelectElement>('[data-preference]')))select.addEventListener('change',()=>{
+  const key=select.dataset.preference==='language'?'language':'theme';setPreference(key,select.value);
+  if(key==='language'){
+    setSelectedMode(selectedMode);renderClassGuide();
+    for(const o of Array.from(devClassSelect.options))o.textContent=tr(CLASS_BY_ID[o.value]?.name??o.value);
+    for(const o of Array.from(skinSelect.options))o.textContent=tr(o.value[0].toUpperCase()+o.value.slice(1));
+    for(const tab of Array.from(shopTabs.querySelectorAll<HTMLButtonElement>('button'))){const name=tab.dataset.category??'All';const icon=shopCategories.find(c=>c[0]===name)?.[1]??'combo';tab.replaceChildren(shopIcon(icon),document.createTextNode(tr(name)));}
+    hudKey='';optKey='';rewardKey='';shopKey='';powerKey='';
+    const snap=frames[frames.length-1]?.snap;if(snap){updateHud(snap.me,snap.survival);updatePowerHud(snap);}
+    if(lastLeaderboard)renderLeaderboard(lastLeaderboard);
+    if(!gameMenuPanel.hidden)updateGameMenu();
+  }
+});
 requestAnimationFrame(frame);
 connect();

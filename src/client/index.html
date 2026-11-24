@@ -546,6 +546,44 @@
   @media(max-height:500px){.game-menu-header{padding:7px 10px}.game-menu-header h2{font-size:17px}.game-menu-actions{padding:8px;gap:5px}.game-menu-card footer{padding:6px}.game-menu-logo{width:36px;height:36px}}
   #game-menu-panel #audio-hud{display:flex}
   #c:focus{outline:none}
+  .preference-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:5px 0 9px;text-align:start}
+  .preference-row label{display:grid;gap:4px;color:#b4c4d3;font-weight:700;font-size:12px}
+  .preference-row select{width:100%;min-height:42px;border:1px solid #40546a;border-radius:8px;padding:7px 9px;background:#203042;color:#eff5fb;font:inherit;touch-action:manipulation}
+  html[lang=fa] body{font-family:Tahoma,Arial,sans-serif;line-height:1.65}
+  html[lang=fa] :is(button,input,select,summary){font-family:inherit}
+  html[lang=fa] :is(.card,.game-menu-card,.shop-card,.audio-card,.survival-gameover-card,#lb,#reward-panel){letter-spacing:normal}
+  html[lang=fa] :is(.shop-item,.game-menu-row,.guide-class,.game-menu-help,.death-stat,.shop-info,.reward-card){text-align:start!important;letter-spacing:normal}
+  html[lang=fa] :is(#lb h4,.shop-combos strong,.shop-buy-label,.reward-heading,.evo,.survival-gameover-kicker,#toast .big,#devtoggle,#mode-heading){letter-spacing:normal}
+  html[lang=fa] #game-menu-close{margin-left:0;margin-inline-start:auto}
+  html[lang=fa] :is(#shop-tabs,.shop-info,.game-menu-actions){direction:rtl}
+  html[lang=fa] :is(#lan code,.shop-rank,.power-track,#xp .bar,#mobile-vitals .track){direction:ltr}
+  html[lang=fa] :is(.lrow .nm,.team-player-name,#name){unicode-bidi:plaintext}
+  html[lang=fa] #shop-items .shop-item{min-height:122px}
+  html[data-theme=light]{color-scheme:light;--ui:#f3f7fa;--ui2:#dce5ed;--fg:#26384a;--accent:#2377ad}
+  html[data-theme=light] body{background:#eaf0f5;color:var(--fg)}
+  html[data-theme=light] :is(#menu,#game-menu-panel,#shop-panel,#audio-panel,#survival-gameover){background:#24394c88}
+  html[data-theme=light] :is(.card,.game-menu-card,.shop-card,.audio-card,.survival-gameover-card,#lb,#devpanel,#classes,#reward-panel,#minimap,#mobile-vitals,#xp){background:#f2f6faed!important;color:#26384a!important;border-color:#aabccc!important;box-shadow:0 4px 16px #25384b24}
+  html[data-theme=light] :is(.game-menu-row,.shop-item,.reward-card,.evo-card,.guide-class,.team-panel,.survival-score,.death-stat,.game-menu-help,.power-chip,.pickup-row,.shop-combos,.shop-clock,.shop-icon,.game-menu-logo,#shop-close,#game-menu-close,#hamburger-toggle,.preference-row select,#skin-select,#devclass,#name){background:#e6eef5!important;color:#26384a!important;border-color:#a9bfce!important}
+  html[data-theme=light] :is(.game-menu-row.resume,#play,#devapply,#dev-shop,#survival-restart){background:#23764d!important;color:white!important}
+  html[data-theme=light] :is(#audio-menu,#fullscreen-btn,#audio-close,#audio-test){background:#d9e7f2;color:#243b50}
+  html[data-theme=light] :is(.shop-heading h2,.game-menu-header h2,#mode-heading,.game-menu-help summary,.pickup-row strong,.shop-combos strong,.guide-heading strong,.shop-info strong,.power-chip-top strong){color:#20394c!important}
+  html[data-theme=light] :is(.shop-heading p,.game-menu-header p,.game-menu-row small,.game-menu-card footer,.shop-footer,.shop-info small,.shop-combos,.game-menu-help,.power-chip-body small,.pickup-row small,.preference-row label,#mode-help,.survival-gameover-copy,.survival-gameover-note,#devpanel small){color:#425d71!important}
+  html[data-theme=light] :is(.shop-wallet,.shop-price,.power-chip-top b,#shop-toggle-balance){color:#8a5c13!important}
+  html[data-theme=light] .shop-combo-chip{background:#d1efdf;color:#246343;border-color:#80b69a}
+  html[data-theme=light] .shop-stat{color:#536c80}html[data-theme=light] .shop-stat b{color:#206946}html[data-theme=light] .shop-lock{color:#985119}
+  html[data-theme=light] #shop-tabs button{background:#e6eef5;color:#36536b;border-color:#abc0d1}
+  html[data-theme=light] #shop-tabs button[aria-pressed=true]{background:#2776a5;color:white;border-color:#21678e}
+  html[data-theme=light] #mode-select button{background:#e6eef5;color:#26384a;border-color:#b5c6d4}
+  html[data-theme=light] #mode-select button.selected{background:#d1e9f9;color:#163e5a;border-color:#348bc2}
+  html[data-theme=light] :is(.team-panel-heading span,.survival-summary strong,.survival-summary span,.lrow,.team-player-row,.survival-player-row,.death-stat span,.survival-final-row){color:#26384a!important;text-shadow:none}
+  html[data-theme=light] #lb h4{background:none;color:#245775}
+  html[data-theme=light] .game-menu-row svg{color:#2777a8!important}
+  html[data-theme=light] .game-menu-row.resume svg{color:#d2f7e0!important}
+  html[data-theme=light] .shop-item:disabled .shop-buy-label{background:#aebdcc;color:#273e52}
+  html[data-theme=light] .power-track{background:#c5d3df}
+  html[data-theme=light] #xp .txt,html[data-theme=light] #mobile-hptxt{color:#233a4e;text-shadow:none}
+  html[data-theme=dark]{color-scheme:dark}
+  @media(max-width:420px){.preference-row select{min-height:44px;font-size:12px}html[lang=fa] .game-menu-row small{font-size:11px}}
 </style>
 </head>
 <body>
@@ -585,7 +623,7 @@
       <div><h2 id="game-menu-title">Game Menu</h2><p id="game-menu-mode">Tank Arena</p></div>
       <button id="game-menu-close" type="button" aria-label="Close game menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
     </header>
-    <div class="game-menu-actions">
+    <div class="game-menu-actions"><div class="preference-row"><label><span>Theme</span><select data-preference="theme"><option value="light">Light</option><option value="dark">Dark</option></select></label><label><span>Language</span><select data-preference="language"><option value="en">English</option><option value="fa">فارسی</option></select></label></div>
       <button id="game-menu-resume" type="button" class="game-menu-row resume"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l14-8z"/></svg><span><strong>Resume game</strong><small>Return to the arena</small></span></button>
       <button id="game-menu-shop" type="button" class="game-menu-row" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h16l-2 12H6L4 9Zm3 0 5-6 5 6M9 13v4m6-4v4"/></svg><span><strong>Survival Shop</strong><small id="game-menu-shop-status">Between-wave upgrades</small></span></button>
       <button id="audio-hud" type="button" class="game-menu-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9h4l5-4v14l-5-4H3zM16 8a6 6 0 0 1 0 8M19 5a10 10 0 0 1 0 14"/></svg><span><strong>Audio settings</strong><small>Music and sound effects</small></span></button>
@@ -637,7 +675,7 @@
 </div>
 <div id="menu">
   <div class="card">
-    <h1>Tank Arena</h1>
+    <h1>Tank Arena</h1><div class="preference-row"><label><span>Theme</span><select data-preference="theme"><option value="light">Light</option><option value="dark">Dark</option></select></label><label><span>Language</span><select data-preference="language"><option value="en">English</option><option value="fa">فارسی</option></select></label></div>
     <div id="msg"></div>
     <section id="deathpanel" hidden aria-live="polite">
       <h2>DESTROYED</h2>

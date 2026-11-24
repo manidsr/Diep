@@ -2,6 +2,7 @@ import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, S
 import type { Snapshot, CombatEffect, DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
 import { type Input } from './input';
 import { POWER_META, drawPowerIcon } from './powerups';
+import { theme as visualTheme, tr, seconds } from './preferences';
 
 export interface View {
   survival?: Snapshot['survival'];
@@ -41,20 +42,20 @@ export function drawFrame(
   const fov = Math.max(0.65, Math.min(1.8, fovMul));
   const arenaSize = view.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE;
   const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000) / fov;
-  ctx.fillStyle = '#b4b4b8';
+  ctx.fillStyle = visualTheme==='dark'?'#101720':'#b4b4b8';
   ctx.fillRect(0, 0, W, H);
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(scale, scale);
   ctx.translate(-cam.x, -cam.y);
 
-  ctx.fillStyle = '#cdcdd2';
+  ctx.fillStyle = visualTheme==='dark'?'#202c38':'#cdcdd2';
   ctx.fillRect(0, 0, arenaSize, arenaSize);
   const x0 = Math.max(0, Math.floor((cam.x - W / 2 / scale) / 50) * 50);
   const x1 = Math.min(arenaSize, cam.x + W / 2 / scale);
   const y0 = Math.max(0, Math.floor((cam.y - H / 2 / scale) / 50) * 50);
   const y1 = Math.min(arenaSize, cam.y + H / 2 / scale);
-  ctx.strokeStyle = '#c1c1c7';
+  ctx.strokeStyle = visualTheme==='dark'?'#2e3c4b':'#c1c1c7';
   ctx.lineWidth = 1 / scale + 0.5;
   ctx.beginPath();
   for (let x = x0; x <= x1; x += 50) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
@@ -110,7 +111,7 @@ export function drawFrame(
   for (const effect of view.effects ?? []) drawCombatEffect(ctx, effect);
   ctx.restore();
   if (view.mode === 'survival') drawSurvivalOverlay(ctx, W, H, view);
-  if(view.royale){const r=view.royale;ctx.save();ctx.textAlign='center';ctx.font='900 15px system-ui';ctx.lineWidth=4;ctx.strokeStyle='#242936';ctx.fillStyle='#fff0b0';const text=r.phase==='lobby'?(r.alive<2?'WAITING FOR 2 PLAYERS':'ROUND STARTS · '+r.seconds+'s'):r.phase==='result'?'WINNER · '+r.winner:'BATTLE ROYALE · '+r.alive+' LEFT · '+r.seconds+'s';ctx.strokeText(text,W/2,76);ctx.fillText(text,W/2,76);ctx.restore();}
+  if(view.royale){const r=view.royale;ctx.save();ctx.textAlign='center';ctx.font='900 15px system-ui';ctx.lineWidth=4;ctx.strokeStyle='#242936';ctx.fillStyle='#fff0b0';const text=r.phase==='lobby'?(r.alive<2?tr('WAITING FOR 2 PLAYERS','در انتظار دو بازیکن'):tr('ROUND STARTS · ','شروع دور · ')+seconds(r.seconds)):r.phase==='result'?tr('WINNER · ','برنده · ')+r.winner:tr('BATTLE ROYALE')+' · '+tr(r.alive+' LEFT',r.alive+' باقی‌مانده')+' · '+seconds(r.seconds);ctx.strokeText(text,W/2,76);ctx.fillText(text,W/2,76);ctx.restore();}
 }
 
 /** Animated, outlined links; deterministic bends avoid random per-frame flicker. */
@@ -209,9 +210,9 @@ function drawSurvivalOverlay(ctx: CanvasRenderingContext2D, W: number, H: number
   ctx.translate(0, offset);
   ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.font = (compact ? '900 11px' : '900 15px') + ' system-ui, sans-serif';
   ctx.lineWidth = 4; ctx.strokeStyle = '#17232b';
-  const theme = state.theme === 'standard' ? 'HORDE' : state.theme.toUpperCase();
-  const title = state.intermission > 0 ? 'WAVE CLEARED · ' + Math.ceil(state.intermission) + 's' :
-    'WAVE ' + state.wave + ' · ' + theme + ' · ' + state.remaining + ' LEFT';
+  const theme = tr(state.theme === 'standard' ? 'HORDE' : state.theme.toUpperCase());
+  const title = state.intermission > 0 ? tr('WAVE CLEARED · ','موج پاک‌سازی شد · ')+seconds(Math.ceil(state.intermission)) :
+    tr('WAVE')+' '+state.wave+' · '+theme+' · '+tr(state.remaining+' LEFT',state.remaining+' باقی‌مانده');
   ctx.fillStyle = state.intermission > 0 ? '#a9ffc1' : '#fff1c8';
   ctx.strokeText(title, W / 2, 27); ctx.fillText(title, W / 2, 27);
   if (boss) {
@@ -219,7 +220,7 @@ function drawSurvivalOverlay(ctx: CanvasRenderingContext2D, W: number, H: number
     ctx.fillStyle = '#24212b'; ctx.beginPath(); ctx.roundRect(left, 39, width, 24, 6); ctx.fill();
     ctx.fillStyle = '#dc485b'; ctx.fillRect(left + 3, 42, (width - 6) * fraction, 18);
     ctx.font = '800 12px system-ui, sans-serif'; ctx.fillStyle = '#fff';
-    const label = (boss.bossKind ?? 'boss').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase() + ' · ' + Math.ceil(fraction * 100) + '%';
+    const label = tr((boss.bossKind ?? 'boss').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()) + ' · ' + Math.ceil(fraction * 100) + '%';
     ctx.strokeText(label, W / 2, 55); ctx.fillText(label, W / 2, 55);
   }
   ctx.restore();
@@ -375,11 +376,11 @@ function drawTeamBases(ctx: CanvasRenderingContext2D) {
   ctx.lineWidth = 4;
   ctx.strokeStyle = '#0009';
   ctx.fillStyle = '#8bdfff';
-  ctx.strokeText('BLUE BASE · SAFE ZONE', TEAM_BASE_DEPTH / 2, 180);
-  ctx.fillText('BLUE BASE · SAFE ZONE', TEAM_BASE_DEPTH / 2, 180);
+  ctx.strokeText(tr("BLUE BASE · SAFE ZONE"), TEAM_BASE_DEPTH / 2, 180);
+  ctx.fillText(tr("BLUE BASE · SAFE ZONE"), TEAM_BASE_DEPTH / 2, 180);
   ctx.fillStyle = '#ff9ca2';
-  ctx.strokeText('RED BASE · SAFE ZONE', ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
-  ctx.fillText('RED BASE · SAFE ZONE', ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
+  ctx.strokeText(tr("RED BASE · SAFE ZONE"), ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
+  ctx.fillText(tr("RED BASE · SAFE ZONE"), ARENA_SIZE - TEAM_BASE_DEPTH / 2, 180);
   ctx.restore();
 }
 
@@ -719,7 +720,7 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     ctx.setLineDash([7, 4]); ctx.beginPath(); ctx.arc(x, y, r * 1.24, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]); ctx.font = '900 12px system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.strokeStyle = '#392b20'; ctx.lineWidth = 3; ctx.fillStyle = '#ffe28e';
-    ctx.strokeText('ELITE', x, y - r - 12); ctx.fillText('ELITE', x, y - r - 12); ctx.restore();
+    ctx.strokeText(tr("ELITE"), x, y - r - 12); ctx.fillText(tr("ELITE"), x, y - r - 12); ctx.restore();
   }
   if (boss) {
     const names = { breaker: 'THE BREAKER', spitter: 'ROTBLOOM', summoner: 'GRAVEHEART', colossus: 'THE COLOSSUS', nestMother: 'NEST MOTHER', lich: 'THE LICH', devourer: 'THE DEVOURER', abomination: 'ABOMINATION' } as const;
@@ -730,8 +731,8 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
     ctx.lineWidth = 4;
     ctx.strokeStyle = '#160d18';
     ctx.fillStyle = palette.accent;
-    ctx.strokeText(names[zombie.bossKind!], x, y - r - 20);
-    ctx.fillText(names[zombie.bossKind!], x, y - r - 20);
+    ctx.strokeText(tr(names[zombie.bossKind!]), x, y - r - 20);
+    ctx.fillText(tr(names[zombie.bossKind!]), x, y - r - 20);
     ctx.restore();
     hpBar(ctx, x, y + r + 13, r * 3.2, zombie.hp / Math.max(1, zombie.mhp));
   } else if (zombie.visibility > 0.15 && zombie.hp < zombie.mhp) {
@@ -771,7 +772,7 @@ function drawDownedPlayer(ctx: CanvasRenderingContext2D, player: DownedPlayerSna
   ctx.strokeStyle = '#fff0a5'; ctx.lineWidth = 4;
   ctx.beginPath(); ctx.arc(0, 0, player.r + 9, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2); ctx.stroke();
   ctx.fillStyle = '#fff0a5'; ctx.font = '900 11px system-ui, sans-serif';
-  ctx.textAlign = 'center'; ctx.fillText('DOWN', 0, -player.r - 13);
+  ctx.textAlign = 'center'; ctx.fillText(tr("DOWN"), 0, -player.r - 13);
   ctx.fillStyle = '#fff'; ctx.fillRect(-player.r * 0.42, -3, player.r * 0.84, 6);
   ctx.fillRect(-3, -player.r * 0.42, 6, player.r * 0.84);
   ctx.restore();
@@ -975,8 +976,8 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, W: number, H: number,
   }
   ctx.restore();
   ctx.fillStyle = '#d8e9ec'; ctx.font = '800 9px system-ui, sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('ALLIES', 10, H - 8); ctx.fillStyle = '#ff665d'; ctx.fillText('HORDE', 56, H - 8);
-  ctx.fillStyle = '#77ff9a'; ctx.fillText('HEALS', 104, H - 8); ctx.fillStyle = '#ffe27a'; ctx.fillText('XP', 148, H - 8); ctx.restore();
+  ctx.fillText(tr("ALLIES"), 10, H - 8); ctx.fillStyle = '#ff665d'; ctx.fillText(tr("HORDE"), 56, H - 8);
+  ctx.fillStyle = '#77ff9a'; ctx.fillText(tr("HEALS"), 104, H - 8); ctx.fillStyle = '#ffe27a'; ctx.fillText(tr("XP"), 148, H - 8); ctx.restore();
 }
 
 /** Minimal touch hints; active sticks become visible only while a thumb is down. */
@@ -998,8 +999,8 @@ export function drawSticks(ctx: CanvasRenderingContext2D, W: number, H: number, 
   };
   const insetX = Math.max(radius + 18,Math.min(100,W*0.20));
   const insetY = radius + 42;
-  draw(input.moveStick,insetX,H-insetY,'#368dcb','MOVE');
-  draw(input.aimStick,W-insetX,H-insetY,'#d85e65','AIM / FIRE');
+  draw(input.moveStick,insetX,H-insetY,'#368dcb',tr('MOVE'));
+  draw(input.aimStick,W-insetX,H-insetY,'#d85e65',tr('AIM / FIRE'));
 }
 
 /** Generate an image preview using the same tank renderer as the live game. */
