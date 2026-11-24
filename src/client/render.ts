@@ -2,7 +2,7 @@ import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, S
 import type { Snapshot, CombatEffect, DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
 import { type Input } from './input';
 import { POWER_META, drawPowerIcon } from './powerups';
-import { theme as visualTheme, tr, seconds } from './preferences';
+import { theme as visualTheme, tr, seconds, language, digits, isolate } from './preferences';
 
 export interface View {
   survival?: Snapshot['survival'];
@@ -39,6 +39,7 @@ export function drawFrame(
   ctx: CanvasRenderingContext2D, W: number, H: number,
   cam: { x: number; y: number }, view: View, selfId: number, fovMul = 1,
 ) {
+  ctx.direction=language==='fa'?'rtl':'ltr';
   const fov = Math.max(0.65, Math.min(1.8, fovMul));
   const arenaSize = view.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE;
   const scale = Math.max(Math.min(W, H) / 700, W / 2000, H / 2000) / fov;
@@ -111,7 +112,7 @@ export function drawFrame(
   for (const effect of view.effects ?? []) drawCombatEffect(ctx, effect);
   ctx.restore();
   if (view.mode === 'survival') drawSurvivalOverlay(ctx, W, H, view);
-  if(view.royale){const r=view.royale;ctx.save();ctx.textAlign='center';ctx.font='900 15px system-ui';ctx.lineWidth=4;ctx.strokeStyle='#242936';ctx.fillStyle='#fff0b0';const text=r.phase==='lobby'?(r.alive<2?tr('WAITING FOR 2 PLAYERS','در انتظار دو بازیکن'):tr('ROUND STARTS · ','شروع دور · ')+seconds(r.seconds)):r.phase==='result'?tr('WINNER · ','برنده · ')+r.winner:tr('BATTLE ROYALE')+' · '+tr(r.alive+' LEFT',r.alive+' باقی‌مانده')+' · '+seconds(r.seconds);ctx.strokeText(text,W/2,76);ctx.fillText(text,W/2,76);ctx.restore();}
+  if(view.royale){const r=view.royale;ctx.save();ctx.textAlign='center';ctx.font='900 15px system-ui';ctx.lineWidth=4;ctx.strokeStyle='#242936';ctx.fillStyle='#fff0b0';const text=r.phase==='lobby'?(r.alive<2?tr('WAITING FOR 2 PLAYERS','در انتظار دو بازیکن'):tr('ROUND STARTS · ','شروع دور · ')+seconds(r.seconds)):r.phase==='result'?tr('WINNER · ','برنده · ')+(language==='fa'?isolate(r.winner):r.winner):tr('BATTLE ROYALE')+' · '+tr(r.alive+' LEFT',digits(r.alive)+' باقی‌مانده')+' · '+seconds(r.seconds);ctx.strokeText(text,W/2,76);ctx.fillText(text,W/2,76);ctx.restore();}
 }
 
 /** Animated, outlined links; deterministic bends avoid random per-frame flicker. */
@@ -212,7 +213,7 @@ function drawSurvivalOverlay(ctx: CanvasRenderingContext2D, W: number, H: number
   ctx.lineWidth = 4; ctx.strokeStyle = '#17232b';
   const theme = tr(state.theme === 'standard' ? 'HORDE' : state.theme.toUpperCase());
   const title = state.intermission > 0 ? tr('WAVE CLEARED · ','موج پاک‌سازی شد · ')+seconds(Math.ceil(state.intermission)) :
-    tr('WAVE')+' '+state.wave+' · '+theme+' · '+tr(state.remaining+' LEFT',state.remaining+' باقی‌مانده');
+    tr('WAVE')+' '+digits(state.wave)+' · '+theme+' · '+tr(state.remaining+' LEFT',digits(state.remaining)+' باقی‌مانده');
   ctx.fillStyle = state.intermission > 0 ? '#a9ffc1' : '#fff1c8';
   ctx.strokeText(title, W / 2, 27); ctx.fillText(title, W / 2, 27);
   if (boss) {
@@ -220,7 +221,7 @@ function drawSurvivalOverlay(ctx: CanvasRenderingContext2D, W: number, H: number
     ctx.fillStyle = '#24212b'; ctx.beginPath(); ctx.roundRect(left, 39, width, 24, 6); ctx.fill();
     ctx.fillStyle = '#dc485b'; ctx.fillRect(left + 3, 42, (width - 6) * fraction, 18);
     ctx.font = '800 12px system-ui, sans-serif'; ctx.fillStyle = '#fff';
-    const label = tr((boss.bossKind ?? 'boss').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()) + ' · ' + Math.ceil(fraction * 100) + '%';
+    const label = tr((boss.bossKind ?? 'boss').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()) + ' · ' + digits(Math.ceil(fraction * 100)+'%');
     ctx.strokeText(label, W / 2, 55); ctx.fillText(label, W / 2, 55);
   }
   ctx.restore();
@@ -930,6 +931,7 @@ function drawTank(ctx: CanvasRenderingContext2D, player: PlayerSnap, mine: boole
 export function drawMinimap(ctx: CanvasRenderingContext2D, W: number, H: number, view: View, selfId: number) {
   ctx.clearRect(0, 0, W, H);
   if (view.mode !== 'survival') return;
+  ctx.direction=language==='fa'?'rtl':'ltr';
   const size = SURVIVAL_ARENA_SIZE, pad = 10, mapSize = Math.min(W, H) - pad * 2;
   const left = (W - mapSize) / 2, top = (H - mapSize) / 2;
   const px = (value: number) => left + value / size * mapSize;
@@ -976,13 +978,20 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, W: number, H: number,
   }
   ctx.restore();
   ctx.fillStyle = '#d8e9ec'; ctx.font = '800 9px system-ui, sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText(tr("ALLIES"), 10, H - 8); ctx.fillStyle = '#ff665d'; ctx.fillText(tr("HORDE"), 56, H - 8);
-  ctx.fillStyle = '#77ff9a'; ctx.fillText(tr("HEALS"), 104, H - 8); ctx.fillStyle = '#ffe27a'; ctx.fillText(tr("XP"), 148, H - 8); ctx.restore();
+  if(language==='fa'){
+    ctx.textAlign='center';ctx.font='800 9px Tahoma, Arial, sans-serif';
+    const labels=[['متحد','#d8e9ec'],['زامبی','#ff665d'],['درمان','#77ff9a'],['تجربه','#ffe27a']];
+    labels.forEach(([label,color],i)=>{ctx.fillStyle=color;ctx.fillText(label,W-(i+0.5)*W/4,H-8,W/4-3);});
+  }else{
+    ctx.fillText(tr("ALLIES"), 10, H - 8); ctx.fillStyle = '#ff665d'; ctx.fillText(tr("HORDE"), 56, H - 8);
+    ctx.fillStyle = '#77ff9a'; ctx.fillText(tr("HEALS"), 104, H - 8); ctx.fillStyle = '#ffe27a'; ctx.fillText(tr("XP"), 148, H - 8);
+  }ctx.restore();
 }
 
 /** Minimal touch hints; active sticks become visible only while a thumb is down. */
 export function drawSticks(ctx: CanvasRenderingContext2D, W: number, H: number, input: Input) {
   if (!input.touchSeen) return;
+  ctx.direction=language==='fa'?'rtl':'ltr';
   const radius = input.stickRadius;
   const draw = (stick: { ox: number; oy: number; x: number; y: number } | null, hintX: number, hintY: number, color: string, label: string) => {
     const ox = stick ? stick.ox : hintX, oy = stick ? stick.oy : hintY;

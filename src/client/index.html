@@ -667,6 +667,33 @@
   html[data-theme=light] .combat-name.red{color:#a93640}
   html[data-theme=light] .combat-name.own{color:#1a7544}
   @media(pointer:coarse),(max-width:760px){#killfeed{top:calc(env(safe-area-inset-top) + 58px);bottom:auto;width:min(210px,45vw);max-height:76px;overflow:hidden}#killfeed .killfeed-row{font-size:10px;padding:3px 5px;gap:4px}#killfeed .killfeed-row:nth-child(n+3){display:none}.combat-system{font-size:8px}}
+  /* Persian text flows right-to-left; numeric runs and usernames retain their own direction.
+     Fixed world coordinates, canvas geometry and joystick positions are not mirrored. */
+  html[lang=fa] :is(#menu,#game-menu-panel,#shop-panel,#audio-panel,#survival-gameover,#reward-panel,#classes,#lb,#killfeed,#power-status,#pickup-notice){direction:rtl}
+  html[lang=fa] :is(button,select,label,summary,p,small,h1,h2,h3,h4,.combat-message,.death-feed-row,.shop-stat-value){letter-spacing:normal;text-transform:none}
+  html[lang=fa] :is(#deathpanel,#survival-over-roster,.guide-heading span,.team-player-name,.survival-player-row,.survival-final-row,#devpanel,.start-form,.start-settings-heading,.shop-heading,.shop-info,.shop-stat,.game-menu-row,.combat-history-row,.combat-message,.death-feed-row,.reward-card,.pickup-row){text-align:start!important}
+  html[lang=fa] :is(.shop-info,.reward-card,.guide-class,.combat-message,.death-feed-row,.game-menu-row){line-height:1.65;word-break:normal;overflow-wrap:break-word}
+  html[lang=fa] .shop-rank{direction:rtl}
+  .shop-rank bdi,.combat-time{direction:ltr;unicode-bidi:isolate;white-space:nowrap}
+  .shop-stat-value{unicode-bidi:isolate}
+  .shop-stat-arrow{flex:none;unicode-bidi:isolate}
+  html[lang=fa] .shop-stat{flex-direction:row;justify-content:flex-start}
+  html[lang=fa] :is(.shop-header,.game-menu-header,.start-header){direction:rtl}
+  html[lang=fa] :is(#shop-close,#game-menu-close,#start-settings){margin-left:0;margin-right:auto}
+  html[lang=fa] .lrow .bar{inset:0 0 0 auto}
+  html[lang=fa] .lrow .sc{text-align:end;unicode-bidi:isolate}
+  html[lang=fa] :is(#name,.combat-name,.lrow .nm,.team-player-name){unicode-bidi:isolate}
+  html[lang=fa] :is(#survival-over-time,#lan code){direction:ltr;unicode-bidi:isolate}
+  html[lang=fa] #toast{white-space:normal;width:min(90vw,460px);line-height:1.6}
+  html[lang=fa] #toast .big{font-size:clamp(21px,5vw,34px)}
+  html[lang=fa] #classes button.evo-card{height:auto;min-height:144px}
+  html[lang=fa] #classes :is(.evo-bonus,.evo-strength,.evo-tradeoff){line-height:1.5;letter-spacing:normal}
+  html[lang=fa] .combat-message{direction:rtl;unicode-bidi:isolate}
+  html[lang=fa] .combat-history-row{grid-template-columns:auto auto minmax(0,1fr)}
+  html[lang=fa] .combat-detail{direction:rtl;text-align:start;unicode-bidi:isolate}
+  html[lang=fa] .combat-system{line-height:1.65}
+  html[lang=fa] .reward-card .reward-rarity{letter-spacing:normal}
+  @media(pointer:coarse),(max-width:760px){html[lang=fa] #classes button.evo-card{min-height:124px}html[lang=fa] .shop-info small{font-size:11px;line-height:1.55}}
 </style>
 </head>
 <body>
@@ -778,7 +805,7 @@
 
       <div class="start-form">
         <label for="name">Player name</label>
-        <input id="name" maxlength="16" placeholder="Nickname" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <input id="name" dir="auto" maxlength="16" placeholder="Nickname" autocomplete="off" autocapitalize="off" spellcheck="false">
         <label id="mode-heading" for="start-mode">Game mode</label>
         <select id="start-mode" aria-label="Choose game mode"><option value="ffa">FREE FOR ALL</option><option value="teams">TEAM MODE</option><option value="survival">CO-OP SURVIVAL</option><option value="royale">BATTLE ROYALE</option></select>
         <div hidden><div id="mode-select" role="group" aria-label="Choose game mode">

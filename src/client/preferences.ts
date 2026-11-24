@@ -13,20 +13,37 @@ export function translate(lang:Language,en:string,fa?:string):string {
   if(fa!==undefined)return fa;
   const direct=FA[en]??folded.get(en.toLowerCase());if(direct)return direct;
   let m:RegExpMatchArray|null;
-  if(/^[+-]?[\d.]+%$/.test(en))return en.replace('%','٪').replace(/\d/g,d=>'۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
+  if(/^[+-]?[\d.]+%$/.test(en))return isolate(digits(en,lang),'ltr');
   if((m=en.match(/^Requires (.+)$/)))return 'پیش‌نیاز: '+translate(lang,m[1]);
-  if((m=en.match(/^([+-]?[\d.]+)\s*(jumps|branches|units|impulse|s|coins|kills)$/i)))return m[1]+' '+({jumps:'پرش',branches:'شاخه',units:'واحد',impulse:'نیرو',s:'ثانیه',coins:'سکه',kills:'حذف'} as Record<string,string>)[m[2].toLowerCase()];
-  if((m=en.match(/^([+-]?[\d.]+%) (retained|speed|of shot|burn|slow|lifetime|critical)$/)))return m[1]+' '+({retained:'حفظ آسیب',speed:'سرعت', 'of shot':'از آسیب گلوله',burn:'آسیب آتش',slow:'کاهش سرعت',lifetime:'مدت حرکت',critical:'آسیب بحرانی'} as Record<string,string>)[m[2]];
-  if((m=en.match(/^([\d /]+) shots$/)))return m[1]+' شلیک';
-  if((m=en.match(/^NEED (\d+)$/)))return m[1]+' سکه کم داری';
-  if((m=en.match(/^LEVEL (\d+)$/)))return 'سطح '+m[1];
-  if((m=en.match(/^RAMPAGE ×(\d+)$/)))return 'حذف پیاپی ×'+m[1];
-  if((m=en.match(/^Autonomous pressure from up to (\d+) drones$/)))return 'حمله خودکار با حداکثر '+m[1]+' پهپاد';
-  if((m=en.match(/^(\d+) automatic turrets? add independent coverage$/)))return m[1]+' برجک خودکار برای پوشش مستقل';
+  if((m=en.match(/^([+-]?[\d.]+)\s*(jumps|branches|units|impulse|s|coins|kills)$/i)))return digits(m[1],lang)+' '+({jumps:'پرش',branches:'شاخه',units:'واحد',impulse:'نیرو',s:'ثانیه',coins:'سکه',kills:'حذف'} as Record<string,string>)[m[2].toLowerCase()];
+  if((m=en.match(/^([+-]?[\d.]+%) (retained|speed|of shot|burn|slow|lifetime|critical)$/)))return isolate(digits(m[1],lang),'ltr')+' '+({retained:'حفظ آسیب',speed:'سرعت', 'of shot':'از آسیب گلوله',burn:'آسیب آتش',slow:'کاهش سرعت',lifetime:'مدت حرکت',critical:'آسیب بحرانی'} as Record<string,string>)[m[2]];
+  if((m=en.match(/^([\d /]+) shots$/)))return isolate(digits(m[1],lang),'ltr')+' شلیک';
+  if((m=en.match(/^NEED (\d+)$/)))return digits(m[1],lang)+' سکه کم داری';
+  if((m=en.match(/^LEVEL (\d+)$/)))return 'سطح '+digits(m[1],lang);
+  if((m=en.match(/^RAMPAGE ×(\d+)$/)))return 'حذف پیاپی ×'+digits(m[1],lang);
+  if((m=en.match(/^Autonomous pressure from up to (\d+) drones$/)))return 'حمله خودکار با حداکثر '+digits(m[1],lang)+' پهپاد';
+  if((m=en.match(/^(\d+) automatic turrets? add independent coverage$/)))return digits(m[1],lang)+' برجک خودکار برای پوشش مستقل';
   return en;
 }
-export const seconds=(n:number)=>language==='fa'?n+' ثانیه':n+'s';
-// HUD values stay in Latin digits so ratios, decimals and keyboard shortcuts are unambiguous.
+/** Format display values only. Never change identifiers, player names, URLs or network data. */
+export function digits(value:string|number,lang:Language=language):string{
+  const text=String(value);
+  return lang==='fa'?text.replace(/[0-9]/g,d=>'۰۱۲۳۴۵۶۷۸۹'[Number(d)]).replace(/(\d|[۰-۹])\.(?=[۰-۹])/g,'$1٫').replace(/%/g,'٪'):text;
+}
+/** Unicode isolates keep embedded names and number sequences from reordering surrounding RTL text. */
+export function isolate(value:string,dir:'auto'|'ltr'|'rtl'='auto'):string{
+  return (dir==='ltr'?'\u2066':dir==='rtl'?'\u2067':'\u2068')+value+'\u2069';
+}
+export function ratio(a:number,b:number,lang:Language=language):string{
+  const value=digits(a,lang)+' / '+digits(b,lang);
+  return lang==='fa'?isolate(value,'ltr'):value;
+}
+export function eliminationText(lang:Language,killer:string,victim:string,ownKiller=false,ownVictim=false):string{
+  if(lang==='en')return (ownKiller?'You':killer)+' eliminated '+(ownVictim?'you':victim);
+  const k=ownKiller?'شما':isolate(killer),v=ownVictim?'شما':isolate(victim);
+  return k+'، '+v+' را حذف '+(ownKiller?'کردید.':'کرد.');
+}
+export const seconds=(n:number)=>language==='fa'?digits(n)+' ثانیه':n+'s';
 const staticText:{node:Text;source:string}[]=[];
 const staticAttrs:{el:Element;name:string;source:string}[]=[];
 export function initializePreferences(){
@@ -36,18 +53,20 @@ export function initializePreferences(){
   let node:Node|null;
   while((node=walker.nextNode())){const value=node.nodeValue??'';const source=value.trim();if(source&&node.parentElement&&!node.parentElement.closest('script,style,svg')&&(FA[source]||folded.has(source.toLowerCase())))staticText.push({node:node as Text,source:value});}
   for(const el of Array.from(document.querySelectorAll('[placeholder],[aria-label],[title]')))for(const name of ['placeholder','aria-label','title']){const source=el.getAttribute(name);if(source&&FA[source])staticAttrs.push({el,name,source});}
-  applyPreferences();
+  applyPreferences(true);
 }
-function applyPreferences(){
+function applyPreferences(retranslate:boolean){
   const root=document.documentElement;root.lang=language;root.dir=language==='fa'?'rtl':'ltr';root.dataset.theme=theme;
   document.title=tr('Tank Arena');
-  for(const {node,source} of staticText)if(node.isConnected)node.nodeValue=source.replace(source.trim(),tr(source.trim()));
-  for(const {el,name,source} of staticAttrs)el.setAttribute(name,tr(source));
+  if(retranslate){
+    for(const {node,source} of staticText)if(node.isConnected)node.nodeValue=source.replace(source.trim(),tr(source.trim()));
+    for(const {el,name,source} of staticAttrs)el.setAttribute(name,tr(source));
+  }
   for(const el of Array.from(document.querySelectorAll<HTMLSelectElement>('[data-preference]')))el.value=el.dataset.preference==='language'?language:theme;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content',theme==='dark'?'#172231':'#eaf0f5');
 }
 export function setPreference(name:'language'|'theme',value:string){
   if(name==='language')language=value==='fa'?'fa':'en';else theme=value==='dark'?'dark':'light';
   try{localStorage.setItem('tank-'+name,name==='language'?language:theme);}catch{}
-  applyPreferences();
+  applyPreferences(name==='language');
 }

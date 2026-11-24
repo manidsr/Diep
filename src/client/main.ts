@@ -2,7 +2,7 @@ import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES, SERVER_TICK_HZ, TANK_SKINS } 
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
 import { GameAudio } from './audio';
-import { initializePreferences, setPreference, tr, seconds, language } from './preferences';
+import { initializePreferences, setPreference, tr, seconds, language, digits, isolate, ratio, eliminationText } from './preferences';
 initializePreferences();
 import { POWER_META, powerIcon } from './powerups';
 import { POWERUPS } from '../shared/config';
@@ -151,17 +151,17 @@ function feedName(item:FeedItem,side:'killer'|'victim'){
 }
 function formatFeedLine(item:FeedItem):string {
   const killer=feedName(item,'killer'),victim=feedName(item,'victim');
-  return tr(killer+' eliminated '+victim,killer+'، '+victim+' را حذف کرد.');
+  return eliminationText(language,killer,victim,item.killerId===selfId,item.victimId===selfId);
 }
 function combatRow(entry:LogEntry,full=false){
-  const {item}=entry,row=document.createElement('div');row.className=full?'combat-history-row':'killfeed-row';
+  const {item}=entry,row=document.createElement('div');row.className=full?'combat-history-row':'killfeed-row';row.dir=language==='fa'?'rtl':'ltr';
   const time=document.createElement('time');time.textContent=new Date(entry.time).toLocaleTimeString(language==='fa'?'fa-IR':'en-GB',{hour:'2-digit',minute:'2-digit'});time.className='combat-time';
   const system=document.createElement('span');system.className='combat-system';system.textContent=tr('System');
   const text=document.createElement('span');text.className='combat-message';
-  const name=(side:'killer'|'victim')=>{const el=document.createElement('bdi');el.className='combat-name '+(item[side+'Team' as 'killerTeam'|'victimTeam']??'neutral')+((side==='killer'?item.killerId:item.victimId)===selfId?' own':'');el.textContent=feedName(item,side);return el;};
+  const name=(side:'killer'|'victim')=>{const el=document.createElement('bdi');el.className='combat-name '+(item[side+'Team' as 'killerTeam'|'victimTeam']??'neutral')+((side==='killer'?item.killerId:item.victimId)===selfId?' own':'');el.dir='auto';el.textContent=feedName(item,side);return el;};
   text.append(name('killer'),document.createTextNode(tr(' eliminated ','، ')),name('victim'));
-  if(language==='fa')text.append(document.createTextNode(' را حذف کرد.'));
-  if(full){const detail=document.createElement('small');detail.className='combat-detail';detail.textContent=[item.killerClass?tr(CLASS_BY_ID[item.killerClass]?.name??item.killerClass):tr('Environment'),tr(CLASS_BY_ID[item.victimClass]?.name??item.victimClass)].join(' → ');row.append(time,system,text,detail);}
+  if(language==='fa')text.append(document.createTextNode(item.killerId===selfId?' را حذف کردید.':' را حذف کرد.'));
+  if(full){const detail=document.createElement('small');detail.className='combat-detail';detail.textContent=[item.killerClass?tr(CLASS_BY_ID[item.killerClass]?.name??item.killerClass):tr('Environment'),tr(CLASS_BY_ID[item.victimClass]?.name??item.victimClass)] .join(language==='fa'?' ← ':' → ');row.append(time,system,text,detail);}
   else row.append(system,text);
   return row;
 }
@@ -193,7 +193,8 @@ function renderKillFeed(item:FeedItem) {
 function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
   lastDeath=m;
   const killerClass = m.killerClass ? tr(CLASS_BY_ID[m.killerClass]?.name??m.killerClass) : null;
-  $('deathkiller').textContent = killerClass ? m.killer + ' · ' + killerClass : m.killer;
+  const killerName=m.killerClass?m.killer:tr(m.killer);
+  $('deathkiller').textContent = killerClass ? (language==='fa'?isolate(killerName):killerName) + ' · ' + killerClass : killerName;
   $('deathclass').textContent = tr('You were playing ','تانک شما: ') + tr(CLASS_BY_ID[m.victimClass]?.name ?? m.victimClass);
   const values: [string, string][] = [
     ['Kills', String(m.kills)],
@@ -209,7 +210,7 @@ function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
     const cell = document.createElement('div');
     cell.className = 'death-stat';
     const strong = document.createElement('strong');
-    strong.textContent = value;
+    strong.textContent = language==='fa'?digits(value):value;
     const caption = document.createElement('span');
     caption.textContent = tr(label);
     cell.append(strong, caption);
@@ -378,7 +379,7 @@ function onSnapshot(s: Snapshot) {
   const arrival = performance.now();
   const tickTime = s.tick * TICK_MS;
   const previous = frames[frames.length - 1];
-  if(s.royale&&!playing){const rr=s.royale;$('royale-menu-status').textContent=rr.phase==='result'?tr('Winner: ','برنده: ')+rr.winner+tr(' · next lobby in ',' · دور بعدی تا ')+seconds(rr.seconds):rr.phase==='active'?tr(rr.alive+' tanks left · round in progress',rr.alive+' تانک باقی‌مانده · دور در حال اجرا'):tr('Next round lobby open','آماده ورود به دور بعدی');}else $('royale-menu-status').textContent='';
+  if(s.royale&&!playing){const rr=s.royale;$('royale-menu-status').textContent=rr.phase==='result'?tr('Winner: ','برنده: ')+(language==='fa'?isolate(rr.winner):rr.winner)+tr(' · next lobby in ',' · دور بعدی تا ')+seconds(rr.seconds):rr.phase==='active'?tr(rr.alive+' tanks left · round in progress',digits(rr.alive)+' تانک باقی‌مانده · دور در حال اجرا'):tr('Next round lobby open','آماده ورود به دور بعدی');}else $('royale-menu-status').textContent='';
   if (playing) audio.snapshot(s, selfId, previous?.snap);
   if (previous && s.tick <= previous.snap.tick) {
     if (s.tick === previous.snap.tick) return;
@@ -622,13 +623,13 @@ for(const [name,iconId] of shopCategories){
 function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
   lastShopState=m;lastShopSurvival=survival;
   const offers=m.shop??[],coins=m.coins??0,developer=m.devShop===true;
-  shopToggle.hidden=!offers.length;$('shop-toggle-balance').textContent=developer?tr('DEV'):String(coins)+'¢';
+  shopToggle.hidden=!offers.length;$('shop-toggle-balance').textContent=developer?tr('DEV'):language==='fa'?digits(coins)+' سکه':String(coins)+'¢';
   $('dev-shop').hidden=!developer||!offers.length;
   if(!gameMenuPanel.hidden)updateGameMenu();
   if(!offers.length){if(!shopPanel.hidden)closeShop(true);shopKey='';return;}
   const remaining=Math.max(0,Math.ceil(survival?.intermission??0));
   const clock=$('shop-clock');clock.textContent=developer?tr('DEV · Always open'):tr('Next wave · ','موج بعدی · ')+seconds(remaining);clock.classList.toggle('urgent',!developer&&remaining<=3);
-  $('shop-subtitle').textContent=developer?tr('Test any perk and combination for free'):survival?tr('Wave '+survival.wave+' cleared · Upgrade your tank','موج '+survival.wave+' تمام شد؛ تانکت را ارتقا بده'):tr('Between-wave upgrades');
+  $('shop-subtitle').textContent=developer?tr('Test any perk and combination for free'):survival?tr('Wave '+survival.wave+' cleared · Upgrade your tank','موج '+digits(survival.wave)+' تمام شد؛ تانکت را ارتقا بده'):tr('Between-wave upgrades');
   const key=JSON.stringify([offers,coins,m.combos,developer,shopCategory]);if(key===shopKey)return;shopKey=key;
   $('shop-coins').textContent=developer?tr('Free test upgrades'):tr(coins+' coins');
   const comboList=$('shop-combo-list');comboList.replaceChildren();$('shop-combo-empty').hidden=!!m.combos?.length;
@@ -641,11 +642,11 @@ function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
     const affordable=coins>=offer.cost&&!offer.locked;btn.disabled=!affordable;btn.setAttribute('aria-label',tr(offer.title)+'، '+tr(offer.description)+'، '+tr(offer.cost+' coins')+(offer.locked?'، '+tr(offer.locked):affordable?'':tr(', not enough coins','، سکه کافی نیست')));
     const icon=document.createElement('span');icon.className='shop-icon';icon.append(shopIcon(iconId));
     const info=document.createElement('span');info.className='shop-info';const title=document.createElement('strong');title.textContent=tr(offer.title);const desc=document.createElement('small');desc.textContent=tr(offer.description);info.append(title,desc);
-    if(offer.max){const rank=document.createElement('span');rank.className='shop-rank';rank.append(document.createTextNode((offer.rank??0)+'/'+offer.max));for(let i=0;i<offer.max;i++){const pip=document.createElement('span');pip.className='shop-pip'+(i<(offer.rank??0)?' active':'');rank.append(pip);}info.append(rank);}
+    if(offer.max){const rank=document.createElement('span');rank.className='shop-rank';const value=document.createElement('bdi');value.dir='ltr';value.textContent=digits(offer.rank??0)+'/'+digits(offer.max);rank.append(value);for(let i=0;i<offer.max;i++){const pip=document.createElement('span');pip.className='shop-pip'+(i<(offer.rank??0)?' active':'');rank.append(pip);}info.append(rank);}
     btn.append(icon,info);
-    if(offer.value){const stat=document.createElement('span');stat.className='shop-stat';stat.append(document.createTextNode(tr(offer.value)));if(offer.nextValue&&offer.nextValue!==offer.value){const next=document.createElement('b');next.textContent=(language==='fa'?'← ':'→ ')+tr(offer.nextValue);stat.append(next);}btn.append(stat);}
+    if(offer.value){const stat=document.createElement('span');stat.className='shop-stat';const current=document.createElement('span');current.className='shop-stat-value';current.textContent=tr(offer.value);stat.append(current);if(offer.nextValue&&offer.nextValue!==offer.value){const arrow=document.createElement('span');arrow.className='shop-stat-arrow';arrow.textContent=language==='fa'?'←':'→';arrow.dir='ltr';const next=document.createElement('b');next.className='shop-stat-value';next.textContent=tr(offer.nextValue);stat.append(arrow,next);}btn.append(stat);}
     if(offer.locked&&offer.locked!=='MAX LEVEL'){const lock=document.createElement('span');lock.className='shop-lock';lock.textContent=tr(offer.locked);btn.append(lock);}
-    const bottom=document.createElement('span');bottom.className='shop-buy-row';const price=document.createElement('span');price.className='shop-price';price.append(coinIcon(),document.createTextNode(developer?tr('FREE'):String(offer.cost)));
+    const bottom=document.createElement('span');bottom.className='shop-buy-row';const price=document.createElement('span');price.className='shop-price';price.append(coinIcon(),document.createTextNode(developer?tr('FREE'):digits(offer.cost)));
     const action=document.createElement('span');action.className='shop-buy-label';action.textContent=tr(offer.locked?(offer.locked==='MAX LEVEL'?'MAX':'LOCKED'):developer?'ADD':affordable?'BUY':'NEED '+(offer.cost-coins));
     bottom.append(price,action);btn.append(bottom);
     btn.addEventListener('click',()=>{if(playing&&!shopPanel.hidden)send({t:'shop',id:offer.id});});list.append(btn);
@@ -709,7 +710,7 @@ function updatePowerHud(s:Snapshot){
     const icon=document.createElement('span');icon.className='power-chip-icon';icon.append(powerIcon(e.kind));
     const text=document.createElement('span'),title=document.createElement('strong'),detail=document.createElement('small');
     title.textContent=tr(m.name+' collected',tr(m.name)+' دریافت شد');
-    detail.textContent=e.kind==='heal'?(e.healed?tr('+'+e.healed+' HP restored',e.healed+' واحد سلامت بازیابی شد'):tr('Health already full')):tr(m.detail)+' · '+seconds(12);
+    detail.textContent=e.kind==='heal'?(e.healed?tr('+'+e.healed+' HP restored',digits(e.healed)+' واحد جان بازیابی شد'):tr('Health already full')):tr(m.detail)+' · '+seconds(12);
     text.append(title,detail);row.append(icon,text);pickupNotice.append(row);
   }
   pickupNotice.hidden=false;window.clearTimeout(pickupTimer);pickupTimer=window.setTimeout(()=>{pickupNotice.hidden=true;},2400);
@@ -723,7 +724,7 @@ function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
   updateShop(m,survival);
   const fraction = Math.max(0, Math.min(1, m.hp / Math.max(1, m.mhp)));
   $('mobile-hpfill').style.width = (fraction * 100) + '%';
-  $('mobile-hptxt').textContent = m.downed ? tr('DOWNED · REVIVE') : tr('HP') + ' ' + Math.ceil(Math.max(0,m.hp)) + ' / ' + Math.ceil(m.mhp);
+  $('mobile-hptxt').textContent = m.downed ? tr('DOWNED · REVIVE') : tr('HP') + ' ' + ratio(Math.ceil(Math.max(0,m.hp)),Math.ceil(m.mhp));
   $('mobile-vitals').classList.toggle('low', fraction < 0.3);
   // Only sync the selector when the server-confirmed class actually changes.
   // Do not overwrite the user's pending dropdown choice on every snapshot.
@@ -754,7 +755,7 @@ function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
   const key = `${m.lv}|${m.xp}|${m.cls}|${m.downed}`;
   if (key !== hudKey) {
     hudKey = key;
-    $('xptxt').textContent = m.downed ? tr('DOWNED · stay close to an ally to be revived') : tr('Lv '+m.lv,'سطح '+m.lv)+' · '+tr(CLASS_BY_ID[m.cls]?.name??'')+' — '+m.xp+' '+tr('XP');
+    $('xptxt').textContent = m.downed ? tr('DOWNED · stay close to an ally to be revived') : tr('Lv '+m.lv,'سطح '+digits(m.lv))+' · '+tr(CLASS_BY_ID[m.cls]?.name??'')+' — '+digits(m.xp)+' '+tr('XP');
   }
 
   const ok = m.opts.join(',');
@@ -832,18 +833,18 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
         survivalRestartBtn.textContent = tr("RESTART RUN FOR EVERYONE");
       }
       survivalGameOverEl.hidden = false;
-      $('survival-over-wave').textContent = String(message.wave);
-      $('survival-over-kills').textContent = String(message.zombieKills);
-      $('survival-over-time').textContent = `${Math.floor(message.elapsed / 60)}:${String(message.elapsed % 60).padStart(2, '0')}`;
+      $('survival-over-wave').textContent = digits(message.wave);
+      $('survival-over-kills').textContent = digits(message.zombieKills);
+      $('survival-over-time').textContent = digits(`${Math.floor(message.elapsed / 60)}:${String(message.elapsed % 60).padStart(2, '0')}`);
       const finalRoster = $('survival-over-roster');
       finalRoster.replaceChildren();
       for (const player of message.top) {
         const row = document.createElement('div');
         row.className = 'survival-final-row';
         const name = document.createElement('span');
-        name.textContent = `${player.name}${player.downed ? ' · '+tr('DOWNED') : player.alive ? '' : ' · '+tr('OUT')}`;
+        name.textContent = `${language==='fa'?isolate(player.name):player.name}${player.downed ? ' · '+tr('DOWNED') : player.alive ? '' : ' · '+tr('OUT')}`;
         const stat = document.createElement('b');
-        stat.textContent = tr(player.kills+' kills')+' · '+tr('Lv '+player.lv,'سطح '+player.lv);
+        stat.textContent = tr(player.kills+' kills')+' · '+tr('Lv '+player.lv,'سطح '+digits(player.lv));
         row.append(name, stat);
         finalRoster.append(row);
       }
@@ -861,15 +862,15 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
     const summary = document.createElement('div');
     summary.className = 'survival-summary';
     const wave = document.createElement('strong');
-    wave.textContent = tr('WAVE')+' ' + message.wave + (message.theme && message.theme !== 'standard' ? ' · ' + tr(message.theme.toUpperCase()) : '');
+    wave.textContent = tr('WAVE')+' ' + digits(message.wave) + (message.theme && message.theme !== 'standard' ? ' · ' + tr(message.theme.toUpperCase()) : '');
     const kills = document.createElement('span');
-    kills.textContent = message.zombieKills + ' '+tr('ZOMBIES KILLED');
+    kills.textContent = digits(message.zombieKills) + ' '+tr('ZOMBIES KILLED');
     const remaining = document.createElement('span');
     remaining.textContent = message.gameOver
       ? tr('SURVIVED')+' ' + Math.floor(message.elapsed / 60) + ':' + String(message.elapsed % 60).padStart(2, '0')
       : message.nextWaveIn > 0
         ? tr('NEXT WAVE IN ','موج بعدی تا ')+seconds(message.nextWaveIn)
-        : tr(message.zombiesRemaining+' ZOMBIES REMAINING',message.zombiesRemaining+' زامبی باقی‌مانده');
+        : tr(message.zombiesRemaining+' ZOMBIES REMAINING',digits(message.zombiesRemaining)+' زامبی باقی‌مانده');
     summary.append(wave, kills, remaining);
     teamScore.append(summary);
 
@@ -886,7 +887,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
       row.className = 'survival-player-row' + (player.id === selfId ? ' me' : '') +
         (player.downed ? ' downed' : !player.alive ? ' out' : '');
       const name = document.createElement('span');
-      name.textContent = player.name + (player.alive ? '' : ' · '+tr('OUT'));
+      name.textContent = (language==='fa'?isolate(player.name):player.name) + (player.alive ? '' : ' · '+tr('OUT'));
       const stat = document.createElement('b');
       stat.textContent = player.downed ? tr('DOWNED · REVIVE') : player.alive ? tr(player.kills+' kills') : tr('OUT');
       row.append(name, stat);
@@ -932,9 +933,9 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
         line.className = 'team-player-row' + (player.id === selfId ? ' me' : '');
         const playerName = document.createElement('span');
         playerName.className = 'team-player-name';
-        playerName.textContent = player.name;
+        playerName.dir='auto';playerName.textContent = player.name;
         const kills = document.createElement('b');
-        kills.textContent = String(player.kills);
+        kills.textContent = digits(player.kills);
         line.append(playerName, kills);
         list.append(line);
       }
@@ -967,10 +968,10 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
     r.el.style.transform = `translateY(${i * LB_ROW_H}px)`;
     r.el.className = `lrow${i < 3 ? ` r${i + 1}` : ''}${e.id === selfId ? ' me' : ''}`;
     r.bar.style.width = `${Math.max(4, (e.score / max) * 100)}%`;
-    r.rk.textContent = String(i + 1);
-    r.nm.textContent = e.name;
-    r.lv.textContent = e.lv != null ? tr('Lv'+e.lv,'سطح '+e.lv) : '';
-    r.sc.textContent = fmtScore(e.score);
+    r.rk.textContent = digits(i+1);
+    r.nm.dir='auto';r.nm.textContent = e.name;
+    r.lv.textContent = e.lv != null ? tr('Lv'+e.lv,'سطح '+digits(e.lv)) : '';
+    r.sc.textContent = language==='fa'?digits(fmtScore(e.score)).replace('k',' هزار'):fmtScore(e.score);
   });
   for (const [id, r] of lbRows) if (!seen.has(id)) { r.el.remove(); lbRows.delete(id); }
 }
