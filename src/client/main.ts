@@ -2,6 +2,8 @@ import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES, SERVER_TICK_HZ, TANK_SKINS } 
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
 import { GameAudio } from './audio';
+import { POWER_META, powerIcon } from './powerups';
+import { POWERUPS } from '../shared/config';
 import { drawFrame, drawMinimap, drawSticks, tankPreviewDataUrl, type View } from './render';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -243,7 +245,7 @@ function connect() {
     if (m.t === 's') onSnapshot(m);
     else if (m.t === 'lb') renderLeaderboard(m);
     else if (m.t === 'welcome') {
-      audio.reset(); frames.length=0; seenOwnBulletIds.clear();
+      audio.reset(); frames.length=0; seenOwnBulletIds.clear(); resetPowerHud();
       selfId = m.id; playing = true;
       send({t:'skin',id:skinSelect.value}); joining = false; playBtn.disabled = false;
       resumeToken = m.resumeToken;
@@ -370,6 +372,7 @@ function onSnapshot(s: Snapshot) {
   });
   if (frames.length > 8) frames.shift();
   updateHud(s.me, s.survival);
+  if(playing)updatePowerHud(s);
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -386,6 +389,7 @@ function sample(now: number): View | null {
   const t = a === b ? 1 : Math.min(1, Math.max(0, (rt - a.recv) / (b.recv - a.recv)));
   return {
     survival: b.snap.survival, royale:b.snap.royale, crates:b.snap.crates, explosiveIds:b.snap.explosiveIds, beams:(b.snap.beams??[]).map(beam=>({...beam,age:(rt/TICK_MS-beam.tick)/SERVER_TICK_HZ})), renderTick:rt/TICK_MS,
+    pickups:(b.snap.me.pickups??[]).map(e=>({...e,age:(rt/TICK_MS-e.tick)/SERVER_TICK_HZ})),
     effects: (b.snap.effects ?? []).map((effect) => ({ ...effect, age: (rt / TICK_MS - effect.tick) / SERVER_TICK_HZ })),
     players: b.snap.p.map((p) => { const q = a.pm.get(p.id); return q ? { ...p, x: lerp(q.x, p.x, t), y: lerp(q.y, p.y, t), a: lerpAng(q.a, p.a, t) } : p; }),
     bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4], x[5], x[6], x[7]] as typeof x : x; }),
@@ -587,11 +591,54 @@ function updateSurvivalRewards(m: SelfSnap) {
   }
 }
 
+const powerStatus=$('power-status'),pickupNotice=$('pickup-notice');
+let powerKey='',pickupTimer=0,lastPowerTick=-1;
+const seenPickups=new Set<number>();
+function resetPowerHud(){
+  powerKey='';lastPowerTick=-1;seenPickups.clear();powerStatus.replaceChildren();powerStatus.hidden=true;pickupNotice.hidden=true;window.clearTimeout(pickupTimer);
+}
+function updatePowerHud(s:Snapshot){
+  if(s.tick<lastPowerTick)resetPowerHud();
+  lastPowerTick=s.tick;
+  const active=POWERUPS.filter(k=>k!=='heal'&&(s.me.powerups?.[k]??0)>0);
+  const key=active.map(k=>k+':'+s.me.powerups?.[k]).join('|');
+  if(key!==powerKey){
+    powerKey=key;powerStatus.replaceChildren();powerStatus.hidden=active.length===0;
+    for(const kind of active){
+      const m=POWER_META[kind],seconds=s.me.powerups?.[kind]??0;
+      const card=document.createElement('div');card.className='power-chip';card.style.setProperty('--power-color',m.fill);
+      const icon=document.createElement('span');icon.className='power-chip-icon';icon.append(powerIcon(kind));
+      const body=document.createElement('span');body.className='power-chip-body';
+      const top=document.createElement('span');top.className='power-chip-top';
+      const title=document.createElement('strong');title.textContent=m.name;
+      const timer=document.createElement('b');timer.textContent=seconds+'s';top.append(title,timer);
+      const detail=document.createElement('small');detail.textContent=m.detail;
+      const track=document.createElement('span');track.className='power-track';const fill=document.createElement('span');fill.style.width=Math.max(0,Math.min(100,seconds/12*100))+'%';track.append(fill);
+      body.append(top,detail,track);card.append(icon,body);powerStatus.append(card);
+    }
+  }
+  const events=(s.me.pickups??[]).filter(e=>!seenPickups.has(e.id)&&s.tick-e.tick<=SERVER_TICK_HZ*2);
+  // Keep only currently advertised event IDs, so a long run cannot accumulate a large set.
+  const live=new Set((s.me.pickups??[]).map(e=>e.id));for(const id of seenPickups)if(!live.has(id))seenPickups.delete(id);
+  if(!events.length)return;
+  for(const e of events)seenPickups.add(e.id);
+  pickupNotice.replaceChildren();
+  for(const e of events){
+    const m=POWER_META[e.kind],row=document.createElement('div');row.className='pickup-row';row.style.setProperty('--power-color',m.fill);
+    const icon=document.createElement('span');icon.className='power-chip-icon';icon.append(powerIcon(e.kind));
+    const text=document.createElement('span'),title=document.createElement('strong'),detail=document.createElement('small');
+    title.textContent=m.name+' collected';
+    detail.textContent=e.kind==='heal'?(e.healed?('+'+e.healed+' HP restored'):'Health already full'):m.detail+' · 12 seconds';
+    text.append(title,detail);row.append(icon,text);pickupNotice.append(row);
+  }
+  pickupNotice.hidden=false;window.clearTimeout(pickupTimer);pickupTimer=window.setTimeout(()=>{pickupNotice.hidden=true;},2400);
+  audio.cue('reward');
+}
 function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
   updateSurvivalRewards(m);
   const serial=m.streakSerial??0;
   if(streakSerial>=0&&serial!==streakSerial&&(m.streak??0)>=2){showToast((m.streak===2?'DOUBLE KILL':m.streak===3?'TRIPLE KILL':m.streak===4?'QUAD KILL':'RAMPAGE ×'+m.streak),'Kill streak');audio.cue('level');}streakSerial=serial;
-  $('power-status').textContent=Object.entries(m.powerups??{}).map(([k,v])=>k.toUpperCase()+' '+v+'s').join(' · ');
+
   updateShop(m,survival);
   const fraction = Math.max(0, Math.min(1, m.hp / Math.max(1, m.mhp)));
   $('mobile-hpfill').style.width = (fraction * 100) + '%';
@@ -869,7 +916,7 @@ function frame(now: number) {
   input.update(W, H);
   document.body.classList.toggle('in-game', playing);
   // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.
-  if (!playing) { lastSent = ''; lastInputPoll = -Infinity; }
+  if (!playing) { lastSent = ''; lastInputPoll = -Infinity; if(!powerStatus.hidden||!pickupNotice.hidden||powerKey)resetPowerHud(); }
   if (playing && now - lastInputPoll >= 1000 / 60 - 1) {
     lastInputPoll = now;
     const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${input.angle.toFixed(4)},"f":${input.fire ? 1 : 0},"secondary":${input.secondary ? 1 : 0},"spin":${input.spin ? 1 : 0}}`;

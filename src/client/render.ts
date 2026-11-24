@@ -1,10 +1,12 @@
 import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH, TANK_SKINS, SERVER_TICK_HZ } from '../shared/config';
 import type { Snapshot, CombatEffect, DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
 import { type Input } from './input';
+import { POWER_META, drawPowerIcon } from './powerups';
 
 export interface View {
   survival?: Snapshot['survival'];
   royale?:Snapshot['royale'];crates?:Snapshot['crates'];explosiveIds?:number[];beams?:(NonNullable<Snapshot['beams']>[number]&{age:number})[];renderTick?:number;
+  pickups?: (NonNullable<Snapshot['me']['pickups']>[number]&{age:number})[];
   effects?: (CombatEffect & { age: number })[];
   players: PlayerSnap[];
   bullets: [number, number, number, number, number, number, number, number][];
@@ -63,7 +65,17 @@ export function drawFrame(
   if(view.royale){ctx.save();ctx.fillStyle='#e9535933';ctx.beginPath();ctx.rect(0,0,arenaSize,arenaSize);ctx.arc(arenaSize/2,arenaSize/2,view.royale.radius,0,Math.PI*2,true);ctx.fill('evenodd');ctx.strokeStyle='#da545b';ctx.lineWidth=5;ctx.beginPath();ctx.arc(arenaSize/2,arenaSize/2,view.royale.radius,0,Math.PI*2);ctx.stroke();ctx.restore();}
   const explosive=new Set(view.explosiveIds??[]);
   for (const shape of view.shapes) drawShape(ctx, shape,explosive.has(shape[0]));
-  for(const c of view.crates??[]){ctx.save();ctx.translate(c.x,c.y);ctx.fillStyle='#e8c65e';ctx.strokeStyle='#a17c2d';ctx.lineWidth=3;ctx.beginPath();ctx.roundRect(-c.r,-c.r,c.r*2,c.r*2,5);ctx.fill();ctx.stroke();ctx.font='bold 17px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#674d22';ctx.fillText({damage:'D',speed:'S',shield:'+',rapid:'R',heal:'H'}[c.kind],0,0);ctx.restore();}
+  for(const c of view.crates??[]){
+    const m=POWER_META[c.kind],r=c.r,phase=(view.renderTick??0)/SERVER_TICK_HZ*3+c.id;
+    ctx.save();ctx.translate(c.x,c.y);
+    ctx.fillStyle='#17212b22';ctx.beginPath();ctx.ellipse(0,r*0.75,r*0.92,r*0.33,0,0,Math.PI*2);ctx.fill();
+    ctx.translate(0,Math.sin(phase)*2);
+    ctx.fillStyle=m.fill;ctx.strokeStyle=m.edge;ctx.lineWidth=3;ctx.lineJoin='round';
+    ctx.beginPath();ctx.roundRect(-r,-r,r*2,r*2,6);ctx.fill();ctx.stroke();
+    ctx.fillStyle=m.edge;ctx.beginPath();ctx.roundRect(-r*0.69,-r*0.69,r*1.38,r*1.38,4);ctx.fill();
+    drawPowerIcon(ctx,c.kind,r*1.25,'#fff');
+    ctx.restore();
+  }
   for (const pool of view.pools) drawDamagePool(ctx, pool);
   for (const drop of view.xpDrops) drawXpDrop(ctx, drop);
   for (const drop of view.healthDrops) drawHealthDrop(ctx, drop);
@@ -86,6 +98,14 @@ export function drawFrame(
       const to=beam.toId===undefined?undefined:positions.get(beam.toId);
       drawCombatLink(ctx,{...beam,x:from?.x??beam.x,y:from?.y??beam.y,tx:to?.x??beam.tx,ty:to?.y??beam.ty});
     }
+  }
+  for(const event of view.pickups??[]){
+    if(event.age<0||event.age>=0.55)continue;
+    const m=POWER_META[event.kind],t=event.age/0.55;
+    ctx.save();ctx.translate(event.x,event.y);ctx.globalAlpha=1-t;
+    ctx.strokeStyle=m.edge;ctx.lineWidth=5;ctx.beginPath();ctx.arc(0,0,18+40*t,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle=m.fill;ctx.lineWidth=2.5;ctx.stroke();
+    ctx.translate(0,-18-22*t);drawPowerIcon(ctx,event.kind,24,m.edge);ctx.restore();
   }
   for (const effect of view.effects ?? []) drawCombatEffect(ctx, effect);
   ctx.restore();

@@ -494,6 +494,24 @@
   #shop-items .shop-item{align-content:start;grid-template-rows:auto;min-height:110px}
   #shop-items .shop-item:disabled .shop-icon,#shop-items .shop-item:disabled .shop-info{opacity:.85}
   @media(max-width:420px){#shop-tabs{padding:6px 9px;gap:5px}#shop-tabs button{padding:7px;font-size:10px}.shop-stat{font-size:10px}}
+  #power-status{top:48px;display:grid;grid-template-columns:repeat(2,minmax(0,155px));gap:5px;width:max-content;max-width:calc(100vw - 16px);white-space:normal;text-shadow:none;color:#fff;font-size:11px}
+  #power-status[hidden],#pickup-notice[hidden],body:not(.in-game) #pickup-notice{display:none!important}
+  .power-chip{display:flex;align-items:center;gap:6px;padding:5px 7px;background:#172231ed;border:1px solid #46596c;border-radius:8px;min-width:0}
+  .power-chip-icon{display:grid;place-items:center;width:30px;height:30px;flex:none;background:var(--power-color);border:2px solid #ffffff35;color:#fff;border-radius:7px}
+  .power-chip-icon svg{width:21px;height:21px}
+  .power-chip-body{display:grid;flex:1;min-width:0;gap:2px}
+  .power-chip-top{display:flex;gap:4px;justify-content:space-between;align-items:center;font-size:11px}
+  .power-chip-top b{color:#ffe092;font-variant-numeric:tabular-nums}
+  .power-chip-body small{font-size:10px;color:#c0d1e0}
+  .power-track{height:4px;border-radius:2px;background:#0d1621;overflow:hidden}
+  .power-track span{display:block;height:100%;background:var(--power-color);border-radius:2px;transition:width .2s linear}
+  #pickup-notice{position:fixed;left:50%;top:35%;transform:translateX(-50%);display:grid;gap:4px;max-width:88vw;z-index:19;pointer-events:none}
+  .pickup-row{display:flex;align-items:center;gap:9px;background:#172231f5;border:2px solid var(--power-color);border-radius:11px;padding:8px 12px;box-shadow:0 4px 12px #0005}
+  .pickup-row strong,.pickup-row small{display:block;color:#f2f6fc}.pickup-row strong{font-size:13px}.pickup-row small{font-size:11px;color:#c4d4e4}
+  body.in-game:has(#shop-panel:not([hidden])) #pickup-notice{visibility:hidden}
+  @media(pointer:coarse),(max-width:760px){#power-status{top:calc(env(safe-area-inset-top) + 105px);grid-template-columns:repeat(2,minmax(0,120px));max-width:min(250px,62vw);gap:3px}.power-chip{padding:4px;gap:4px}.power-chip-icon{width:23px;height:23px}.power-chip-icon svg{width:16px;height:16px}.power-chip-top{font-size:9px}.power-chip-body small{font-size:8px}.pickup-row{padding:6px 8px}.pickup-row strong{font-size:11px}.pickup-row small{font-size:10px}}
+  @media(max-height:500px) and (orientation:landscape){#power-status{top:calc(env(safe-area-inset-top) + 75px)}}
+  @media(prefers-reduced-motion:reduce){.power-track span{transition:none}}
 </style>
 </head>
 <body>
@@ -547,7 +565,7 @@
     <button id="audio-close" type="button">Done</button>
   </section>
 </div>
-<div id="power-status"></div>
+<div id="power-status" hidden aria-label="Active power-ups"></div><div id="pickup-notice" hidden role="status" aria-live="polite"></div>
 <button id="shop-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h16l-2 12H6L4 9Zm3 0 5-6 5 6M9 13v4m6-4v4"/></svg> SHOP <span id="shop-toggle-balance"></span></button>
 <div id="shop-panel" hidden>
   <section class="shop-card" role="dialog" aria-modal="true" aria-labelledby="shop-title">

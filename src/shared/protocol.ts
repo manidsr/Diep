@@ -105,7 +105,9 @@ export interface XpDropSnap { id: number; x: number; y: number; r: number; xp: n
 export interface DamagePoolSnap { id: number; x: number; y: number; r: number; life: number; }
 export type RewardRarity = 'common' | 'rare' | 'epic' | 'legendary';
 export interface RewardCardSnap { id: string; title: string; description: string; rarity: RewardRarity; }
+export interface PowerPickup { id:number; tick:number; kind:Powerup; x:number; y:number; healed?:number }
 export interface SelfSnap {
+  pickups?: PowerPickup[];
   alive: boolean; downed: boolean; reviveProgress: number; hp: number; mhp: number; lv: number;
   xp: number; xpCur: number; xpNext: number;
   cls: string; opts: string[]; fov: number; team: TeamId | null;

@@ -1223,3 +1223,18 @@ test('Survival shop validates currency, window and perk limits',()=>{
   assert.equal(game.buyShop(p.id,'heavyRounds'),true);assert.equal(p.coins,88);assert.equal(p.survivalPerks.heavyRounds,1);
   p.coins=0;assert.equal(game.buyShop(p.id,'heavyRounds'),false);
 });
+
+
+test('crate pickups identify the collector, heal amount and refreshed boost',()=>{
+  const g=fresh(),p=place(g,g.addPlayer('collector')!.id,1000,1000),other=place(g,g.addPlayer('other')!.id,1500,1500);
+  const state=g as unknown as {updateCrates(dt:number):void};
+  p.hp=p.maxHp*0.5;
+  g.crates.push({id:90001,x:p.x,y:p.y,r:17,kind:'heal',life:20});
+  state.updateCrates(DT);
+  const heal=g.snapshotFor(p.id)!.me.pickups![0];
+  assert.equal(heal.kind,'heal');assert.ok(Math.abs(heal.healed!-p.maxHp*0.35)<0.11);
+  assert.equal(g.snapshotFor(other.id)!.me.pickups!.length,0);
+  for(const id of [90002,90003]){g.crates.push({id,x:p.x,y:p.y,r:17,kind:'damage',life:20});state.updateCrates(DT);}
+  const me=g.snapshotFor(p.id)!.me;
+  assert.equal(me.powerups!.damage,12);assert.deepEqual(me.pickups!.map(e=>e.id),[90001,90002,90003]);
+});

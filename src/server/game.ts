@@ -68,6 +68,7 @@ export interface Player {
   input: { mx: number; my: number; a: number; f: boolean; secondary: boolean; spin: boolean };
   wasFiring: boolean; wasSecondary: boolean; cd: number[]; autoCd: number[];
   droneSpawnCd: number; stealthT: number; visibility: number; d: DerivedStats;
+  pickups?: NonNullable<Snapshot['me']['pickups']>;
   skin?: TankSkin; powerups?: Partial<Record<Powerup,number>>; coins?: number; streak?: number; streakSerial?: number; lastKillT?: number; shots?: number[];
   survivalPerks: Record<string, number>; rewardOffers: RewardOffer[]; shotsFired: number; emergencyShieldCd: number;
 }
@@ -277,7 +278,7 @@ export class Game {
     if (name) p.name = name;
     if (this.mode === 'royale' && this.royalePhase !== 'lobby') return;
     p.level = 1; p.xp = 0; p.cls = 'basic'; p.maxHp = 0;
-    p.powerups = {}; p.coins = 0; p.streak = 0; p.lastKillT = -Infinity; p.shots = [];
+    p.powerups = {}; p.pickups=[]; p.coins = 0; p.streak = 0; p.lastKillT = -Infinity; p.shots = [];
     this.incomingFeedback.delete(p.id);
     const spawn = this.findSafeSpawn(p.r, p.team);
     p.x = spawn.x;
@@ -443,8 +444,10 @@ export class Game {
       c.life-=dt;if(c.life<=0)continue;
       for(const p of this.players.values()){
         if(!p.connected||!p.alive||p.hp<=0||p.downed||Math.hypot(p.x-c.x,p.y-c.y)>p.r+c.r)continue;
+        const before=p.hp;
         if(c.kind==='heal')p.hp=Math.min(p.maxHp,p.hp+p.maxHp*0.35);
         else (p.powerups??={})[c.kind]=this.time+12;
+        p.pickups=[...(p.pickups??[]).filter(e=>this.tick-e.tick<=SERVER_TICK_HZ*2),{id:c.id,tick:this.tick,kind:c.kind,x:c.x,y:c.y,...(c.kind==='heal'?{healed:Math.round((p.hp-before)*10)/10}:{})}].slice(-8);
         c.life=0;break;
       }
     }
@@ -561,7 +564,7 @@ export class Game {
     this.incomingFeedback.clear();
     this.crates=[];this.beams=[];
     for (const player of this.players.values()) {
-      player.survivalPerks = {}; player.coins=0;player.powerups={};player.streak=0;
+      player.survivalPerks = {}; player.coins=0;player.powerups={};player.pickups=[];player.streak=0;
       player.rewardOffers = [];
       player.shotsFired = 0;
       player.emergencyShieldCd = 0;
@@ -2564,7 +2567,7 @@ export class Game {
         hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
         xpCur: currentXp, xpNext: nextXp,
         cls: me.cls, opts: me.alive && !me.downed ? classOptions(me.cls, me.level) : [], fov: me.d.fovMul * focus,
-        coins:me.coins??0,shop:this.shopOffers(me,developer),devShop:developer&&this.mode==='survival',combos:this.combos(me),streak:me.streak??0,streakSerial:me.streakSerial??0,powerups:this.powerupStatus(me),
+        coins:me.coins??0,shop:this.shopOffers(me,developer),devShop:developer&&this.mode==='survival',combos:this.combos(me),streak:me.streak??0,streakSerial:me.streakSerial??0,powerups:this.powerupStatus(me),pickups:(me.pickups??[]).filter(e=>this.tick-e.tick<=SERVER_TICK_HZ*2),
         team: me.team, rewards: me.rewardOffers[0]?.cards ?? [], rewardTimer: r1(me.rewardOffers[0]?.timeRemaining ?? 0),
       },
       p: [...this.players.values()].filter((player) => player.connected && player.alive && !player.downed &&
