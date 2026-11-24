@@ -356,6 +356,7 @@ function sample(now: number): View | null {
   } else if (rt >= b.recv) a = b; else b = a;
   const t = a === b ? 1 : Math.min(1, Math.max(0, (rt - a.recv) / (b.recv - a.recv)));
   return {
+    survival: b.snap.survival,
     effects: (b.snap.effects ?? []).map((effect) => ({ ...effect, age: (rt / TICK_MS - effect.tick) / SERVER_TICK_HZ })),
     players: b.snap.p.map((p) => { const q = a.pm.get(p.id); return q ? { ...p, x: lerp(q.x, p.x, t), y: lerp(q.y, p.y, t), a: lerpAng(q.a, p.a, t) } : p; }),
     bullets: b.snap.b.map((x) => { const q = a.bm.get(x[0]); return q ? [x[0], lerp(q[1], x[1], t), lerp(q[2], x[2], t), x[3], x[4], x[5], x[6], x[7]] as typeof x : x; }),
@@ -611,7 +612,7 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
     const summary = document.createElement('div');
     summary.className = 'survival-summary';
     const wave = document.createElement('strong');
-    wave.textContent = 'WAVE ' + message.wave;
+    wave.textContent = 'WAVE ' + message.wave + (message.theme && message.theme !== 'standard' ? ' · ' + message.theme.toUpperCase() : '');
     const kills = document.createElement('span');
     kills.textContent = message.zombieKills + ' ZOMBIES KILLED';
     const remaining = document.createElement('span');

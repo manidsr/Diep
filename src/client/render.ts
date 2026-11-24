@@ -1,8 +1,9 @@
 import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
-import type { CombatEffect, DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
+import type { Snapshot, CombatEffect, DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
 import { STICK_RADIUS, type Input } from './input';
 
 export interface View {
+  survival?: Snapshot['survival'];
   effects?: (CombatEffect & { age: number })[];
   players: PlayerSnap[];
   bullets: [number, number, number, number, number, number, number, number][];
@@ -69,6 +70,31 @@ export function drawFrame(
   for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true);
   for (const effect of view.effects ?? []) drawCombatEffect(ctx, effect);
+  ctx.restore();
+  if (view.mode === 'survival') drawSurvivalOverlay(ctx, W, H, view);
+}
+
+function drawSurvivalOverlay(ctx: CanvasRenderingContext2D, W: number, H: number, view: View) {
+  const state = view.survival;
+  if (!state) return;
+  const boss = view.zombies.find((z) => z.bossKind && z.hp > 0);
+  const width = Math.min(330, W * 0.55), left = (W - width) / 2;
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.font = '900 15px system-ui, sans-serif';
+  ctx.lineWidth = 4; ctx.strokeStyle = '#17232b';
+  const theme = state.theme === 'standard' ? 'HORDE' : state.theme.toUpperCase();
+  const title = state.intermission > 0 ? 'WAVE CLEARED · ' + Math.ceil(state.intermission) + 's' :
+    'WAVE ' + state.wave + ' · ' + theme + ' · ' + state.remaining + ' LEFT';
+  ctx.fillStyle = state.intermission > 0 ? '#a9ffc1' : '#fff1c8';
+  ctx.strokeText(title, W / 2, 27); ctx.fillText(title, W / 2, 27);
+  if (boss) {
+    const fraction = Math.max(0, Math.min(1, boss.hp / Math.max(1, boss.mhp)));
+    ctx.fillStyle = '#24212b'; ctx.beginPath(); ctx.roundRect(left, 39, width, 24, 6); ctx.fill();
+    ctx.fillStyle = '#dc485b'; ctx.fillRect(left + 3, 42, (width - 6) * fraction, 18);
+    ctx.font = '800 12px system-ui, sans-serif'; ctx.fillStyle = '#fff';
+    const label = (boss.bossKind ?? 'boss').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase() + ' · ' + Math.ceil(fraction * 100) + '%';
+    ctx.strokeText(label, W / 2, 55); ctx.fillText(label, W / 2, 55);
+  }
   ctx.restore();
 }
 
@@ -547,6 +573,13 @@ function drawZombie(ctx: CanvasRenderingContext2D, zombie: ZombieSnap) {
       y + Math.sin(zombie.hitAngle) * r * 0.65, r, hit, zombie.hitAngle, '#ffd36b');
   }
 
+  if (zombie.elite && !boss && zombie.visibility > 0.5) {
+    ctx.save(); ctx.strokeStyle = '#ffcd63'; ctx.lineWidth = 3;
+    ctx.setLineDash([7, 4]); ctx.beginPath(); ctx.arc(x, y, r * 1.24, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]); ctx.font = '900 12px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.strokeStyle = '#392b20'; ctx.lineWidth = 3; ctx.fillStyle = '#ffe28e';
+    ctx.strokeText('ELITE', x, y - r - 12); ctx.fillText('ELITE', x, y - r - 12); ctx.restore();
+  }
   if (boss) {
     const names = { breaker: 'THE BREAKER', spitter: 'ROTBLOOM', summoner: 'GRAVEHEART', colossus: 'THE COLOSSUS', nestMother: 'NEST MOTHER', lich: 'THE LICH', devourer: 'THE DEVOURER', abomination: 'ABOMINATION' } as const;
     ctx.save();

@@ -1179,3 +1179,22 @@ test('Co-op Survival sends each connected player their own tank and every teamma
   assert.ok(secondView.p.some((player) => player.id === second.id), 'second client receives its own tank');
   assert.ok(secondView.p.some((player) => player.id === first.id), 'second client receives the first tank');
 });
+
+
+test('Survival themed waves introduce elites with greater health and XP', () => {
+  const game = new Game(seeded(91), 0, 'survival');
+  game.addPlayer('elite tester');
+  const state = game as unknown as { wave: number; waveSpawned: number; waveTheme: () => string; spawnZombie: (kind?: 'shambler') => boolean };
+  state.wave = 6;
+  assert.equal(state.waveTheme(), 'rush');
+  state.waveSpawned = 9;
+  assert.ok(state.spawnZombie());
+  const elite = game.zombies[game.zombies.length - 1]!;
+  assert.equal(elite.elite, true);
+  assert.ok(elite.hp > 0 && elite.xp > 0);
+  assert.equal(game.snapshotFor([...game.players.keys()][0]!)?.survival?.theme, 'rush');
+  state.wave = 8;
+  assert.equal(state.waveTheme(), 'siege');
+  state.wave = 10;
+  assert.equal(state.waveTheme(), 'boss');
+});

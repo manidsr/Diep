@@ -78,7 +78,9 @@ export type ZombieBossPhase = 'idle' | 'windup' | 'charge' | 'recovery';
 export type ZombieKind = 'shambler' | 'runner' | 'tank' | 'ranger' | 'guardian' | 'bomber' | 'leaper' | 'armoured' | 'medic' | 'exploder' | 'splitter' | 'stalker' | 'commander';
 export type ZombieSpecialPhase = 'idle' | 'windup' | 'charge';
 
+export type WaveTheme = 'standard' | 'rush' | 'siege' | 'swarm' | 'boss';
 export interface ZombieSnap {
+  elite?: boolean;
   id: number; x: number; y: number; r: number; hp: number; mhp: number; visibility: number;
   angle: number; hitFlash: number; hitAngle: number;
   kind: ZombieKind; protected: boolean;
@@ -110,6 +112,7 @@ export interface Snapshot {
   t: 's';
   tick: number;
   effects?: CombatEffect[];
+  survival?: { wave: number; theme: WaveTheme; remaining: number; intermission: number };
   me: SelfSnap;
   p: PlayerSnap[];
   // id, x, y, radius, ownerId, projectile kind, direction angle, drone state (0 guard, 1 dive, 2 peel)
@@ -133,7 +136,7 @@ export type ServerMessage =
       red: { id: number; name: string; score: number; lv: number; kills: number; team: 'red' }[];
     }
   | {
-      t: 'lb'; mode: 'survival'; wave: number; zombieKills: number; zombiesRemaining: number;
+      t: 'lb'; mode: 'survival'; theme?: WaveTheme; wave: number; zombieKills: number; zombiesRemaining: number;
       nextWaveIn: number; elapsed: number; gameOver: boolean;
       top: { id: number; name: string; kills: number; xp: number; lv: number; alive: boolean; downed: boolean }[];
     }
