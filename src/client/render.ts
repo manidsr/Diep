@@ -1,6 +1,6 @@
 import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
 import type { Snapshot, CombatEffect, DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
-import { STICK_RADIUS, type Input } from './input';
+import { type Input } from './input';
 
 export interface View {
   survival?: Snapshot['survival'];
@@ -78,9 +78,12 @@ function drawSurvivalOverlay(ctx: CanvasRenderingContext2D, W: number, H: number
   const state = view.survival;
   if (!state) return;
   const boss = view.zombies.find((z) => z.bossKind && z.hp > 0);
-  const width = Math.min(330, W * 0.55), left = (W - width) / 2;
+  const compact = W < 760 || (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches);
+  const offset = compact ? 50 : 0;
+  const width = Math.min(330, W * (compact ? 0.48 : 0.55)), left = (W - width) / 2;
   ctx.save();
-  ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.font = '900 15px system-ui, sans-serif';
+  ctx.translate(0, offset);
+  ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.font = (compact ? '900 11px' : '900 15px') + ' system-ui, sans-serif';
   ctx.lineWidth = 4; ctx.strokeStyle = '#17232b';
   const theme = state.theme === 'standard' ? 'HORDE' : state.theme.toUpperCase();
   const title = state.intermission > 0 ? 'WAVE CLEARED · ' + Math.ceil(state.intermission) + 's' :
@@ -753,43 +756,25 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, W: number, H: number,
 /** Minimal touch hints; active sticks become visible only while a thumb is down. */
 export function drawSticks(ctx: CanvasRenderingContext2D, W: number, H: number, input: Input) {
   if (!input.touchSeen) return;
-  const draw = (stick: { ox: number; oy: number; x: number; y: number } | null, hintX: number, hintY: number, color: string) => {
-    const active = !!stick;
+  const radius = input.stickRadius;
+  const draw = (stick: { ox: number; oy: number; x: number; y: number } | null, hintX: number, hintY: number, color: string, label: string) => {
     const ox = stick ? stick.ox : hintX, oy = stick ? stick.oy : hintY;
-    ctx.save();
-    if (active) {
-      ctx.globalAlpha = 0.07;
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ox, oy, STICK_RADIUS, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = 0.42;
-      ctx.strokeStyle = color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(ox, oy, STICK_RADIUS, 0, Math.PI * 2); ctx.stroke();
-
-      const dx = stick!.x - stick!.ox, dy = stick!.y - stick!.oy;
-      const length = Math.hypot(dx, dy), factor = length > STICK_RADIUS ? STICK_RADIUS / length : 1;
-      const knobX = ox + dx * factor, knobY = oy + dy * factor;
-      ctx.globalAlpha = 0.48;
-      ctx.strokeStyle = color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(knobX, knobY); ctx.stroke();
-      ctx.globalAlpha = 0.55;
-      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(knobX, knobY, 18, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = 0.72;
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(knobX, knobY, 18, 0, Math.PI * 2); ctx.stroke();
-    } else {
-      ctx.globalAlpha = 0.13;
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.arc(ox, oy, 32, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 0.16;
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ox, oy, 3, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.restore();
+    const dx = stick ? stick.x - ox : 0, dy = stick ? stick.y - oy : 0;
+    const length = Math.hypot(dx,dy), factor = length > radius ? radius / length : 1;
+    const kx = ox + dx * factor, ky = oy + dy * factor;
+    ctx.save(); ctx.globalAlpha = stick ? 0.83 : 0.55;
+    ctx.beginPath(); ctx.arc(ox,oy,radius,0,Math.PI*2); ctx.fillStyle='#14213155'; ctx.fill();
+    ctx.strokeStyle='#f4faff99'; ctx.lineWidth=2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(ox,oy,radius*0.72,0,Math.PI*2); ctx.strokeStyle='#ffffff30'; ctx.lineWidth=1; ctx.stroke();
+    ctx.beginPath(); ctx.arc(kx,ky,radius*0.36,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); ctx.strokeStyle='#ffffffbb'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.textAlign='center'; ctx.font='800 10px system-ui,sans-serif'; ctx.fillStyle='#fff'; ctx.strokeStyle='#15212f'; ctx.lineWidth=3;
+    ctx.strokeText(label,ox,oy+radius+14); ctx.fillText(label,ox,oy+radius+14); ctx.restore();
   };
-  const insetX = Math.min(88, Math.max(64, W * 0.18));
-  const insetY = Math.min(88, Math.max(64, H * 0.22));
-  draw(input.moveStick, insetX, H - insetY, '#4aa3ff');
-  draw(input.aimStick, W - insetX, H - insetY, '#ff6a6a');
+  const insetX = Math.max(radius + 18,Math.min(100,W*0.20));
+  const insetY = radius + 42;
+  draw(input.moveStick,insetX,H-insetY,'#368dcb','MOVE');
+  draw(input.aimStick,W-insetX,H-insetY,'#d85e65','AIM / FIRE');
 }
-
 
 /** Generate an image preview using the same tank renderer as the live game. */
 export function tankPreviewDataUrl(classId: string): string {

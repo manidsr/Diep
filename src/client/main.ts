@@ -407,6 +407,27 @@ const xpEl = $('xp'), toastEl = $('toast');
 const rewardPanel = $('reward-panel'), rewardCardsEl = $('reward-cards'), rewardTimerEl = $('reward-timer');
 const devTools = $('devtools');
 
+const mobileSpin = $<HTMLButtonElement>('mobile-spin');
+const mobileSecondary = $<HTMLButtonElement>('mobile-secondary');
+const evolveToggle = $<HTMLButtonElement>('evolve-toggle');
+mobileSpin.addEventListener('click', () => { if (playing) input.spin = !input.spin; });
+mobileSecondary.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  if (!playing) return;
+  input.touchSecondary = true;
+  try { mobileSecondary.setPointerCapture(event.pointerId); } catch {}
+});
+for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+  mobileSecondary.addEventListener(event, () => { input.touchSecondary = false; });
+}
+function closeEvolution() {
+  document.body.classList.remove('evolution-open');
+  evolveToggle.setAttribute('aria-expanded', 'false');
+}
+evolveToggle.addEventListener('click', () => {
+  const open = document.body.classList.toggle('evolution-open');
+  evolveToggle.setAttribute('aria-expanded', String(open));
+});
 function isCompactHud(): boolean {
   return window.matchMedia('(pointer: coarse), (max-width: 760px)').matches;
 }
@@ -479,6 +500,10 @@ function updateSurvivalRewards(m: SelfSnap) {
 
 function updateHud(m: SelfSnap) {
   updateSurvivalRewards(m);
+  const fraction = Math.max(0, Math.min(1, m.hp / Math.max(1, m.mhp)));
+  $('mobile-hpfill').style.width = (fraction * 100) + '%';
+  $('mobile-hptxt').textContent = m.downed ? 'DOWNED · REVIVE' : 'HP ' + Math.ceil(Math.max(0,m.hp)) + ' / ' + Math.ceil(m.mhp);
+  $('mobile-vitals').classList.toggle('low', fraction < 0.3);
   // Only sync the selector when the server-confirmed class actually changes.
   // Do not overwrite the user's pending dropdown choice on every snapshot.
   if (devCheatsEnabled && m.cls !== lastDevClass) {
@@ -515,6 +540,7 @@ function updateHud(m: SelfSnap) {
   document.body.classList.toggle('choosing-class', m.opts.length > 0);
   if (ok !== optKey) {
     optKey = ok;
+    closeEvolution();
     classesEl.replaceChildren();
     if (m.opts.length) {
       const evo = document.createElement('div'); evo.className = 'evo'; evo.textContent = 'EVOLVE!';
@@ -729,7 +755,8 @@ function renderLeaderboard(message: Extract<ServerMessage, { t: 'lb' }>) {
 // ---------- main loop ----------
 let W = 0, H = 0, dpr = 1;
 function resize() {
-  W = window.innerWidth; H = window.innerHeight; dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = canvas.clientWidth || window.innerWidth; H = canvas.clientHeight || window.innerHeight; dpr = Math.min(window.devicePixelRatio || 1, isCompactHud() ? 1.75 : 2);
+  if (window.matchMedia('(pointer: coarse)').matches) input.touchSeen = true;
   canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
   minimapCanvas.width = Math.round(MINIMAP_SIZE * dpr);
   minimapCanvas.height = Math.round(MINIMAP_SIZE * dpr);
@@ -745,6 +772,9 @@ let lastSent = '', lastSendT = 0, lastInputPoll = -Infinity;
 function frame(now: number) {
   requestAnimationFrame(frame);
   input.update(W, H);
+  document.body.classList.toggle('in-game', playing);
+  mobileSpin.setAttribute('aria-pressed', String(input.spin));
+  mobileSecondary.setAttribute('aria-pressed', String(input.touchSecondary));
   // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.
   if (!playing) { lastSent = ''; lastInputPoll = -Infinity; }
   if (playing && now - lastInputPoll >= 1000 / 60 - 1) {
@@ -757,9 +787,9 @@ function frame(now: number) {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const view = sample(now) ?? { players: [], bullets: [], shapes: [], zombies: [], downed: [], healthDrops: [], xpDrops: [], pools: [], mode: 'ffa' as GameMode };
-  minimapCanvas.hidden = view.mode !== 'survival';
+  minimapCanvas.hidden = !playing || view.mode !== 'survival';
   minimapCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawMinimap(minimapCtx, MINIMAP_SIZE, MINIMAP_SIZE, view, selfId);
+  if (!minimapCanvas.hidden) drawMinimap(minimapCtx, MINIMAP_SIZE, MINIMAP_SIZE, view, selfId);
   const self = view.players.find((p) => p.id === selfId);
   const downedSelf = view.downed.find((p) => p.id === selfId);
   const cameraTarget = self ?? downedSelf;

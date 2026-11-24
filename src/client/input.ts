@@ -7,6 +7,8 @@ export class Input {
   moveStick: Stick | null = null;
   aimStick: Stick | null = null;
   touchSeen = false;
+  touchSecondary = false;
+  get stickRadius() { return Math.max(36, Math.min(STICK_RADIUS, Math.min(window.innerWidth, window.innerHeight) * 0.13)); }
   private keys = new Set<string>();
   private mouse = { x: 0, y: 0, down: false, rightDown: false, seen: false };
   private everAimed = false;
@@ -41,6 +43,7 @@ export class Input {
     this.moveStick = null;
     this.aimStick = null;
     this.spin = false;
+    this.touchSecondary = false;
   }
 
   private down(event: PointerEvent) {
@@ -55,8 +58,6 @@ export class Input {
       const left = event.clientX < window.innerWidth / 2;
       if (left && !this.moveStick) this.moveStick = stick;
       else if (!left && !this.aimStick) this.aimStick = stick;
-      else if (!this.moveStick) this.moveStick = stick;
-      else if (!this.aimStick) this.aimStick = stick;
       else return;
     }
     try { this.canvas.setPointerCapture(event.pointerId); } catch { /* capture is optional */ }
@@ -88,8 +89,8 @@ export class Input {
     let mx = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
     let my = (keys.has('s') || keys.has('arrowdown') ? 1 : 0) - (keys.has('w') || keys.has('arrowup') ? 1 : 0);
     if (this.moveStick) {
-      const dx = (this.moveStick.x - this.moveStick.ox) / STICK_RADIUS;
-      const dy = (this.moveStick.y - this.moveStick.oy) / STICK_RADIUS;
+      const dx = (this.moveStick.x - this.moveStick.ox) / this.stickRadius;
+      const dy = (this.moveStick.y - this.moveStick.oy) / this.stickRadius;
       const length = Math.hypot(dx, dy);
       if (length > 0.15) { mx = dx / Math.max(1, length); my = dy / Math.max(1, length); }
       if (!this.everAimed && length > 0.3) this.angle = Math.atan2(dy, dx);
@@ -106,9 +107,6 @@ export class Input {
       this.angle = Math.atan2(this.mouse.y - h / 2, this.mouse.x - w / 2);
     }
     this.fire = fire;
-    const touchAimLength = this.aimStick
-      ? Math.hypot(this.aimStick.x - this.aimStick.ox, this.aimStick.y - this.aimStick.oy)
-      : 0;
-    this.secondary = this.mouse.rightDown || keys.has('shift') || (this.touchSeen && touchAimLength > 14);
+    this.secondary = this.mouse.rightDown || keys.has('shift') || this.touchSecondary;
   }
 }
