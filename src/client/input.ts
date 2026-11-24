@@ -7,7 +7,6 @@ export class Input {
   moveStick: Stick | null = null;
   aimStick: Stick | null = null;
   touchSeen = false;
-  touchSecondary = false;
   get stickRadius() { return Math.max(36, Math.min(STICK_RADIUS, Math.min(window.innerWidth, window.innerHeight) * 0.13)); }
   private keys = new Set<string>();
   private mouse = { x: 0, y: 0, down: false, rightDown: false, seen: false };
@@ -43,7 +42,6 @@ export class Input {
     this.moveStick = null;
     this.aimStick = null;
     this.spin = false;
-    this.touchSecondary = false;
   }
 
   private down(event: PointerEvent) {
@@ -107,6 +105,6 @@ export class Input {
       this.angle = Math.atan2(this.mouse.y - h / 2, this.mouse.x - w / 2);
     }
     this.fire = fire;
-    this.secondary = this.mouse.rightDown || keys.has('shift') || this.touchSecondary;
+    this.secondary = this.mouse.rightDown || keys.has('shift') || (this.aimStick !== null && Math.hypot(this.aimStick.x - this.aimStick.ox, this.aimStick.y - this.aimStick.oy) > 14);
   }
 }

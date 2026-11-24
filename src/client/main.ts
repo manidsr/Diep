@@ -407,19 +407,7 @@ const xpEl = $('xp'), toastEl = $('toast');
 const rewardPanel = $('reward-panel'), rewardCardsEl = $('reward-cards'), rewardTimerEl = $('reward-timer');
 const devTools = $('devtools');
 
-const mobileSpin = $<HTMLButtonElement>('mobile-spin');
-const mobileSecondary = $<HTMLButtonElement>('mobile-secondary');
 const evolveToggle = $<HTMLButtonElement>('evolve-toggle');
-mobileSpin.addEventListener('click', () => { if (playing) input.spin = !input.spin; });
-mobileSecondary.addEventListener('pointerdown', (event) => {
-  event.preventDefault();
-  if (!playing) return;
-  input.touchSecondary = true;
-  try { mobileSecondary.setPointerCapture(event.pointerId); } catch {}
-});
-for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-  mobileSecondary.addEventListener(event, () => { input.touchSecondary = false; });
-}
 function closeEvolution() {
   document.body.classList.remove('evolution-open');
   evolveToggle.setAttribute('aria-expanded', 'false');
@@ -773,8 +761,6 @@ function frame(now: number) {
   requestAnimationFrame(frame);
   input.update(W, H);
   document.body.classList.toggle('in-game', playing);
-  mobileSpin.setAttribute('aria-pressed', String(input.spin));
-  mobileSecondary.setAttribute('aria-pressed', String(input.touchSecondary));
   // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.
   if (!playing) { lastSent = ''; lastInputPoll = -Infinity; }
   if (playing && now - lastInputPoll >= 1000 / 60 - 1) {
