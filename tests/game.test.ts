@@ -228,7 +228,7 @@ test('snapshot only contains nearby entities and own full state', () => {
 });
 
 test('room cap and shape respawn', () => {
-  const g = new Game(seeded(3), 5);
+  const g = new Game(seeded(3), 5,'ffa',24);
   for (let i = 0; i < 24; i++) assert.ok(g.addPlayer('p' + i));
   assert.equal(g.addPlayer('extra'), null);
   g.shapes.length = 0;
@@ -1255,4 +1255,15 @@ test('incoming damage aggregates rapid hits without changing actual damage',()=>
   run(g,0.5);
   const hits=g.snapshotFor(p.id)!.effects!.filter(e=>e.color==='#ff7777');
   assert.equal(hits.length,1);assert.equal(hits[0].amount,6);
+});
+
+
+test('64-player world shares packed snapshots without changing visible state',()=>{
+  const g=new Game(seeded(93),90,'ffa',64);
+  for(let i=0;i<64;i++){const p=g.addPlayer('P'+i)!;assert.ok(p);g.setInput(p.id,{mx:0,my:0,a:i*0.1,f:true,secondary:false,spin:false});}
+  assert.equal(g.addPlayer('overflow'),null);
+  run(g,2);
+  const batch=g.prepareSnapshotBatch();
+  for(const p of g.players.values())assert.deepEqual(g.snapshotFor(p.id,false,batch),g.snapshotFor(p.id));
+  assert.equal(g.players.size,64);
 });

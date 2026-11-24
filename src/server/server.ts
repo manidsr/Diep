@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
-import { ARENA_SIZE, SERVER_TICK_HZ } from '../shared/config';
+import { ARENA_SIZE, SERVER_TICK_HZ, MAX_PLAYERS, HARD_PLAYER_LIMIT } from '../shared/config';
 import { MAX_MESSAGE_BYTES, parseClientMessage, type GameMode, type ServerMessage } from '../shared/protocol';
 import { Game } from './game';
 import { lanAddresses } from './net';
@@ -17,25 +17,32 @@ const STATIC: Record<string, [string, string]> = {
 };
 const MAX_MSGS_PER_SEC = 90;
 const KILL_MSGS_PER_SEC = 600;
+const SNAPSHOT_BACKLOG=128*1024;
+const MAX_BACKLOG=1024*1024;
+const MAX_STALL_MS=10000;
 
 interface Conn {
   ws: WebSocket; playerId: number | null; game: Game | null; mode: GameMode | null;
   count: number; windowStart: number; alive: boolean; sessionToken: string | null;
+  stalledSince:number;
 }
 interface ResumeSession {
   game: Game; playerId: number; owner: Conn | null; expiresAt: number;
 }
 
 export interface RunningServer {
-  http: Server; game: Game; teamGame: Game; survivalGame: Game; port: number; close(): Promise<void>;
+  http: Server; game: Game; teamGame: Game; survivalGame: Game; royaleGame:Game; port: number; close(): Promise<void>;
 }
 
-export async function startServer(opts: { port?: number; host?: string; game?: Game; teamGame?: Game; survivalGame?: Game; devCheats?: boolean; reconnectGraceMs?: number } = {}): Promise<RunningServer> {
+export async function startServer(opts: { port?: number; host?: string; game?: Game; teamGame?: Game; survivalGame?: Game; devCheats?: boolean; reconnectGraceMs?: number; playerLimit?:number } = {}): Promise<RunningServer> {
   const host = opts.host ?? '0.0.0.0';
-  const game = opts.game ?? new Game();
-  const teamGame = opts.teamGame ?? new Game(undefined, undefined, 'teams');
-  const survivalGame = opts.survivalGame ?? new Game(undefined, 0, 'survival');
-  const royaleGame = new Game(undefined,undefined,'royale');
+  const requested=opts.playerLimit??Number(process.env.DIEP_MAX_PLAYERS??MAX_PLAYERS);
+  const playerLimit=Number.isFinite(requested)?Math.max(2,Math.min(HARD_PLAYER_LIMIT,Math.floor(requested))):MAX_PLAYERS;
+  const game = opts.game ?? new Game(undefined,undefined,'ffa',playerLimit);
+  const teamGame = opts.teamGame ?? new Game(undefined, undefined, 'teams',playerLimit);
+  const survivalGame = opts.survivalGame ?? new Game(undefined, 0, 'survival',playerLimit);
+  const royaleGame = new Game(undefined,undefined,'royale',playerLimit);
+  const worlds=[game,teamGame,survivalGame,royaleGame];
   if (teamGame.mode !== 'teams') throw new Error('teamGame must use Team Mode');
   if (survivalGame.mode !== 'survival') throw new Error('survivalGame must use Co-op Survival');
   const conns = new Set<Conn>();
@@ -54,7 +61,8 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
       res.end(JSON.stringify({
         addresses: lanAddresses(), port,
         players: game.players.size + teamGame.players.size + survivalGame.players.size + royaleGame.players.size,
-        ffaPlayers: game.players.size, teamPlayers: teamGame.players.size, survivalPlayers: survivalGame.players.size,
+        ffaPlayers: game.players.size, teamPlayers: teamGame.players.size, survivalPlayers: survivalGame.players.size,royalePlayers:royaleGame.players.size,
+        limits:{ffa:game.playerLimit,teams:teamGame.playerLimit,survival:survivalGame.playerLimit,royale:royaleGame.playerLimit},
       }));
       return;
     }
@@ -69,10 +77,11 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   });
 
   const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
-  const send = (ws: WebSocket, m: ServerMessage) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); };
+  const send = (ws: WebSocket, m: ServerMessage) => { if(ws.readyState!==WebSocket.OPEN)return;if(ws.bufferedAmount>MAX_BACKLOG){ws.terminate();return;}ws.send(JSON.stringify(m)); };
 
   wss.on('connection', (ws) => {
-    const c: Conn = { ws, playerId: null, game: null, mode: null, count: 0, windowStart: Date.now(), alive: true, sessionToken: null };
+    const c: Conn = { ws, playerId: null, game: null, mode: null, count: 0, windowStart: Date.now(), alive: true, sessionToken: null,stalledSince:0 };
+    if(conns.size>=worlds.reduce((sum,w)=>sum+w.playerLimit,0)+32){ws.close(1013,'Server busy');return;}
     conns.add(c);
     // Small real-time game packets should not wait for Nagle coalescing.
     (ws as WebSocket & { _socket?: import('node:net').Socket })._socket?.setNoDelay(true);
@@ -198,6 +207,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   const dt = 1 / SERVER_TICK_HZ;
   let last = performance.now(), acc = 0;
   let nextSessionSweep = Date.now() + 250;
+  const lastLeaderboardSecond=new Map<Game,number>();
   const loop = setInterval(() => {
     const wallNow = Date.now();
     if (wallNow >= nextSessionSweep) {
@@ -214,16 +224,14 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
     last = now;
     let stepped = false;
     while (acc >= dt) {
-      game.step(dt);
-      teamGame.step(dt);
-      survivalGame.step(dt);
-      royaleGame.step(dt);
+      for(const world of worlds)if(world.players.size>0)world.step(dt);
       acc -= dt;
       stepped = true;
     }
     if (!stepped) return;
 
-    for (const world of [game, teamGame, survivalGame, royaleGame]) {
+    for (const world of worlds) {
+      const clients=[...conns].filter(c=>c.game===world&&c.playerId!=null&&c.ws.readyState===WebSocket.OPEN);
       for (const ev of world.drainEvents()) {
         if (ev.type === 'dead') {
           const feed = {
@@ -236,9 +244,9 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
             killerTeam: ev.killerTeam,
             victimTeam: ev.victimTeam,
           };
-          for (const c of conns) if (c.game === world) send(c.ws, feed);
-          for (const c of conns) {
-            if (c.game === world && c.playerId === ev.id) {
+          for (const c of clients) send(c.ws, feed);
+          for (const c of clients) {
+            if (c.playerId === ev.id) {
               send(c.ws, {
                 t: 'dead', score: ev.score, level: ev.level, killer: ev.killer,
                 killerClass: ev.killerClass, victimClass: ev.victimClass,
@@ -250,18 +258,27 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
         }
       }
 
-      const leaderboard = world.tick % SERVER_TICK_HZ === 0
+      if(!clients.length)continue;
+      const leaderboard = Math.floor(world.tick/SERVER_TICK_HZ) !== lastLeaderboardSecond.get(world)
         ? (world.mode === 'teams'
           ? { t: 'lb' as const, mode: 'teams' as const, ...world.teamLeaderboard() }
           : world.mode === 'survival'
             ? { t: 'lb' as const, mode: 'survival' as const, ...world.survivalLeaderboard() }
             : { t: 'lb' as const, mode: 'ffa' as const, top: world.leaderboard() })
         : null;
-      for (const c of conns) {
-        if (c.game !== world || c.playerId == null) continue;
-        const snap = world.snapshotFor(c.playerId,devCheatsEnabled&&devCheatOwnerSession===c.sessionToken);
-        if (snap) send(c.ws, snap);
-        if (leaderboard) send(c.ws, leaderboard);
+      if(leaderboard)lastLeaderboardSecond.set(world,Math.floor(world.tick/SERVER_TICK_HZ));
+      const ready=clients.filter(c=>{
+        if(c.ws.bufferedAmount<=SNAPSHOT_BACKLOG){c.stalledSince=0;return true;}
+        if(!c.stalledSince)c.stalledSince=wallNow;
+        if(c.ws.bufferedAmount>MAX_BACKLOG||wallNow-c.stalledSince>MAX_STALL_MS)c.ws.terminate();
+        return false;
+      });
+      if(!ready.length)continue;
+      const batch=world.prepareSnapshotBatch();
+      for(const c of ready){
+        const snap=world.snapshotFor(c.playerId!,devCheatsEnabled&&devCheatOwnerSession===c.sessionToken,batch);
+        if(snap)send(c.ws,snap);
+        if(leaderboard)send(c.ws,leaderboard);
       }
     }
   }, 1000 / SERVER_TICK_HZ / 2);
@@ -282,7 +299,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
   if (addr && typeof addr === 'object') port = addr.port;
 
   return {
-    http, game, teamGame, survivalGame, port,
+    http, game, teamGame, survivalGame, royaleGame, port,
     close: () => new Promise<void>((resolve) => {
       clearInterval(loop); clearInterval(ping);
       for (const c of conns) c.ws.terminate();

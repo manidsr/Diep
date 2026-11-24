@@ -83,7 +83,7 @@ test('LAN server: join, snapshots, input, validation, disconnect cleanup', async
 
 
 test('a full 24-player room rejects the next join without allocating a player', async () => {
-  const game = new Game(seeded(24), 0);
+  const game = new Game(seeded(24), 0,'ffa',24);
   const srv = await startServer({ port: 0, host: '127.0.0.1', game });
   const clients = Array.from({ length: 25 }, () => client(srv.port));
   try {
@@ -364,4 +364,23 @@ test('a resume token can take over a half-open socket without creating a duplica
     replacement?.ws.close();
     await srv.close();
   }
+});
+
+
+test('64 real WebSocket clients can join one room and receive advancing snapshots',async()=>{
+  const srv=await startServer({port:0,host:'127.0.0.1',playerLimit:64});
+  const clients=Array.from({length:64},()=>client(srv.port));
+  try{
+    await Promise.all(clients.map(c=>c.opened));
+    clients.forEach((c,i)=>c.ws.send(JSON.stringify({t:'join',name:'Load'+i,mode:'ffa'})));
+    await Promise.all(clients.map(c=>c.waitFor(m=>m.t==='welcome',10000)));
+    await Promise.all(clients.map(c=>c.waitFor(m=>m.t==='s',10000)));
+    const first=srv.game.tick;
+    clients.forEach((c,i)=>c.ws.send(JSON.stringify({t:'input',mx:Math.cos(i),my:Math.sin(i),a:i/10,f:true})));
+    await Promise.all(clients.map(c=>c.waitFor(m=>m.t==='s'&&m.tick>=first+30,15000)));
+    assert.equal(srv.game.players.size,64);
+    assert.ok(srv.game.bullets.length>0);
+    const info=await (await fetch('http://127.0.0.1:'+srv.port+'/api/info')).json() as {limits:{ffa:number}};
+    assert.equal(info.limits.ffa,64);
+  }finally{for(const c of clients)c.ws.close();await srv.close();}
 });

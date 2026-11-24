@@ -9,6 +9,13 @@ export class SpatialGrid {
     const c = this.cells.get(k);
     if (c) c.push(i); else this.cells.set(k, [i]);
   }
+  forRange(x:number,y:number,radius:number,fn:(i:number)=>void){
+    const minX=Math.floor((x-radius)/this.cell),maxX=Math.floor((x+radius)/this.cell);
+    const minY=Math.floor((y-radius)/this.cell),maxY=Math.floor((y+radius)/this.cell);
+    for(let cx=minX;cx<=maxX;cx++)for(let cy=minY;cy<=maxY;cy++){
+      const list=this.cells.get(this.key(cx,cy));if(list)for(const i of list)fn(i);
+    }
+  }
   forNeighbors(x: number, y: number, fn: (i: number) => void) {
     const cx = Math.floor(x / this.cell), cy = Math.floor(y / this.cell);
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {

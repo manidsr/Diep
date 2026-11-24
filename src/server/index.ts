@@ -5,6 +5,7 @@ const port = Number(process.env.PORT) || 3000;
 const srv = await startServer({ port, host: '0.0.0.0' });
 const addrs = lanAddresses();
 console.log(`\nTank arena server running on port ${srv.port} (listening on 0.0.0.0)`);
+console.log(`  Player limits: FFA ${srv.game.playerLimit}, Teams ${srv.teamGame.playerLimit}, Survival ${srv.survivalGame.playerLimit}, Royale ${srv.royaleGame.playerLimit}`);
 console.log(`  This laptop:   http://localhost:${srv.port}`);
 if (addrs.length) {
   console.log('  Other devices on the same hotspot/Wi-Fi open one of:');

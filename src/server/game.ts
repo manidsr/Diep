@@ -1,5 +1,5 @@
 import {
-  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, MAX_ZOMBIES, SURVIVAL_ARENA_SIZE, TEAM_BASE_DEPTH,
+  ARENA_SIZE, BULLET_LIFE_S, CLASS_BY_ID, CLASS_IDS, MAX_BULLETS, MAX_PLAYERS, HARD_PLAYER_LIMIT, MAX_ZOMBIES, SURVIVAL_ARENA_SIZE, TEAM_BASE_DEPTH,
   PLAYER_PIERCE_COST, PROJECTILE_KIND_IDS, REGEN_DELAY_S, RESPAWN_PROTECTION_S, SHAPES,
   SHAPE_KINDS, SHAPE_TARGET_COUNT, SERVER_TICK_HZ, VIEW_HALF, POWERUPS, TANK_SKINS, type Powerup, type TankSkin,
   type BarrelDef, type ProjectileKind,
@@ -194,6 +194,9 @@ export class Game {
   };
   private nextId = 1;
   private grid = new SpatialGrid(128);
+  private contactGrid=new SpatialGrid(128);
+  readonly playerLimit:number;
+  get projectileLimit(){return Math.max(MAX_BULLETS,this.playerLimit*48);}
 
   get arenaSize() { return this.mode === 'survival' ? SURVIVAL_ARENA_SIZE : ARENA_SIZE; }
 
@@ -201,14 +204,16 @@ export class Game {
     private rng: () => number = Math.random,
     initialShapes = SHAPE_TARGET_COUNT,
     readonly mode: GameMode = 'ffa',
+    playerLimit=MAX_PLAYERS,
   ) {
+    this.playerLimit=Number.isFinite(playerLimit)?Math.max(2,Math.min(HARD_PLAYER_LIMIT,Math.floor(playerLimit))):MAX_PLAYERS;
     if (mode !== 'survival') {
       for (let i = 0; i < initialShapes; i++) this.spawnShape();
     }
   }
 
   addPlayer(name: string): Player | null {
-    if (this.players.size >= MAX_PLAYERS || (this.mode === 'royale' && this.royalePhase !== 'lobby')) return null;
+    if (this.players.size >= this.playerLimit || (this.mode === 'royale' && this.royalePhase !== 'lobby')) return null;
     const p: Player = {
       id: this.nextId++, name, x: 0, y: 0, vx: 0, vy: 0, kvx: 0, kvy: 0, rvx: 0, rvy: 0,
       r: 26, angle: 0, hp: 50, maxHp: 0, level: 1, xp: 0, cls: 'basic',
@@ -895,7 +900,7 @@ export class Game {
   private fireHostileProjectile(
     x: number, y: number, angle: number, speed: number, damage: number, radius: number, life: number, name: string,
   ) {
-    if (this.bullets.length >= MAX_BULLETS) return;
+    if (this.bullets.length >= this.projectileLimit) return;
     this.bullets.push({
       id: this.nextId++, owner: -1, x: x + Math.cos(angle) * 18, y: y + Math.sin(angle) * 18,
       vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
@@ -1090,7 +1095,7 @@ export class Game {
     const speed = pattern === 0 ? 325 : pattern === 1 ? 285 : 245;
     const damageMul = pattern === 0 ? 0.78 : pattern === 1 ? 0.62 : 0.5;
     for (const spread of spreads) {
-      if (this.bullets.length >= MAX_BULLETS) break;
+      if (this.bullets.length >= this.projectileLimit) break;
       this.fireHostileProjectile(
         boss.x, boss.y, base + spread, speed, Math.max(9, boss.damage * damageMul),
         pattern === 2 ? 9 : 10, 3, 'a Rotbloom glob',
@@ -1434,7 +1439,7 @@ export class Game {
       const barrel = barrels[i];
       const trigger = barrel.trigger ?? 'primary';
       const requested = trigger === 'secondary' ? p.input.secondary : p.input.f;
-      if (!requested || barrel.projectile === 'drone' || p.cd[i] > 0 || this.bullets.length >= MAX_BULLETS) continue;
+      if (!requested || barrel.projectile === 'drone' || p.cd[i] > 0 || this.bullets.length >= this.projectileLimit) continue;
       this.fireBarrel(p, barrel, p.angle + barrel.angle);
       (p.shots??=[])[i]=this.tick;
       p.cd[i] = this.reloadDelay(p);
@@ -1442,7 +1447,7 @@ export class Game {
   }
 
   private fireBarrel(p: Player, barrel: BarrelDef, direction: number, origin?: Target) {
-    if (this.bullets.length >= MAX_BULLETS) return;
+    if (this.bullets.length >= this.projectileLimit) return;
     const cls = CLASS_BY_ID[p.cls];
     const spreadReduction = this.mode === 'survival' ? Math.max(0.48, 1 - this.perkCount(p, 'steadyAim') * 0.12) : 1;
     const spreadAngle = direction + (barrel.spread ? (this.rng() * 2 - 1) * barrel.spread * spreadReduction : 0);
@@ -1528,7 +1533,7 @@ export class Game {
     if (limit <= 0) return;
     p.droneSpawnCd = Math.max(0, p.droneSpawnCd - dt);
     const current = this.bullets.reduce((n, b) => n + (b.owner === p.id && b.kind === 'drone' ? 1 : 0), 0);
-    if (current >= limit || p.droneSpawnCd > 0 || this.bullets.length >= MAX_BULLETS) return;
+    if (current >= limit || p.droneSpawnCd > 0 || this.bullets.length >= this.projectileLimit) return;
 
     const slot = this.nextDroneFormationSlot(p.id, limit);
     const source = cls.barrels.find((barrel) => barrel.projectile === 'drone');
@@ -1837,7 +1842,7 @@ export class Game {
     const owner=this.mode==='survival'?this.players.get(rocket.owner):undefined;
     const count=FIREWORK_PELLETS+2*this.perkCount(owner,'forkCount');
     const speed = Math.max(260, Math.hypot(rocket.vx, rocket.vy) * 0.75)*(1+0.15*this.perkCount(owner,'forkSpeed'));
-    for (let i = 0; i < count && this.bullets.length < MAX_BULLETS; i++) {
+    for (let i = 0; i < count && this.bullets.length < this.projectileLimit; i++) {
       const angle = baseAngle + (i / count) * Math.PI * 2;
       const id=this.nextId++;
       this.link({x:rocket.x,y:rocket.y},{x:rocket.x,y:rocket.y,id},'#ffd174','fork',i===0);
@@ -1931,26 +1936,31 @@ export class Game {
       o.x = clamp(o.x, o.r, this.arenaSize - o.r);
       o.y = clamp(o.y, o.r, this.arenaSize - o.r);
     };
+    let moved=false;
     const push = (a: { x: number; y: number; r: number; id: number }, b: { x: number; y: number; r: number; id: number }, massA: number, massB: number) => {
       const dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r + 0.25;
       const d2 = dx * dx + dy * dy;
       if (d2 >= rr * rr) return;
       const d = Math.sqrt(d2), angle = (a.id + b.id) * 2.399963;
       const nx = d > 0.001 ? dx / d : Math.cos(angle), ny = d > 0.001 ? dy / d : Math.sin(angle);
+      moved=true;
       const overlap = rr - d, total = massA + massB;
       a.x -= nx * overlap * massB / total; a.y -= ny * overlap * massB / total;
       b.x += nx * overlap * massA / total; b.y += ny * overlap * massA / total;
       bound(a); bound(b);
     };
-    for (let pass = 0; pass < 5; pass++) {
-      for (let i = 0; i < shapes.length; i++) {
-        const a = shapes[i];
-        bound(a);
-        for (let j = i + 1; j < shapes.length; j++) {
-          const b = shapes[j]; push(a, b, a.r * a.r, b.r * b.r);
-        }
-        for (const p of players) push(p, a, p.r * p.r, a.r * a.r * 1.5);
+    const objects=[...shapes,...players],maxRadius=objects.reduce((m,o)=>Math.max(m,o.r),0);
+    for(const o of objects)bound(o);
+    for(let pass=0;pass<5;pass++){
+      moved=false;this.contactGrid.clear();
+      objects.forEach((o,i)=>this.contactGrid.insert(i,o.x,o.y));
+      for(let i=0;i<shapes.length;i++){
+        const a=shapes[i],candidates:number[]=[];
+        this.contactGrid.forRange(a.x,a.y,a.r+maxRadius+1,j=>{if(j>i)candidates.push(j);});
+        candidates.sort((a,b)=>a-b);
+        for(const j of candidates){const b=objects[j];if(j<shapes.length)push(a,b,a.r*a.r,b.r*b.r);else push(b,a,b.r*b.r,a.r*a.r*1.5);}
       }
+      if(!moved)break;
     }
   }
 
@@ -2165,7 +2175,7 @@ export class Game {
     }
   }
   private updateEngineer(b:Bullet){
-    if(b.hp<=0||b.life<=0||this.time<(b.turretNext??0)||this.bullets.length>=MAX_BULLETS)return;
+    if(b.hp<=0||b.life<=0||this.time<(b.turretNext??0)||this.bullets.length>=this.projectileLimit)return;
     const p=this.players.get(b.owner);if(!p?.alive||p.cls!=='engineer'){b.hp=0;return;}
     const t=this.weaponTargets(p).filter(t=>Math.hypot(t.x-b.x,t.y-b.y)<300).sort((a,c)=>Math.hypot(a.x-b.x,a.y-b.y)-Math.hypot(c.x-b.x,c.y-b.y))[0];
     if(!t)return;
@@ -2256,7 +2266,7 @@ export class Game {
       .sort((a,b)=>Math.hypot(a.x-direct.x,a.y-direct.y)-Math.hypot(b.x-direct.x,b.y-direct.y)||a.id-b.id).slice(0,count);
     const speed=Math.max(300,Math.hypot(bullet.vx,bullet.vy))*(1+0.15*this.perkCount(owner,'forkSpeed'));
     for(const [i,z] of targets.entries()){
-      if(this.bullets.length>=MAX_BULLETS)break;
+      if(this.bullets.length>=this.projectileLimit)break;
       // Aim ahead using current velocity; the child is an actual projectile and can miss.
       const lead=Math.min(0.30,Math.hypot(z.x-direct.x,z.y-direct.y)/speed);
       const angle=Math.atan2(z.y+(z.vy+z.kvy)*lead-direct.y,z.x+(z.vx+z.kvx)*lead-direct.x);
@@ -2430,7 +2440,7 @@ export class Game {
   private convertSquareToDrone(owner: Player, shape: Shape) {
     const cls = CLASS_BY_ID[owner.cls];
     const owned = this.bullets.filter((b) => b.owner === owner.id && b.kind === 'drone').length;
-    if (owned >= (cls.droneLimit ?? 0) || this.bullets.length >= MAX_BULLETS) return;
+    if (owned >= (cls.droneLimit ?? 0) || this.bullets.length >= this.projectileLimit) return;
     const formationSlot = this.nextDroneFormationSlot(owner.id, cls.droneLimit ?? 8);
     this.bullets.push({
       id: this.nextId++, owner: owner.id, x: shape.x, y: shape.y, vx: 0, vy: 0,
@@ -2531,25 +2541,24 @@ export class Game {
 
   drainEvents(): GameEvent[] { const events = this.events; this.events = []; return events; }
 
-  snapshotFor(id: number, developer=false): Snapshot | null {
-    const me = this.players.get(id);
-    if (!me) return null;
+  /** Pack common world state once per broadcast, not once per connected client. */
+  prepareSnapshotBatch(){
     this.followCombatLinks();
-    const near = (x: number, y: number, radius: number) =>
-      Math.abs(x - me.x) <= VIEW_HALF + radius && Math.abs(y - me.y) <= VIEW_HALF + radius;
-    const currentXp = totalXpForLevel(me.level);
-    const nextXp = me.level >= 45 ? currentXp : totalXpForLevel(me.level + 1);
-    const myClass = CLASS_BY_ID[me.cls];
-    const focus = myClass.id === 'predator' && me.input.secondary ? 1.55 : 1;
-    return {
-      t: 's', tick: this.tick, mode: this.mode,
-      crates:this.crates.filter(c=>near(c.x,c.y,c.r)).map(({id,x,y,r,kind})=>({id,x,y,r,kind})),
-      explosiveIds:this.shapes.filter(s=>s.explosive&&near(s.x,s.y,s.r)).map(s=>s.id),
-      beams:this.beams.filter(b=>this.tick-b.tick<=(b.kind==='laser'?8:30)&&(near(b.x,b.y,b.radius??100)||near(b.tx,b.ty,100))),
-      ...(this.mode==='royale'?{royale:{phase:this.royalePhase,radius:this.royaleRadius,seconds:Math.ceil(this.royaleTimer),alive:[...this.players.values()].filter(p=>p.connected&&p.alive).length,winner:this.royaleWinner}}:{}),
-      ...(this.mode === 'survival' ? { survival: { wave: this.wave, theme: this.waveTheme(), remaining: this.zombies.length + this.waveSpawnRemaining, intermission: this.waveIntermission } } : {}),
-      effects: this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ && near(effect.x, effect.y, effect.radius)),
-      z: this.zombies.map((zombie) => ({
+    const p:Snapshot['p']=[...this.players.values()].filter((player) => player.connected && player.alive && !player.downed).map((player) => ({
+        id: player.id, name: player.name, x: r1(player.x), y: r1(player.y), a: r2(player.angle),
+        hp: r1(player.hp), mhp: r1(player.maxHp), r: r1(player.r), lv: player.level,
+        cls: CLASS_IDS.indexOf(player.cls), prot: player.protT > 0 ? 1 : 0, vis: player.visibility,
+        team: player.team,skin:player.skin,powerups:this.powerupStatus(player),shots:player.shots,
+      }));
+    const b:Snapshot['b']=this.bullets.map((bullet) => [
+        bullet.id, r1(bullet.x), r1(bullet.y), r1(bullet.r), bullet.owner,
+        PROJECTILE_KIND_IDS[bullet.kind], r2(bullet.angle),
+        bullet.kind === 'drone' ? (bullet.attackState === 'dive' ? 1 : bullet.attackState === 'recover' ? 2 : 0) : 0,
+      ]);
+    const sh:Snapshot['sh']=this.shapes.map((shape) =>
+        [shape.id, r1(shape.x), r1(shape.y), r2(shape.rot), shape.kind, r2(shape.hp / shape.maxHp),
+          r2(shape.hitFlash ?? 0), r1(shape.hitX ?? shape.x), r1(shape.hitY ?? shape.y), r2(shape.hitAngle ?? 0)]);
+    const z:Snapshot['z']=this.zombies.map((zombie) => ({
         id: zombie.id, x: r1(zombie.x), y: r1(zombie.y), r: r1(zombie.r),
         hp: r1(zombie.hp), mhp: r1(zombie.maxHp),
         angle: r2(zombie.angle), hitFlash: r2(zombie.hitFlash), hitAngle: r2(zombie.hitAngle),
@@ -2557,14 +2566,44 @@ export class Game {
         visibility: zombie.kind === 'stalker' ? (Math.min(...[...this.players.values()].filter((player) => player.connected && player.alive && !player.downed).map((player) => Math.hypot(player.x - zombie.x, player.y - zombie.y)), Infinity) < 300 ? 1 : 0.07) : 1,
         bossKind: zombie.bossKind, bossPhase: zombie.bossPhase, bossTimer: r2(zombie.bossTimer),
         specialPhase: zombie.specialPhase, specialTimer: r2(zombie.specialTimer),
-      })),
-      d: [...this.players.values()].filter((player) => player.connected && player.alive && player.downed).map((player) => ({
+      }));
+    const d:Snapshot['d']=[...this.players.values()].filter((player) => player.connected && player.alive && player.downed).map((player) => ({
         id: player.id, name: player.name, x: r1(player.x), y: r1(player.y), r: r1(player.r),
         reviveProgress: r2(player.reviveProgress / REVIVE_SECONDS), bleedout: 0,
-      })),
-      h: this.healthDrops.map((drop) => ({ id: drop.id, x: r1(drop.x), y: r1(drop.y), r: r1(drop.r), heal: r1(drop.heal) })),
-      xpDrops: this.xpDrops.map((drop) => ({ id: drop.id, x: r1(drop.x), y: r1(drop.y), r: r1(drop.r), xp: drop.xp })),
-      pools: this.damagePools.map((pool) => ({ id: pool.id, x: r1(pool.x), y: r1(pool.y), r: r1(pool.r), life: r1(pool.life) })),
+      }));
+    const h:Snapshot['h']=this.healthDrops.map((drop) => ({ id: drop.id, x: r1(drop.x), y: r1(drop.y), r: r1(drop.r), heal: r1(drop.heal) }));
+    const xpDrops:Snapshot['xpDrops']=this.xpDrops.map((drop) => ({ id: drop.id, x: r1(drop.x), y: r1(drop.y), r: r1(drop.r), xp: drop.xp }));
+    const pools:Snapshot['pools']=this.damagePools.map((pool) => ({ id: pool.id, x: r1(pool.x), y: r1(pool.y), r: r1(pool.r), life: r1(pool.life) }));
+    const bulletGrid=new SpatialGrid(256);
+    let maxBulletRadius=0;
+    this.bullets.forEach((bullet,i)=>{bulletGrid.insert(i,bullet.x,bullet.y);maxBulletRadius=Math.max(maxBulletRadius,bullet.r);});
+    return {p,b,sh,z,d,h,xpDrops,pools,bulletGrid,maxBulletRadius,bulletSources:this.bullets,shapeSources:this.shapes,
+      alive:[...this.players.values()].filter(p=>p.connected&&p.alive).length};
+  }
+
+  snapshotFor(id: number, developer=false, prepared?:ReturnType<Game['prepareSnapshotBatch']>): Snapshot | null {
+    const me = this.players.get(id);
+    if (!me) return null;
+    const batch=prepared??this.prepareSnapshotBatch();
+    const near = (x: number, y: number, radius: number) =>
+      Math.abs(x - me.x) <= VIEW_HALF + radius && Math.abs(y - me.y) <= VIEW_HALF + radius;
+    const currentXp = totalXpForLevel(me.level);
+    const nextXp = me.level >= 45 ? currentXp : totalXpForLevel(me.level + 1);
+    const myClass = CLASS_BY_ID[me.cls];
+    const focus = myClass.id === 'predator' && me.input.secondary ? 1.55 : 1;
+    const visibleBullets:Snapshot['b']=[];
+    const indices:number[]=[];batch.bulletGrid.forRange(me.x,me.y,VIEW_HALF+batch.maxBulletRadius,i=>indices.push(i));
+    indices.sort((a,b)=>a-b);
+    for(const i of indices){const b=batch.bulletSources[i];if(near(b.x,b.y,b.r))visibleBullets.push(batch.b[i]);}
+    return {
+      t: 's', tick: this.tick, mode: this.mode,
+      crates:this.crates.filter(c=>near(c.x,c.y,c.r)).map(({id,x,y,r,kind})=>({id,x,y,r,kind})),
+      explosiveIds:this.shapes.filter(s=>s.explosive&&near(s.x,s.y,s.r)).map(s=>s.id),
+      beams:this.beams.filter(b=>this.tick-b.tick<=(b.kind==='laser'?8:30)&&(near(b.x,b.y,b.radius??100)||near(b.tx,b.ty,100))),
+      ...(this.mode==='royale'?{royale:{phase:this.royalePhase,radius:this.royaleRadius,seconds:Math.ceil(this.royaleTimer),alive:batch.alive,winner:this.royaleWinner}}:{}),
+      ...(this.mode === 'survival' ? { survival: { wave: this.wave, theme: this.waveTheme(), remaining: this.zombies.length + this.waveSpawnRemaining, intermission: this.waveIntermission } } : {}),
+      effects: this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ && near(effect.x, effect.y, effect.radius)),
+      z:batch.z,d:batch.d,h:batch.h,xpDrops:batch.xpDrops,pools:batch.pools,
       me: {
         alive: me.alive && !me.downed, downed: me.downed, reviveProgress: r2(me.reviveProgress / REVIVE_SECONDS),
         hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
@@ -2573,21 +2612,9 @@ export class Game {
         coins:me.coins??0,shop:this.shopOffers(me,developer),devShop:developer&&this.mode==='survival',combos:this.combos(me),streak:me.streak??0,streakSerial:me.streakSerial??0,powerups:this.powerupStatus(me),pickups:(me.pickups??[]).filter(e=>this.tick-e.tick<=SERVER_TICK_HZ*2),
         team: me.team, rewards: me.rewardOffers[0]?.cards ?? [], rewardTimer: r1(me.rewardOffers[0]?.timeRemaining ?? 0),
       },
-      p: [...this.players.values()].filter((player) => player.connected && player.alive && !player.downed &&
-        (this.mode === 'survival' || near(player.x, player.y, player.r))).map((player) => ({
-        id: player.id, name: player.name, x: r1(player.x), y: r1(player.y), a: r2(player.angle),
-        hp: r1(player.hp), mhp: r1(player.maxHp), r: r1(player.r), lv: player.level,
-        cls: CLASS_IDS.indexOf(player.cls), prot: player.protT > 0 ? 1 : 0, vis: player.visibility,
-        team: player.team,skin:player.skin,powerups:this.powerupStatus(player),shots:player.shots,
-      })),
-      b: this.bullets.filter((bullet) => near(bullet.x, bullet.y, bullet.r)).map((bullet) => [
-        bullet.id, r1(bullet.x), r1(bullet.y), r1(bullet.r), bullet.owner,
-        PROJECTILE_KIND_IDS[bullet.kind], r2(bullet.angle),
-        bullet.kind === 'drone' ? (bullet.attackState === 'dive' ? 1 : bullet.attackState === 'recover' ? 2 : 0) : 0,
-      ]),
-      sh: this.shapes.filter((shape) => near(shape.x, shape.y, shape.r)).map((shape) =>
-        [shape.id, r1(shape.x), r1(shape.y), r2(shape.rot), shape.kind, r2(shape.hp / shape.maxHp),
-          r2(shape.hitFlash ?? 0), r1(shape.hitX ?? shape.x), r1(shape.hitY ?? shape.y), r2(shape.hitAngle ?? 0)]),
+      p:this.mode==='survival'?batch.p:batch.p.filter(p=>{const source=this.players.get(p.id)!;return near(source.x,source.y,source.r);}),
+      b:visibleBullets,
+      sh:batch.sh.filter((_,i)=>{const source=batch.shapeSources[i];return near(source.x,source.y,source.r);}),
     };
   }
 }

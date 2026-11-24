@@ -359,7 +359,8 @@ fetch('/api/info').then((r) => r.json()).then((i: { addresses: string[]; port: n
 interface Frame { recv: number; snap: Snapshot; pm: Map<number, PlayerSnap>; bm: Map<number, number[]>; sm: Map<number, number[]>; zm: Map<number, ZombieSnap> }
 const frames: Frame[] = [];
 const TICK_MS = 1000 / SERVER_TICK_HZ;
-const INTERP_MS = 2 * TICK_MS;
+let interpMs = 2 * TICK_MS;
+let arrivalJitter=0,lastArrival=0;
 let clockOffset = 0;
 let lastRenderTickTime = -Infinity;
 
@@ -387,9 +388,12 @@ function onSnapshot(s: Snapshot) {
   }
   if (!frames.length) {
     clockOffset = arrival - tickTime;
-    lastRenderTickTime = -Infinity;
+    lastRenderTickTime = -Infinity;arrivalJitter=0;interpMs=2*TICK_MS;lastArrival=arrival;
   } else {
     // Track the server clock slowly; packet arrival jitter must not change simulation spacing.
+    const expected=previous?(s.tick-previous.snap.tick)*TICK_MS:TICK_MS;
+    arrivalJitter=0.9*arrivalJitter+0.1*Math.abs(arrival-lastArrival-expected);
+    interpMs=Math.max(2*TICK_MS,Math.min(6*TICK_MS,2*TICK_MS+arrivalJitter*2));lastArrival=arrival;
     const error = arrival - tickTime - clockOffset;
     clockOffset += Math.max(-2, Math.min(2, error * 0.05));
   }
@@ -398,7 +402,7 @@ function onSnapshot(s: Snapshot) {
     pm: new Map(s.p.map((p) => [p.id, p])), bm: new Map(s.b.map((b) => [b[0], b])), sm: new Map(s.sh.map((x) => [x[0], x])),
     zm: new Map(s.z.map((zombie) => [zombie.id, zombie])),
   });
-  if (frames.length > 8) frames.shift();
+  if (frames.length > 14) frames.shift();
   if(playing&&s.survival&&s.survival.intermission>0&&(previous?.snap.survival?.intermission??0)<=0&&!s.me.devShop){showToast('Wave cleared!','Shop is open for 30 seconds.');}
   updateHud(s.me, s.survival);
   if(playing)updatePowerHud(s);
@@ -409,7 +413,7 @@ const lerpAng = (a: number, b: number, t: number) => a + ((((b - a + Math.PI) % 
 
 function sample(now: number): View | null {
   if (!frames.length) return null;
-  const rt = Math.max(lastRenderTickTime, Math.min(now - clockOffset - INTERP_MS, frames[frames.length - 1].recv));
+  const rt = Math.max(lastRenderTickTime, Math.min(now - clockOffset - interpMs, frames[frames.length - 1].recv));
   lastRenderTickTime = rt;
   let a = frames[0], b = frames[frames.length - 1];
   if (rt >= a.recv && rt < b.recv) {
@@ -1006,8 +1010,7 @@ function frame(now: number) {
     lastInputPoll = now;
     const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${input.angle.toFixed(4)},"f":${input.fire ? 1 : 0},"secondary":${input.secondary ? 1 : 0},"spin":${input.spin ? 1 : 0}}`;
     if (msg !== lastSent || now - lastSendT > 500) {
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
-      lastSent = msg; lastSendT = now;
+      if (ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount<16384) {ws.send(msg);lastSent=msg;lastSendT=now;}
     }
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

@@ -65,9 +65,11 @@ export function drawFrame(
 
   if (view.mode === 'teams') drawTeamBases(ctx);
   if(view.royale){ctx.save();ctx.fillStyle='#e9535933';ctx.beginPath();ctx.rect(0,0,arenaSize,arenaSize);ctx.arc(arenaSize/2,arenaSize/2,view.royale.radius,0,Math.PI*2,true);ctx.fill('evenodd');ctx.strokeStyle='#da545b';ctx.lineWidth=5;ctx.beginPath();ctx.arc(arenaSize/2,arenaSize/2,view.royale.radius,0,Math.PI*2);ctx.stroke();ctx.restore();}
+  const visible=(x:number,y:number,r=0)=>Math.abs(x-cam.x)<=W/2/scale+r+80&&Math.abs(y-cam.y)<=H/2/scale+r+80;
   const explosive=new Set(view.explosiveIds??[]);
-  for (const shape of view.shapes) drawShape(ctx, shape,explosive.has(shape[0]));
+  for (const shape of view.shapes) if(visible(shape[1],shape[2],80))drawShape(ctx, shape,explosive.has(shape[0]));
   for(const c of view.crates??[]){
+    if(!visible(c.x,c.y,c.r))continue;
     const m=POWER_META[c.kind],r=c.r,phase=(view.renderTick??0)/SERVER_TICK_HZ*3+c.id;
     ctx.save();ctx.translate(c.x,c.y);
     ctx.fillStyle='#17212b22';ctx.beginPath();ctx.ellipse(0,r*0.75,r*0.92,r*0.33,0,0,Math.PI*2);ctx.fill();
@@ -78,14 +80,14 @@ export function drawFrame(
     drawPowerIcon(ctx,c.kind,r*1.25,'#fff');
     ctx.restore();
   }
-  for (const pool of view.pools) drawDamagePool(ctx, pool);
-  for (const drop of view.xpDrops) drawXpDrop(ctx, drop);
-  for (const drop of view.healthDrops) drawHealthDrop(ctx, drop);
-  for (const zombie of view.zombies) drawZombie(ctx, zombie);
-  for (const downed of view.downed) drawDownedPlayer(ctx, downed);
-  for (const bullet of view.bullets) drawBulletTrail(ctx, bullet, bullet[4] === selfId);
-  for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
-  for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false,view.renderTick);
+  for (const pool of view.pools) if(visible(pool.x,pool.y,pool.r))drawDamagePool(ctx, pool);
+  for (const drop of view.xpDrops) if(visible(drop.x,drop.y,drop.r))drawXpDrop(ctx, drop);
+  for (const drop of view.healthDrops) if(visible(drop.x,drop.y,drop.r))drawHealthDrop(ctx, drop);
+  for (const zombie of view.zombies) if(visible(zombie.x,zombie.y,zombie.r))drawZombie(ctx, zombie);
+  for (const downed of view.downed) if(visible(downed.x,downed.y,downed.r))drawDownedPlayer(ctx, downed);
+  for (const bullet of view.bullets) if(visible(bullet[1],bullet[2],bullet[3]+80))drawBulletTrail(ctx, bullet, bullet[4] === selfId);
+  for (const bullet of view.bullets) if(visible(bullet[1],bullet[2],bullet[3]+30))drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
+  for (const player of view.players) if (player.id !== selfId&&visible(player.x,player.y,player.r+90)) drawTank(ctx, player, false,view.renderTick);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true,view.renderTick);
   // The same interpolated positions used to draw entities anchor every combat link.
   if(view.beams?.length){
@@ -109,7 +111,7 @@ export function drawFrame(
     ctx.strokeStyle=m.fill;ctx.lineWidth=2.5;ctx.stroke();
     ctx.translate(0,-18-22*t);drawPowerIcon(ctx,event.kind,24,m.edge);ctx.restore();
   }
-  for (const effect of view.effects ?? []) drawCombatEffect(ctx, effect);
+  for (const effect of view.effects ?? []) if(visible(effect.x,effect.y,effect.radius+80))drawCombatEffect(ctx, effect);
   ctx.restore();
   if (view.mode === 'survival') drawSurvivalOverlay(ctx, W, H, view);
   if(view.royale){const r=view.royale;ctx.save();ctx.textAlign='center';ctx.font='900 15px system-ui';ctx.lineWidth=4;ctx.strokeStyle='#242936';ctx.fillStyle='#fff0b0';const text=r.phase==='lobby'?(r.alive<2?tr('WAITING FOR 2 PLAYERS','در انتظار دو بازیکن'):tr('ROUND STARTS · ','شروع دور · ')+seconds(r.seconds)):r.phase==='result'?tr('WINNER · ','برنده · ')+(language==='fa'?isolate(r.winner):r.winner):tr('BATTLE ROYALE')+' · '+tr(r.alive+' LEFT',digits(r.alive)+' باقی‌مانده')+' · '+seconds(r.seconds);ctx.strokeText(text,W/2,76);ctx.fillText(text,W/2,76);ctx.restore();}
