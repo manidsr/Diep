@@ -86,8 +86,9 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
       if (c.count > MAX_MSGS_PER_SEC) return;
       const m = parseClientMessage(data.toString());
       if (!m) return;
-      const activeGame = c.game;
-      const p = activeGame && c.playerId != null ? activeGame.players.get(c.playerId) : undefined;
+      let activeGame = c.game;
+      let p = activeGame && c.playerId != null ? activeGame.players.get(c.playerId) : undefined;
+      if(m.t==='join'&&p&&!p.alive&&m.mode&&m.mode!==c.mode){activeGame?.removePlayer(p.id);if(c.sessionToken){resumeSessions.delete(c.sessionToken);if(devCheatOwnerSession===c.sessionToken)devCheatOwnerSession=null;}c.game=null;c.mode=null;c.playerId=null;c.sessionToken=null;activeGame=null;p=undefined;delete m.resumeToken;}
       switch (m.t) {
         case 'join':
           if (!activeGame) {
@@ -108,6 +109,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
                 send(ws, { t: 'err', msg: 'Reconnect session is no longer available.' });
                 return;
               }
+              if(session.game.mode==='royale'&&!resumedPlayer.alive&&session.game.royalePhase!=='lobby'){send(ws,{t:'err',msg:'You were eliminated. Wait for the next round.'});return;}
               if (session.owner && session.owner !== c) {
                 const previous = session.owner;
                 previous.playerId = null; previous.game = null; previous.mode = null; previous.sessionToken = null;
@@ -120,7 +122,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
               c.mode = session.game.mode;
               c.sessionToken = m.resumeToken;
               session.game.resumePlayer(session.playerId);
-              if (!resumedPlayer.alive && session.game.mode!=='royale') session.game.respawn(session.playerId);
+              if (!resumedPlayer.alive) session.game.respawn(session.playerId);
               send(ws, {
                 t: 'welcome', id: session.playerId, arena: ARENA_SIZE, hz: SERVER_TICK_HZ,
                 devCheats: devCheatsEnabled && devCheatOwnerSession === m.resumeToken,

@@ -5,7 +5,7 @@ import { runAllCombatBenchmarks } from './combat-bench';
 
 test('combat benchmark measures every tank through the real server simulation', () => {
   const metrics = runAllCombatBenchmarks();
-  assert.equal(metrics.length, 54);
+  assert.equal(metrics.length, CLASS_IDS.length);
   assert.deepEqual(metrics.map((metric) => metric.id).sort(), [...CLASS_IDS].sort());
 
   for (const metric of metrics) {

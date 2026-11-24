@@ -336,7 +336,7 @@ export const CLASSES: TankClassDef[] = [
   T('ricochet','Ricochet','Rounds bounce off arena walls twice.','triple',45,[B(0,0,46,18),B(-0.24,0,35,12,0.5),B(0.24,0,35,12,0.5)],{damageMul:0.85,bulletLifeMul:1.7,reloadMul:1.2}),
   T('engineer','Engineer','Places up to three automatic defense turrets.','trapper',45,[B(0,0,40,26,0,0,0.6,'trap')],{specialty:'areaControl',reloadMul:2.3,trapLife:13,damageMul:0.75}),
   T('laser','Laser','Rapid focused energy pulses hit targets along a beam.','hunter',45,[B(0,0,60,16,0,0,0.12)],{specialty:'sniper',reloadMul:0.30,damageMul:0.32}),
-  T('orbiter','Orbiter','Three drones orbit and damage enemies on contact.','overseer',45,[B(0,0,32,13,0,0,0,'drone')],{specialty:'droneController',droneLimit:3,droneBehavior:'overseer',droneDamageMul:0.8}),
+  T('orbiter','Orbiter','Three drones orbit and damage enemies on contact.','overseer',45,[B(0,0,32,13,0,0,0,'drone')],{specialty:'droneController',droneLimit:3,droneBehavior:'overseer',droneDamageMul:2.1}),
   T('berserker','Berserker','Body damage and movement grow as health falls.','smasher',45,noBarrels,{specialty:'rammer',smasher:true,maxHpMul:1.5,bodyDamageMul:2.0,moveSpeedMul:1.1,sizeMul:1.12}),
   T('railgun','Railgun','Extremely fast, powerful long-range rounds.','assassin',45,[B(0,0,82,16,0,0,2.0)],{specialty:'sniper',reloadMul:2.5,damageMul:2.0,bulletSpeedMul:2.7,bulletLifeMul:1.3,fovMul:1.35}),
 ];

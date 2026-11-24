@@ -57,6 +57,7 @@ for(const id of Object.keys(TANK_SKINS)){const option=document.createElement('op
 try{const saved=localStorage.getItem('tank-skin');if(saved&&Object.prototype.hasOwnProperty.call(TANK_SKINS,saved))skinSelect.value=saved;}catch{}
 skinSelect.addEventListener('change',()=>{try{localStorage.setItem('tank-skin',skinSelect.value);}catch{}if(playing)send({t:'skin',id:skinSelect.value});});
 function setSelectedMode(mode: GameMode) {
+  if(!playing&&mode!==selectedMode){resumeToken='';try{localStorage.removeItem(RESUME_TOKEN_KEY);}catch{}}
   selectedMode = mode;
   modeRoyaleBtn.classList.toggle('selected',mode==='royale');modeRoyaleBtn.setAttribute('aria-pressed',String(mode==='royale'));
   modeFfaBtn.classList.toggle('selected', mode === 'ffa');

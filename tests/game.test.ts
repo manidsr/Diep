@@ -750,7 +750,7 @@ test('Co-op Survival advances to a harder wave after the arena is cleared', () =
   waveState.waveSpawned = 9; // Solo Wave 1's full quota has already spawned and been cleared.
   game.zombies = [];
   game.step(DT);
-  run(game, 5.1);
+  run(game, 8.1);
   assert.equal(game.wave, 2);
   assert.ok(waveState.waveSpawnRemaining > 0, 'the next wave should queue a larger enemy group');
 });
@@ -1044,8 +1044,8 @@ test('A downed survivor can be revived by a nearby stationary ally in the shorte
   const downed = place(game, game.addPlayer('downed')!.id, 1000, 1000);
   const helper = place(game, game.addPlayer('helper')!.id, 1050, 1000);
   downed.hp = 0; downed.lastDamageT = game.time;
-  const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number };
-  state.waveSpawnRemaining = 0; state.waveSpawned = 12;
+  const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number; waveSpawnTimer:number };
+  state.waveSpawnRemaining = 1; state.waveSpawned = 11; state.waveSpawnTimer=999; // Still in combat; do not trigger wave-clear rescue.
   game.step(DT);
   assert.equal(downed.downed, true);
   assert.equal(downed.alive, true, 'the player remains in the run while waiting for rescue');
@@ -1062,9 +1062,9 @@ test('Revive progress falls when the helper leaves the downed ally', () => {
   const game = new Game(seeded(98), 0, 'survival');
   const downed = place(game, game.addPlayer('downed')!.id, 1000, 1000);
   const helper = place(game, game.addPlayer('helper')!.id, 1040, 1000);
-  const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number };
+  const state = game as unknown as { waveSpawnRemaining: number; waveSpawned: number; waveSpawnTimer:number };
   downed.hp = 0; downed.lastDamageT = game.time;
-  state.waveSpawnRemaining = 0; state.waveSpawned = 12;
+  state.waveSpawnRemaining = 1; state.waveSpawned = 11; state.waveSpawnTimer=999; // Still in combat; do not trigger wave-clear rescue.
   game.step(DT); run(game, 1.5);
   assert.ok(downed.reviveProgress > 0);
   helper.x = 1500;
@@ -1197,4 +1197,29 @@ test('Survival themed waves introduce elites with greater health and XP', () => 
   assert.equal(state.waveTheme(), 'siege');
   state.wave = 10;
   assert.equal(state.waveTheme(), 'boss');
+});
+
+
+test('Battle Royale starts with two tanks and rejects new entries until the next lobby',()=>{
+  const game=new Game(seeded(111),0,'royale');const a=game.addPlayer('A')!,b=game.addPlayer('B')!;
+  game.spawnShape=()=>{};
+  run(game,10.2);assert.equal(game.royalePhase,'active');
+  assert.equal(game.addPlayer('late'),null);
+  const radius=game.snapshotFor(a.id)!.royale!.radius;run(game,2);assert.ok(game.snapshotFor(a.id)!.royale!.radius<radius);
+  b.hp=0;game.step(DT);assert.equal(game.royalePhase,'result');assert.equal(game.snapshotFor(a.id)!.royale!.winner,'A');
+  run(game,9.2);assert.equal(game.royalePhase,'lobby');
+});
+test('Supply crates grant and expire powerups; cosmetic skins are included in snapshots',()=>{
+  const game=new Game(seeded(112),0);const p=game.addPlayer('A')!;game.spawnShape=()=>{};
+  game.crates.push({id:999,x:p.x,y:p.y,r:17,kind:'damage',life:30});game.step(DT);
+  assert.ok(game.snapshotFor(p.id)!.me.powerups!.damage!>0);
+  game.setSkin(p.id,'violet');assert.equal(game.snapshotFor(p.id)!.p[0].skin,'violet');
+  run(game,12.1);assert.equal(game.snapshotFor(p.id)!.me.powerups!.damage,undefined);
+});
+test('Survival shop validates currency, window and perk limits',()=>{
+  const game=new Game(seeded(113),0,'survival');const p=game.addPlayer('A')!;p.coins=100;
+  assert.equal(game.buyShop(p.id,'heavyRounds'),false);
+  (game as unknown as {waveIntermission:number}).waveIntermission=8;
+  assert.equal(game.buyShop(p.id,'heavyRounds'),true);assert.equal(p.coins,88);assert.equal(p.survivalPerks.heavyRounds,1);
+  p.coins=0;assert.equal(game.buyShop(p.id,'heavyRounds'),false);
 });

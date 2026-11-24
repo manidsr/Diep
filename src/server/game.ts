@@ -146,6 +146,7 @@ export class Game {
   private royaleTimer = 10;
   private royaleWinner = '';
   private royaleRadius = ARENA_SIZE * 0.71;
+  private royaleOvertime=0;
   private incomingFeedback = new Map<number, { damage: number; next: number }>();
   wave = 0;
   zombieKills = 0;
@@ -221,6 +222,7 @@ export class Game {
     const p = this.players.get(id);
     if (!p) return false;
     p.connected = false;
+    if(this.mode==='royale'&&this.royalePhase==='active'){p.alive=false;p.hp=0;}
     p.input = { mx: 0, my: 0, a: p.angle, f: false, secondary: false, spin: false };
     p.wasFiring = false; p.wasSecondary = false;
     p.vx = p.vy = p.kvx = p.kvy = p.rvx = p.rvy = 0;
@@ -338,6 +340,7 @@ export class Game {
 
   private switchClass(p: Player, classId: string) {
     p.cls = classId;
+    p.shots=[];
     // Remove owned special weapons so class changes cannot leave stale drones, traps or missiles.
     this.bullets = this.bullets.filter((b) => b.owner !== p.id || b.kind === 'bullet');
     p.droneSpawnCd = 0;
@@ -370,7 +373,7 @@ export class Game {
         let bounced=false;
         if(b.x<b.r || b.x>this.arenaSize-b.r){b.x=clamp(b.x,b.r,this.arenaSize-b.r);b.vx=-b.vx;bounced=true;}
         if(b.y<b.r || b.y>this.arenaSize-b.r){b.y=clamp(b.y,b.r,this.arenaSize-b.r);b.vy=-b.vy;bounced=true;}
-        if(bounced){b.bounces!--;b.angle=Math.atan2(b.vy,b.vx);}
+        if(bounced){b.bounces=(b.bounces??1)-1;b.angle=Math.atan2(b.vy,b.vx);}
       }
       if(b.weapon==='engineer' && b.kind==='trap') this.updateEngineer(b);
       b.life -= dt;
@@ -423,7 +426,7 @@ export class Game {
       if(alive.length<2){this.royaleTimer=10;return false;}
       this.royaleTimer-=dt;if(this.royaleTimer>0)return false;
       for(const p of alive){this.respawn(p.id);this.addXp(p,totalXpForLevel(15));}
-      this.royalePhase='active';this.royaleTimer=180;this.royaleRadius=ARENA_SIZE*0.71;
+      this.royalePhase='active';this.royaleTimer=180;this.royaleOvertime=0;this.royaleRadius=ARENA_SIZE*0.71;
       this.royaleWinner='';this.crates=[];this.bullets=[];
     }else if(this.royalePhase==='result'){
       this.royaleTimer-=dt;
@@ -431,7 +434,8 @@ export class Game {
       return false;
     }
     this.royaleTimer=Math.max(0,this.royaleTimer-dt);
-    this.royaleRadius=90+(ARENA_SIZE*0.71-90)*Math.pow(this.royaleTimer/180,1.15);
+    if(this.royaleTimer===0)this.royaleOvertime+=dt;
+    this.royaleRadius=this.royaleTimer>0?90+(ARENA_SIZE*0.71-90)*Math.pow(this.royaleTimer/180,1.15):Math.max(0,90-this.royaleOvertime*3);
     for(const p of alive)if(Math.hypot(p.x-ARENA_SIZE/2,p.y-ARENA_SIZE/2)+p.r>this.royaleRadius)
       this.hurtPlayer(p,p.maxHp*(this.royaleTimer>0?0.065:0.25)*dt,null,'the storm');
     return true;
@@ -1466,7 +1470,7 @@ export class Game {
       id: this.nextId++, owner: p.id, x: origin.x, y: origin.y,
       vx: Math.cos(slotAngle) * 70, vy: Math.sin(slotAngle) * 70,
       r: radius * 0.65,
-      dmg: p.d.bulletDamage * (cls.droneDamageMul ?? 0.85) *
+      dmg: p.d.bulletDamage * (this.boost(p,'damage')?1.5:1) * (cls.droneDamageMul ?? 0.85) *
         (1 + this.perkCount(p, 'heavyRounds') * 0.15) * (1 + this.perkCount(p, 'droneTactician') * 0.15),
       hp: 8, life: DRONE_LIFE_S, hit: new Set(), kind: 'drone',
       angle: slotAngle,
@@ -1492,7 +1496,7 @@ export class Game {
 
     const cls = CLASS_BY_ID[owner.cls];
     if(cls.id==='orbiter'){
-      const angle=this.time*2.1+(drone.formationSlot??0)*Math.PI*2/3,rad=owner.r+44;
+      const angle=this.time*3.8+(drone.formationSlot??0)*Math.PI*2/3,rad=owner.r+44;
       drone.x=owner.x+Math.cos(angle)*rad;drone.y=owner.y+Math.sin(angle)*rad;drone.angle=angle+Math.PI/2;drone.attackState='dive';return;
     }
     const isOverlord = cls.id === 'overlord';
@@ -2296,6 +2300,7 @@ export class Game {
       }
       this.shapes = this.shapes.filter((shape) => shape.hp > 0);
     }
+    for(const p of this.players.values())if(p.alive&&!p.downed&&p.hp<=0&&this.mode!=='survival')this.finalizePlayerDeath(p);
   }
 
   private convertSquareToDrone(owner: Player, shape: Shape) {

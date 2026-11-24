@@ -212,7 +212,7 @@ export function runClassCombatBenchmark(classId: string): CombatMetric {
   const kinds = cls.barrels.map((barrel) => barrel.projectile ?? 'bullet');
   if (cls.turretCount) kinds.push(cls.turretProjectile ?? 'bullet');
   const trapOnly = kinds.length > 0 && kinds.every((kind) => kind === 'trap');
-  const distance = pureRammer ? 1 : trapOnly ? 110 : 360;
+  const distance = pureRammer ? 1 : classId==='orbiter'?100:trapOnly ? 110 : 360;
   const damage = runDamageScenario(classId, distance, DPS_SECONDS);
   const survival = measureSurvivability(classId);
   const effectiveRange = measureEffectiveRange(classId);
