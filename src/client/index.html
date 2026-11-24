@@ -544,10 +544,12 @@
   .game-menu-card footer{font-size:10px;color:#a9bed0;text-align:center;padding:8px 12px 11px;border-top:1px solid #35475b}
   @media(pointer:coarse),(max-width:760px){#hamburger-toggle{left:calc(env(safe-area-inset-left) + 8px);bottom:calc(env(safe-area-inset-bottom) + 8px);width:44px;height:44px}.game-menu-card{max-height:calc(100dvh - 28px)}}
   @media(max-height:500px){.game-menu-header{padding:7px 10px}.game-menu-header h2{font-size:17px}.game-menu-actions{padding:8px;gap:5px}.game-menu-card footer{padding:6px}.game-menu-logo{width:36px;height:36px}}
+  #game-menu-panel #audio-hud{display:flex}
+  #c:focus{outline:none}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<canvas id="c" tabindex="-1" aria-label="Tank arena"></canvas>
 <canvas id="minimap" class="hud" width="176" height="176" hidden aria-label="Co-op Survival minimap showing allies, zombies and health drops"></canvas>
 <div id="lb" class="hud mobile-collapsed"><h4><button id="lbtitle" type="button" aria-expanded="false">LEADERBOARD</button></h4><div id="teamscore" hidden></div><div id="lbrows"></div></div>
 <div id="killfeed" class="hud" aria-live="polite" aria-label="Recent eliminations"></div>

@@ -23,7 +23,7 @@ muteAudio.checked = audio.muted;
 const saveAudio = () => audio.settings(Number(musicSlider.value)/100, Number(effectsSlider.value)/100, muteAudio.checked);
 for (const control of [musicSlider,effectsSlider,muteAudio]) control.addEventListener('input',saveAudio);
 for (const id of ['audio-menu','audio-hud']) $(id).addEventListener('click',() => { if(id==='audio-hud')closeGameMenu(); input.reset(); audioPanel.hidden = false; void audio.unlock(); $('audio-close').focus(); });
-$('audio-close').addEventListener('click',() => { audioPanel.hidden = true; if(playing)$('hamburger-toggle').focus(); });
+$('audio-close').addEventListener('click',() => { audioPanel.hidden = true; if(playing)canvas.focus({preventScroll:true}); });
 $('audio-test').addEventListener('click',() => { void audio.unlock().then(() => audio.cue('heavy')); });
 document.addEventListener('pointerdown', () => { void audio.unlock(); }, { passive:true });
 document.addEventListener('keydown', () => { void audio.unlock(); });
@@ -529,7 +529,7 @@ function coinIcon():SVGSVGElement{
   const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d','M12 7v10M8 10h6a2 2 0 0 1 0 4H8');p.setAttribute('fill','none');p.setAttribute('stroke','#77551f');p.setAttribute('stroke-width','1.7');p.setAttribute('stroke-linecap','round');svg.append(p);return svg;
 }
 const gameMenuPanel=$('game-menu-panel'),hamburger=$('hamburger-toggle');
-function closeShop(restoreFocus=false){shopPanel.hidden=true;shopToggle.setAttribute('aria-expanded','false');if(restoreFocus&&!shopToggle.hidden)shopToggle.focus();}
+function closeShop(restoreFocus=false){shopPanel.hidden=true;shopToggle.setAttribute('aria-expanded','false');if(restoreFocus&&playing)canvas.focus({preventScroll:true});}
 shopToggle.addEventListener('click',()=>{if(!shopPanel.hidden){closeShop(true);return;}if(!playing||shopToggle.hidden)return;closeGameMenu();input.reset();shopPanel.hidden=false;shopToggle.setAttribute('aria-expanded','true');$('shop-close').focus();});
 $('shop-close').addEventListener('click',()=>closeShop(true));
 $('dev-shop').addEventListener('click',()=>{if(playing&&!shopToggle.hidden&&devCheatsEnabled&&shopPanel.hidden)shopToggle.click();});
@@ -537,7 +537,7 @@ shopPanel.addEventListener('click',event=>{if(event.target===shopPanel)closeShop
 window.addEventListener('keydown',event=>{if(shopPanel.hidden)return;if(event.key==='Escape'){event.preventDefault();closeShop(true);}else if(event.key==='Tab'){const buttons=Array.from(shopPanel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));if(!buttons.length)return;const first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});
 function closeGameMenu(restoreFocus=false){
   gameMenuPanel.hidden=true;hamburger.setAttribute('aria-expanded','false');setDevPanel(false);
-  if(restoreFocus&&playing)hamburger.focus();
+  if(restoreFocus&&playing)canvas.focus({preventScroll:true});
 }
 function updateGameMenu(){
   const modeNames:Record<GameMode,string>={ffa:'Free for All',teams:'Team Mode',survival:'Co-op Survival',royale:'Battle Royale'};
