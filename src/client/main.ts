@@ -369,7 +369,7 @@ function onSnapshot(s: Snapshot) {
     zm: new Map(s.z.map((zombie) => [zombie.id, zombie])),
   });
   if (frames.length > 8) frames.shift();
-  updateHud(s.me);
+  updateHud(s.me, s.survival);
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -498,8 +498,61 @@ let lastLv = 0, lastHudClass = '';
 let wasDowned = false;
 let streakSerial=-1, shopKey='';
 const shopPanel=$('shop-panel'),shopToggle=$('shop-toggle');
-shopToggle.addEventListener('click',()=>{shopPanel.hidden=!shopPanel.hidden;});
-$('shop-close').addEventListener('click',()=>{shopPanel.hidden=true;});
+const shopIcons:Record<string,{color:string;path:string}>={
+  heal:{color:'#8fe1a3',path:'M9 3h6v6h6v6h-6v6H9v-6H3V9h6z'},
+  rapidLoader:{color:'#7ecdf3',path:'M13 2 4 14h7l-1 8 10-12h-7z'},
+  heavyRounds:{color:'#f5c76b',path:'M7 20V8l5-6 5 6v12zM7 16h10M10 20v2m4-2v2'},
+  cryoRounds:{color:'#9ce7ff',path:'M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M8 4l4 4 4-4M8 20l4-4 4 4M3 11l5-1-1-5M21 13l-5 1 1 5M3 13l5 1-1 5M21 11l-5-1 1-5'},
+  chainShot:{color:'#9bbcff',path:'M10 13 7 16a3 3 0 0 0 4 4l5-5a3 3 0 0 0 0-4M14 11l3-3a3 3 0 0 0-4-4L8 9a3 3 0 0 0 0 4M9 15l6-6'},
+  hotRounds:{color:'#ff9a65',path:'M12 2c1 5 5 6 5 10 2-1 3-3 3-3 4 8-1 13-8 13S2 17 5 11c1 2 2 2 3 3-1-5 2-7 4-12zM12 15c-4 3-2 7 0 7s4-4 0-7'},
+  blastRounds:{color:'#ffd17e',path:'m12 2 2.5 6.5 6-3-3 6 4.5 3-6.5 1.5 1 6-5-4-5 4 1-6L2 14.5l4.5-3-3-6 6 3z'},
+  lifesteal:{color:'#ff9ea9',path:'M12 21 4 13C-1 7 7 1 12 7c5-6 13 0 8 6zM7 12h3l2-3 2 6 2-3h2'},
+  criticalCore:{color:'#c6a8ff',path:'M12 2 22 12 12 22 2 12zM12 7v10M7 12h10'},
+  droneWingman:{color:'#8be2d5',path:'M12 3 22 20l-10-4-10 4zM12 9v7'},
+  combo:{color:'#a7efd1',path:'m12 2 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z'},
+};
+function shopIcon(id:string):SVGSVGElement{
+  const spec=shopIcons[id]??shopIcons.combo;
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');svg.setAttribute('stroke-width','1.8');svg.setAttribute('stroke-linecap','round');svg.setAttribute('stroke-linejoin','round');svg.setAttribute('aria-hidden','true');
+  const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',spec.path);svg.append(p);return svg;
+}
+function coinIcon():SVGSVGElement{
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');
+  const c=document.createElementNS('http://www.w3.org/2000/svg','circle');c.setAttribute('cx','12');c.setAttribute('cy','12');c.setAttribute('r','9');c.setAttribute('fill','#e8bc53');c.setAttribute('stroke','#a77a28');c.setAttribute('stroke-width','2');svg.append(c);
+  const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d','M12 7v10M8 10h6a2 2 0 0 1 0 4H8');p.setAttribute('fill','none');p.setAttribute('stroke','#77551f');p.setAttribute('stroke-width','1.7');p.setAttribute('stroke-linecap','round');svg.append(p);return svg;
+}
+function closeShop(restoreFocus=false){shopPanel.hidden=true;shopToggle.setAttribute('aria-expanded','false');if(restoreFocus&&!shopToggle.hidden)shopToggle.focus();}
+shopToggle.addEventListener('click',()=>{if(!shopPanel.hidden){closeShop(true);return;}if(!playing||shopToggle.hidden)return;input.reset();shopPanel.hidden=false;shopToggle.setAttribute('aria-expanded','true');$('shop-close').focus();});
+$('shop-close').addEventListener('click',()=>closeShop(true));
+shopPanel.addEventListener('click',event=>{if(event.target===shopPanel)closeShop(true);});
+window.addEventListener('keydown',event=>{if(shopPanel.hidden)return;if(event.key==='Escape'){event.preventDefault();closeShop(true);}else if(event.key==='Tab'){const buttons=Array.from(shopPanel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));if(!buttons.length)return;const first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});
+function updateShop(m:SelfSnap,survival?:Snapshot['survival']){
+  const offers=m.shop??[],coins=m.coins??0;
+  shopToggle.hidden=!offers.length;$('shop-toggle-balance').textContent=String(coins)+'¢';
+  if(!offers.length){closeShop();shopKey='';return;}
+  const remaining=Math.max(0,Math.ceil(survival?.intermission??0));
+  const clock=$('shop-clock');clock.textContent='Next wave · '+remaining+'s';clock.classList.toggle('urgent',remaining<=3);
+  $('shop-subtitle').textContent=survival?'Wave '+survival.wave+' cleared · Upgrade your tank':'Between-wave upgrades';
+  const key=JSON.stringify([offers,coins,m.combos]);if(key===shopKey)return;shopKey=key;
+  $('shop-coins').textContent=coins+' coins';
+  const comboList=$('shop-combo-list');comboList.replaceChildren();$('shop-combo-empty').hidden=!!m.combos?.length;
+  for(const name of m.combos??[]){const chip=document.createElement('span');chip.className='shop-combo-chip';chip.append(shopIcon('combo'),document.createTextNode(name));comboList.append(chip);}
+  const list=$('shop-items'),scroll=list.scrollTop,focused=(document.activeElement as HTMLElement|null)?.dataset.shopId;
+  list.replaceChildren();
+  for(const offer of offers){
+    const btn=document.createElement('button');btn.type='button';btn.className='shop-item';btn.dataset.shopId=offer.id;btn.style.setProperty('--item-accent',(shopIcons[offer.id]??shopIcons.combo).color);
+    const affordable=coins>=offer.cost;btn.disabled=!affordable;btn.setAttribute('aria-label',offer.title+', '+offer.description+', '+offer.cost+' coins'+(affordable?'':', not enough coins'));
+    const icon=document.createElement('span');icon.className='shop-icon';icon.append(shopIcon(offer.id));
+    const info=document.createElement('span');info.className='shop-info';const title=document.createElement('strong');title.textContent=offer.title;const desc=document.createElement('small');desc.textContent=offer.description;info.append(title,desc);
+    const bottom=document.createElement('span');bottom.className='shop-buy-row';const price=document.createElement('span');price.className='shop-price';price.append(coinIcon(),document.createTextNode(String(offer.cost)));
+    const action=document.createElement('span');action.className='shop-buy-label';action.textContent=affordable?'BUY':'NEED '+(offer.cost-coins);
+    bottom.append(price,action);btn.append(icon,info,bottom);
+    btn.addEventListener('click',()=>{if(playing&&!shopPanel.hidden)send({t:'shop',id:offer.id});});list.append(btn);
+  }
+  list.scrollTop=scroll;
+  if(focused&&!shopPanel.hidden){const next=Array.from(list.querySelectorAll<HTMLButtonElement>('button')).find(b=>b.dataset.shopId===focused&&!b.disabled);(next??$('shop-close')).focus({preventScroll:true});}
+}
 function updateSurvivalRewards(m: SelfSnap) {
   rewardPanel.hidden = m.rewards.length === 0;
   rewardTimerEl.textContent = m.rewards.length ? `${Math.ceil(m.rewardTimer)}s` : '';
@@ -519,13 +572,12 @@ function updateSurvivalRewards(m: SelfSnap) {
   }
 }
 
-function updateHud(m: SelfSnap) {
+function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
   updateSurvivalRewards(m);
   const serial=m.streakSerial??0;
   if(streakSerial>=0&&serial!==streakSerial&&(m.streak??0)>=2){showToast((m.streak===2?'DOUBLE KILL':m.streak===3?'TRIPLE KILL':m.streak===4?'QUAD KILL':'RAMPAGE ×'+m.streak),'Kill streak');audio.cue('level');}streakSerial=serial;
   $('power-status').textContent=Object.entries(m.powerups??{}).map(([k,v])=>k.toUpperCase()+' '+v+'s').join(' · ');
-  const offers=m.shop??[];shopToggle.hidden=!offers.length;shopToggle.textContent='SHOP · '+(m.coins??0)+'¢';if(!offers.length)shopPanel.hidden=true;
-  const nextShopKey=JSON.stringify([offers,m.coins,m.combos]);if(nextShopKey!==shopKey){shopKey=nextShopKey;$('shop-coins').textContent=(m.coins??0)+' coins · '+((m.combos??[]).join(' / ')||'Combine perks to unlock bonuses');const list=$('shop-items');list.replaceChildren();for(const offer of offers){const btn=document.createElement('button');btn.type='button';btn.textContent=offer.title+' · '+offer.cost+'¢ — '+offer.description;btn.disabled=(m.coins??0)<offer.cost;btn.addEventListener('click',()=>send({t:'shop',id:offer.id}));list.append(btn);}}
+  updateShop(m,survival);
   const fraction = Math.max(0, Math.min(1, m.hp / Math.max(1, m.mhp)));
   $('mobile-hpfill').style.width = (fraction * 100) + '%';
   $('mobile-hptxt').textContent = m.downed ? 'DOWNED · REVIVE' : 'HP ' + Math.ceil(Math.max(0,m.hp)) + ' / ' + Math.ceil(m.mhp);
@@ -797,9 +849,10 @@ let lastSent = '', lastSendT = 0, lastInputPoll = -Infinity;
 
 function frame(now: number) {
   requestAnimationFrame(frame);
+  if(!playing&&!shopPanel.hidden)closeShop();
+  if(!shopPanel.hidden)input.reset();
   input.update(W, H);
   document.body.classList.toggle('in-game', playing);
-  if(!playing)shopPanel.hidden=true;
   // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.
   if (!playing) { lastSent = ''; lastInputPoll = -Infinity; }
   if (playing && now - lastInputPoll >= 1000 / 60 - 1) {
