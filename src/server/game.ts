@@ -136,6 +136,7 @@ export class Game {
   damagePools: DamagePool[] = [];
   events: GameEvent[] = [];
   private combatEffects: CombatEffect[] = [];
+  private incomingFeedback = new Map<number, { damage: number; next: number }>();
   wave = 0;
   zombieKills = 0;
   survivalElapsed = 0;
@@ -356,6 +357,9 @@ export class Game {
     this.explodeExpiredFireworks();
     this.collideAll(dt);
     this.constrainAllTeamPlayers();
+    for (const [id, feedback] of this.incomingFeedback) {
+      if (feedback.next <= this.time || !this.players.has(id)) this.flushIncomingFeedback(id);
+    }
     this.reap();
     if (this.mode === 'survival') {
       this.updateHealthDrops(dt); this.updateXpDrops(dt); this.updateDamagePools(dt); this.updateSurvivalWaves(dt);
@@ -378,6 +382,7 @@ export class Game {
 
   private resetSurvivalRun() {
     this.combatEffects = [];
+    this.incomingFeedback.clear();
     for (const player of this.players.values()) {
       player.survivalPerks = {};
       player.rewardOffers = [];
@@ -2042,10 +2047,23 @@ export class Game {
     if (this.combatEffects.length > 240) this.combatEffects.shift();
   }
 
+  private flushIncomingFeedback(id: number) {
+    const feedback = this.incomingFeedback.get(id);
+    const player = this.players.get(id);
+    if (feedback && player && feedback.damage > 0) {
+      this.effect(player, feedback.damage, '#ff7777', 'damage', true);
+    }
+    this.incomingFeedback.delete(id);
+  }
+
   private hurtPlayer(p: Player, amount: number, byId: number | null, byName: string) {
     if (!p.connected || !p.alive || p.downed || amount <= 0) return;
     const reduced = this.mode === 'survival' ? amount * Math.max(0.68, 1 - this.perkCount(p, 'ironSkin') * 0.06) : amount;
-    this.effect(p, reduced, '#ff7777');
+    // Aggregate incoming damage across all sources, independently of outgoing ram feedback.
+    const feedback = this.incomingFeedback.get(p.id) ?? { damage: 0, next: this.time + 0.45 };
+    feedback.damage += Math.min(Math.max(0, p.hp), reduced);
+    this.incomingFeedback.set(p.id, feedback);
+    if (reduced >= p.hp) this.flushIncomingFeedback(p.id);
     p.hp -= reduced;
     p.damageTaken += reduced;
     const attacker = byId == null ? undefined : this.players.get(byId);
