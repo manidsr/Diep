@@ -144,6 +144,10 @@ test('eliminations broadcast a kill-feed line and send a detailed death report',
       assert.equal(feed.victim, 'Target');
       assert.equal(feed.killerClass, 'basic');
       assert.equal(feed.victimClass, 'basic');
+      assert.equal(feed.mode,'ffa');
+      assert.equal(typeof feed.killerId,'number');
+      assert.equal(typeof feed.victimId,'number');
+      assert.notEqual(feed.killerId,feed.victimId);
     }
   } finally {
     attacker.ws.close();

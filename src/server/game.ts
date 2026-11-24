@@ -119,7 +119,7 @@ export interface XpDrop { id: number; x: number; y: number; r: number; xp: numbe
 export interface DamagePool { id: number; x: number; y: number; r: number; damage: number; life: number; tick: number; }
 
 export type GameEvent = {
-  type: 'dead'; id: number; killer: string; killerClass: string | null;
+  type: 'dead'; id: number; killerId: number | null; killer: string; killerClass: string | null;
   killerTeam: TeamId | null; victim: string; victimClass: string; victimTeam: TeamId | null;
   score: number; level: number; kills: number; damageDealt: number; damageTaken: number; lifetime: number;
 };
@@ -1215,7 +1215,7 @@ export class Game {
       this.addXp(killer, Math.max(25, Math.floor(player.xp * 0.6)));
     }
     this.events.push({
-      type: 'dead', id: player.id,
+      type: 'dead', id: player.id, killerId: player.lastHit?.id ?? null,
       killer: player.lastHit?.name ?? 'the horde', killerClass: player.lastHit?.classId ?? null,
       killerTeam: killer?.team ?? null, victim: player.name, victimClass: player.cls, victimTeam: player.team,
       score: player.xp, level: player.level, kills: player.kills,

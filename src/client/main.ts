@@ -89,7 +89,13 @@ modeRoyaleBtn.addEventListener('click',()=>setSelectedMode('royale'));
 setSelectedMode('ffa');
 const deathPanel = $('deathpanel');
 const killFeedEl = $('killfeed');
-type FeedItem=Parameters<typeof formatFeedLine>[0];
+type FeedItem=Extract<ServerMessage,{t:'feed'}>;
+type LogEntry={item:FeedItem;time:number};
+const combatHistory:LogEntry[]=[];
+let feedMode:GameMode|undefined;
+let feedVisible=true;
+try{feedVisible=localStorage.getItem('tank-combat-feed')!=='off';}catch{}
+document.body.classList.toggle('hide-combat-feed',!feedVisible);
 const recentFeed: FeedItem[] = [];
 let lastDeath:Extract<ServerMessage,{t:'dead'}>|undefined;
 
@@ -138,41 +144,50 @@ function classProfile(classId: string): ClassProfile {
   return { role:tr(role), strength:tr(strength), tradeoff:tr(tradeoff), bonuses:tr(specialty.summary) };
 }
 
-function formatFeedLine(item: {
-  killer: string; victim: string; killerClass: string | null; victimClass: string;
-  killerTeam?: string | null; victimTeam?: string | null;
-}): string {
-  const killerClass = item.killerClass ? tr(CLASS_BY_ID[item.killerClass]?.name??item.killerClass) : null;
-  const victimClass = tr(CLASS_BY_ID[item.victimClass]?.name ?? item.victimClass);
-  const killerTeam = item.killerTeam ? '[' + tr(item.killerTeam.toUpperCase()) + '] ' : '';
-  const victimTeam = item.victimTeam ? '[' + tr(item.victimTeam.toUpperCase()) + '] ' : '';
-  return killerTeam + (killerClass ? item.killer + ' · ' + killerClass : item.killer) + '  →  ' +
-    victimTeam + item.victim + ' · ' + victimClass;
+function feedName(item:FeedItem,side:'killer'|'victim'){
+  const own=(side==='killer'?item.killerId:item.victimId)===selfId;
+  const name=item[side];
+  return own?tr('You','شما'):side==='killer'&&!item.killerClass&&item.killerId==null?tr(name):name;
 }
-
-function renderKillFeed(item: {
-  killer: string; victim: string; killerClass: string | null; victimClass: string;
-  killerTeam?: string | null; victimTeam?: string | null;
-}) {
-  const line = formatFeedLine(item);
-  recentFeed.unshift(item);
-  if (recentFeed.length > 5) recentFeed.length = 5;
-  const row = document.createElement('div');
-  row.className = 'killfeed-row';
-  row.textContent = line;
-  killFeedEl.prepend(row);
-  while (killFeedEl.children.length > 5) killFeedEl.lastElementChild?.remove();
-  window.setTimeout(() => row.classList.add('fade'), 6500);
-  const deathFeed = $('deathfeed');
-  if (!deathPanel.hidden) {
-    deathFeed.replaceChildren();
-    for (const entry of recentFeed) {
-      const li = document.createElement('div');
-      li.className = 'death-feed-row';
-      li.textContent = formatFeedLine(entry);
-      deathFeed.append(li);
-    }
-  }
+function formatFeedLine(item:FeedItem):string {
+  const killer=feedName(item,'killer'),victim=feedName(item,'victim');
+  return tr(killer+' eliminated '+victim,killer+'، '+victim+' را حذف کرد.');
+}
+function combatRow(entry:LogEntry,full=false){
+  const {item}=entry,row=document.createElement('div');row.className=full?'combat-history-row':'killfeed-row';
+  const time=document.createElement('time');time.textContent=new Date(entry.time).toLocaleTimeString(language==='fa'?'fa-IR':'en-GB',{hour:'2-digit',minute:'2-digit'});time.className='combat-time';
+  const system=document.createElement('span');system.className='combat-system';system.textContent=tr('System');
+  const text=document.createElement('span');text.className='combat-message';
+  const name=(side:'killer'|'victim')=>{const el=document.createElement('bdi');el.className='combat-name '+(item[side+'Team' as 'killerTeam'|'victimTeam']??'neutral')+((side==='killer'?item.killerId:item.victimId)===selfId?' own':'');el.textContent=feedName(item,side);return el;};
+  text.append(name('killer'),document.createTextNode(tr(' eliminated ','، ')),name('victim'));
+  if(language==='fa')text.append(document.createTextNode(' را حذف کرد.'));
+  if(full){const detail=document.createElement('small');detail.className='combat-detail';detail.textContent=[item.killerClass?tr(CLASS_BY_ID[item.killerClass]?.name??item.killerClass):tr('Environment'),tr(CLASS_BY_ID[item.victimClass]?.name??item.victimClass)].join(' → ');row.append(time,system,text,detail);}
+  else row.append(system,text);
+  return row;
+}
+function refreshCombatHistory(){
+  const list=$('combat-history-list'),wasAtTop=list.scrollTop<8,oldScroll=list.scrollTop;
+  list.replaceChildren();
+  if(!combatHistory.length){const empty=document.createElement('p');empty.className='combat-empty';empty.textContent=tr('No eliminations yet.');list.append(empty);}
+  else for(const entry of combatHistory)list.append(combatRow(entry,true));
+  list.scrollTop=wasAtTop?0:oldScroll;
+  $('combat-count').textContent=String(combatHistory.length);
+}
+function clearCombatHistory(){
+  combatHistory.length=0;recentFeed.length=0;killFeedEl.replaceChildren();refreshCombatHistory();
+}
+function renderKillFeed(item:FeedItem) {
+  if(item.mode&&item.mode!==selectedMode)return;
+  recentFeed.unshift(item);if(recentFeed.length>5)recentFeed.length=5;
+  const entry={item,time:Date.now()};combatHistory.unshift(entry);if(combatHistory.length>50)combatHistory.pop();
+  const row=combatRow(entry);killFeedEl.prepend(row);
+  while(killFeedEl.children.length>3)killFeedEl.lastElementChild?.remove();
+  window.setTimeout(()=>row.classList.add('fade'),8500);
+  window.setTimeout(()=>row.remove(),9500);
+  if($('combat-history').hasAttribute('open'))refreshCombatHistory();
+  else $('combat-count').textContent=String(combatHistory.length);
+  const deathFeed=$('deathfeed');
+  if(!deathPanel.hidden){deathFeed.replaceChildren();for(const entry of recentFeed){const li=document.createElement('div');li.className='death-feed-row';li.textContent=formatFeedLine(entry);deathFeed.append(li);}}
 }
 
 function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
@@ -263,6 +278,7 @@ function connect() {
       resumeOnReconnect = false;
       resumeAttempt = false;
       try { localStorage.setItem(RESUME_TOKEN_KEY, resumeToken); } catch { /* Session recovery is optional without storage. */ }
+      if(feedMode!==m.mode){clearCombatHistory();feedMode=m.mode;}
       setSelectedMode(m.mode);
       survivalGameOverEl.hidden = true;
       survivalRestartBtn.disabled = false;
@@ -554,6 +570,8 @@ function closeGameMenu(restoreFocus=false){
   if(restoreFocus&&playing)canvas.focus({preventScroll:true});
 }
 function updateGameMenu(){
+  $('game-menu-feed-label').textContent=tr(feedVisible?'Hide live combat messages':'Show live combat messages');
+  $('game-menu-feed').setAttribute('aria-pressed',String(feedVisible));
   const modeNames:Record<GameMode,string>={ffa:'Free for All',teams:'Team Mode',survival:'Co-op Survival',royale:'Battle Royale'};
   $('game-menu-mode').textContent=tr(modeNames[selectedMode]);
   const shop=$<HTMLButtonElement>('game-menu-shop');shop.hidden=selectedMode!=='survival';shop.disabled=shopToggle.hidden;
@@ -581,6 +599,8 @@ $('game-menu-fullscreen').addEventListener('click',async()=>{
 });
 document.addEventListener('fullscreenchange',()=>{if(!gameMenuPanel.hidden)updateGameMenu();});
 $('game-menu-leaderboard').addEventListener('click',()=>{document.body.classList.toggle('hide-leaderboard');updateGameMenu();});
+$('game-menu-feed').addEventListener('click',()=>{feedVisible=!feedVisible;document.body.classList.toggle('hide-combat-feed',!feedVisible);try{localStorage.setItem('tank-combat-feed',feedVisible?'on':'off');}catch{}updateGameMenu();});
+$('combat-history').addEventListener('toggle',()=>{if($('combat-history').hasAttribute('open'))refreshCombatHistory();});
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&playing&&shopPanel.hidden&&audioPanel.hidden&&survivalGameOverEl.hidden&&!e.repeat){
     e.preventDefault();if(gameMenuPanel.hidden)openGameMenu();else closeGameMenu(true);return;
@@ -1022,7 +1042,7 @@ for(const select of Array.from(document.querySelectorAll<HTMLSelectElement>('[da
     playBtn.textContent=tr(lastDeath&&!deathPanel.hidden?'Play again':'Play');
     fullscreenBtn.textContent=tr(document.fullscreenElement?'Fullscreen is on':'Enter fullscreen');
     if(!deathPanel.hidden&&lastDeath)showDeathReport(lastDeath);
-    const feedRows=Array.from(killFeedEl.children);for(const [i,item] of recentFeed.entries())if(feedRows[i])feedRows[i].textContent=formatFeedLine(item);
+    killFeedEl.replaceChildren();for(const entry of combatHistory.slice(0,3).reverse()){const age=Date.now()-entry.time;if(age>=9500)continue;const row=combatRow(entry);killFeedEl.prepend(row);if(age>=8500)row.classList.add('fade');else window.setTimeout(()=>row.classList.add('fade'),8500-age);window.setTimeout(()=>row.remove(),9500-age);}refreshCombatHistory();
     const lan=$('lan');if(lan.firstChild?.nodeType===Node.TEXT_NODE)lan.firstChild.nodeValue=tr('Friends on the same hotspot/Wi-Fi can join at:')+' ';
     pickupNotice.hidden=true;
     for(const o of Array.from(devClassSelect.options))o.textContent=tr(CLASS_BY_ID[o.value]?.name??o.value);

@@ -228,6 +228,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
         if (ev.type === 'dead') {
           const feed = {
             t: 'feed' as const,
+            killerId: ev.killerId, victimId: ev.id, mode: world.mode,
             killer: ev.killer,
             victim: ev.victim,
             killerClass: ev.killerClass,
