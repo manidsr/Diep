@@ -98,6 +98,7 @@ export interface Shape {
   id: number; kind: number; x: number; y: number; vx: number; vy: number; kvx: number; kvy: number;
   r: number; hp: number; maxHp: number; rot: number; rotSpeed: number; lastHitBy: number | null;
   hitFlash?: number; hitX?: number; hitY?: number; hitAngle?: number;
+  ramCooldowns?: Map<number, number>;
 }
 export interface HealthDrop { id: number; x: number; y: number; r: number; heal: number; life: number; }
 export interface XpDrop { id: number; x: number; y: number; r: number; xp: number; life: number; age: number; }
@@ -1636,6 +1637,10 @@ export class Game {
     s.x += (s.vx + s.kvx) * dt; s.y += (s.vy + s.kvy) * dt; s.rot += s.rotSpeed * dt;
     const dec = Math.exp(-dt * 4);
     s.kvx *= dec; s.kvy *= dec;
+    const knockback = Math.hypot(s.kvx, s.kvy);
+    if (knockback > 180) { s.kvx *= 180 / knockback; s.kvy *= 180 / knockback; }
+    s.rotSpeed = clamp(s.rotSpeed, -2.5, 2.5);
+    if (s.ramCooldowns) for (const [id, until] of s.ramCooldowns) if (until <= this.time) s.ramCooldowns.delete(id);
     s.hitFlash = Math.max(0, (s.hitFlash ?? 0) * Math.exp(-dt * 7));
     if (s.x < s.r || s.x > ARENA_SIZE - s.r) { s.vx = -s.vx; s.x = clamp(s.x, s.r, ARENA_SIZE - s.r); }
     if (s.y < s.r || s.y > ARENA_SIZE - s.r) { s.vy = -s.vy; s.y = clamp(s.y, s.r, ARENA_SIZE - s.r); }
@@ -1650,8 +1655,25 @@ export class Game {
     }
     const def = SHAPES[SHAPE_KINDS[kind]];
     const angle = this.rng() * Math.PI * 2, speed = 6 + this.rng() * 12;
+    const clear = (x: number, y: number) =>
+      this.shapes.every((shape) => shape.hp <= 0 || Math.hypot(shape.x - x, shape.y - y) >= shape.r + def.radius + 8) &&
+      [...this.players.values()].every((p) => !p.alive || Math.hypot(p.x - x, p.y - y) >= p.r + def.radius + 24);
+    let point: { x: number; y: number } | undefined;
+    for (let i = 0; i < 40; i++) {
+      const x = 100 + this.rng() * (ARENA_SIZE - 200), y = 100 + this.rng() * (ARENA_SIZE - 200);
+      if (clear(x, y)) { point = { x, y }; break; }
+    }
+    // Deterministic fallback also handles seeded or constant random sources.
+    if (!point) {
+      for (let y = 100; y < ARENA_SIZE - 100 && !point; y += 100) {
+        for (let x = 100; x < ARENA_SIZE - 100; x += 100) {
+          if (clear(x, y)) { point = { x, y }; break; }
+        }
+      }
+    }
+    if (!point) return;
     this.shapes.push({
-      id: this.nextId++, kind, x: 100 + this.rng() * (ARENA_SIZE - 200), y: 100 + this.rng() * (ARENA_SIZE - 200),
+      id: this.nextId++, kind, x: point.x, y: point.y,
       vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kvx: 0, kvy: 0,
       r: def.radius, hp: def.hp, maxHp: def.hp, rot: this.rng() * 6.28,
       rotSpeed: (this.rng() - 0.5) * 0.8, lastHitBy: null,
@@ -1673,13 +1695,47 @@ export class Game {
         if (j > i) this.collidePair(a, entities[j], dt);
       });
     });
+    if (this.mode !== 'survival') this.resolveShapeContacts();
+  }
+
+  // Position-only cleanup after combat. Never repeat damage or hit effects here.
+  private resolveShapeContacts() {
+    const shapes = this.shapes.filter((shape) => shape.hp > 0);
+    const players = [...this.players.values()].filter((p) => p.connected && p.alive && !p.downed && p.hp > 0);
+    const bound = (o: { x: number; y: number; r: number }) => {
+      o.x = clamp(o.x, o.r, this.arenaSize - o.r);
+      o.y = clamp(o.y, o.r, this.arenaSize - o.r);
+    };
+    const push = (a: { x: number; y: number; r: number; id: number }, b: { x: number; y: number; r: number; id: number }, massA: number, massB: number) => {
+      const dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r + 0.25;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= rr * rr) return;
+      const d = Math.sqrt(d2), angle = (a.id + b.id) * 2.399963;
+      const nx = d > 0.001 ? dx / d : Math.cos(angle), ny = d > 0.001 ? dy / d : Math.sin(angle);
+      const overlap = rr - d, total = massA + massB;
+      a.x -= nx * overlap * massB / total; a.y -= ny * overlap * massB / total;
+      b.x += nx * overlap * massA / total; b.y += ny * overlap * massA / total;
+      bound(a); bound(b);
+    };
+    for (let pass = 0; pass < 5; pass++) {
+      for (let i = 0; i < shapes.length; i++) {
+        const a = shapes[i];
+        bound(a);
+        for (let j = i + 1; j < shapes.length; j++) {
+          const b = shapes[j]; push(a, b, a.r * a.r, b.r * b.r);
+        }
+        for (const p of players) push(p, a, p.r * p.r, a.r * a.r * 1.5);
+      }
+    }
   }
 
   private collidePair(e1: Ent, e2: Ent, dt: number) {
     const [a, b] = e1.k <= e2.k ? [e1, e2] : [e2, e1];
     const A = a.o as Player, B = b.o as Player;
-    const dx = B.x - A.x, dy = B.y - A.y, rr = A.r + B.r;
+    let dx = B.x - A.x, dy = B.y - A.y;
+    const rr = A.r + B.r;
     const d2 = dx * dx + dy * dy;
+    if (d2 < 1e-6) { const angle = (A.id + B.id) * 2.399963; dx = Math.cos(angle) * 0.001; dy = Math.sin(angle) * 0.001; }
     if (d2 >= rr * rr) return;
     const distance = Math.max(Math.sqrt(d2), 0.001);
     if (a.k === 0 && b.k === 0) {
@@ -1691,13 +1747,41 @@ export class Game {
       }
     } else if (a.k === 0 && b.k === 1) {
       const shape = b.o as unknown as Shape, def = SHAPES[SHAPE_KINDS[shape.kind]];
-      this.separate(A, shape as unknown as Player, dx, dy, distance, rr, A.r * A.r, shape.r * shape.r * 1.5);
-      if (A.protT <= 0) this.hurtPlayer(A, def.bodyDps * dt, null, 'a shape');
-      this.effect(shape, A.d.bodyDps * dt, '#fff0a0');
-      shape.hp -= A.d.bodyDps * dt; shape.lastHitBy = A.id;
+      if (shape.hp <= 0) return;
       const nx = dx / distance, ny = dy / distance;
-      const bodyImpact = clamp(Math.hypot(A.vx, A.vy) * 0.16 + A.d.bodyDps * 0.45, 14, 62);
-      this.impactShape(shape, A.x + nx * A.r, A.y + ny * A.r, nx, ny, bodyImpact);
+      const approach = Math.max(0, (A.vx + A.kvx - shape.vx - shape.kvx) * nx + (A.vy + A.kvy - shape.vy - shape.kvy) * ny);
+      const massRatio = A.r * A.r / (A.r * A.r + shape.r * shape.r * 1.5);
+      this.separate(A, shape, dx, dy, distance, rr, A.r * A.r, shape.r * shape.r * 1.5);
+      // Speed-based ram bonus, throttled per tank/shape pair to prevent tick-rate abuse.
+      const cooldowns = shape.ramCooldowns ?? (shape.ramCooldowns = new Map<number, number>());
+      const slam = approach > 100 && this.time >= (cooldowns.get(A.id) ?? -Infinity);
+      const damage = A.d.bodyDps * (dt + (slam ? Math.min(0.36, approach / 950) : 0));
+      if (A.protT <= 0) this.hurtPlayer(A, def.bodyDps * dt, null, 'a shape');
+      this.effect(shape, damage, slam ? '#ffd06b' : '#fff0a0');
+      shape.hp -= damage; shape.lastHitBy = A.id;
+      if (slam) cooldowns.set(A.id, this.time + 0.25);
+      const impulse = slam ? clamp(approach * massRatio * 0.75 + A.d.bodyDps * 0.4, 24, 145) : clamp(approach * massRatio * 0.15, 0, 12);
+      if (slam || (shape.hitFlash ?? 0) < 0.45) {
+        this.impactShape(shape, shape.x - nx * shape.r, shape.y - ny * shape.r, nx, ny, impulse);
+      } else {
+        shape.kvx += nx * impulse; shape.kvy += ny * impulse;
+      }
+      if (slam) {
+        const recoil = Math.min(35, approach * (1 - massRatio) * 0.18);
+        A.kvx -= nx * recoil; A.kvy -= ny * recoil;
+      }
+    } else if (a.k === 1 && b.k === 1) {
+      const first = a.o as Shape, second = b.o as Shape;
+      if (first.hp <= 0 || second.hp <= 0) return;
+      const nx = dx / distance, ny = dy / distance;
+      const closing = (first.vx + first.kvx - second.vx - second.kvx) * nx + (first.vy + first.kvy - second.vy - second.kvy) * ny;
+      const m1 = first.r * first.r, m2 = second.r * second.r;
+      this.separate(first, second, dx, dy, distance, rr + 0.25, m1, m2);
+      if (closing > 0) {
+        const impulse = Math.min(120, closing * 0.85);
+        first.kvx -= nx * impulse * m2 / (m1 + m2); first.kvy -= ny * impulse * m2 / (m1 + m2);
+        second.kvx += nx * impulse * m1 / (m1 + m2); second.kvy += ny * impulse * m1 / (m1 + m2);
+      }
     } else if (a.k === 0 && b.k === 2) {
       const bullet = b.o as unknown as Bullet;
       const firstDroneContact = bullet.kind === 'drone' && !bullet.hit.has(A.id);
