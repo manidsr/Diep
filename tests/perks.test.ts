@@ -160,7 +160,14 @@ test('Firework rockets burst into sixteen pellets on direct tank impact', () => 
   const forks=game.snapshotFor(owner.id)!.beams!.filter(b=>b.kind==='fork');
   assert.equal(forks.length,16);
   assert.equal(forks.filter(b=>b.root).length,1);
-  for(const [i,link] of forks.entries()){const pellet=pellets[i];assert.equal(link.x,b.x);assert.equal(link.y,b.y);assert.ok(Math.abs(Math.sin(Math.atan2(link.ty-link.y,link.tx-link.x)-pellet.angle))<1e-6);}
+  // Links now follow real pellet positions rather than predicting a fixed endpoint.
+  for(const [i,link] of forks.entries()){
+    const pellet=pellets[i];assert.equal(link.x,b.x);assert.equal(link.y,b.y);assert.equal(link.toId,pellet.id);
+    assert.equal(link.tx,pellet.x);assert.equal(link.ty,pellet.y);
+    pellet.x+=Math.cos(pellet.angle)*30;pellet.y+=Math.sin(pellet.angle)*30;
+  }
+  const movingForks=game.snapshotFor(owner.id)!.beams!.filter(b=>b.kind==='fork');
+  for(const [i,link] of movingForks.entries()){const pellet=pellets[i];assert.equal(link.tx,pellet.x);assert.equal(link.ty,pellet.y);assert.ok(Math.abs(Math.sin(Math.atan2(link.ty-link.y,link.tx-link.x)-pellet.angle))<1e-6);}
   assert.ok(pellets.every((pellet) => pellet.hit.has(victim.id)));
   const after = victim.hp;
   core(game).collidePair({ k: 0, o: victim }, { k: 2, o: pellets[0]! }, DT);
