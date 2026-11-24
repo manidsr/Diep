@@ -1,0 +1,13 @@
+{
+  "appId": "com.tankarena.game",
+  "appName": "Tank Arena",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#172231"
+  }
+}

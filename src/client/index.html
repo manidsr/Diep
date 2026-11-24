@@ -694,6 +694,18 @@
   html[lang=fa] .combat-system{line-height:1.65}
   html[lang=fa] .reward-card .reward-rarity{letter-spacing:normal}
   @media(pointer:coarse),(max-width:760px){html[lang=fa] #classes button.evo-card{min-height:124px}html[lang=fa] .shop-info small{font-size:11px;line-height:1.55}}
+  .native-only{display:none!important}
+  body.native-android .server-box{display:grid!important;gap:6px;margin-bottom:8px;padding:10px;border-radius:10px;background:#101b28;border:1px solid #40546a}
+  body.native-android .haptic-option{display:flex!important;align-items:center;gap:9px;min-height:42px;font-size:13px}
+  body.native-android :is(#fullscreen-btn,#game-menu-fullscreen,#lan){display:none!important}
+  .server-entry{display:flex;gap:6px}
+  #menu .server-entry input,#menu #saved-servers{min-width:0;flex:1;width:100%;min-height:42px;margin:0;padding:7px 9px;border:1px solid #46596d;border-radius:8px;background:#203042;color:#edf5fc;font-size:13px;user-select:text;-webkit-user-select:text;touch-action:manipulation}
+  #menu #server-apply{width:auto;min-height:42px;margin:0;padding:7px 12px;background:#237cad;color:#fff;border:1px solid #55a8d2;border-radius:8px;flex:none}
+  .server-box small,#server-note{font-size:10px;color:#a9bed0;margin:0;line-height:1.5}
+  #server-note:empty{display:none}
+  html[data-theme=light] body.native-android .server-box,html[data-theme=light] #menu :is(.server-entry input,#saved-servers){background:#e6eef5;color:#26384a;border-color:#a9bfce}
+  html[data-theme=light] .server-box small,html[data-theme=light] #server-note{color:#425d71}
+  body.native-android .start-card{max-height:calc(100dvh - 20px)}
 </style>
 </head>
 <body>
@@ -734,6 +746,7 @@
       <button id="game-menu-close" type="button" aria-label="Close game menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
     </header>
     <div class="game-menu-actions"><div class="preference-row"><label><span>Theme</span><select data-preference="theme"><option value="light">Light</option><option value="dark">Dark</option></select></label><label><span>Language</span><select data-preference="language"><option value="en">English</option><option value="fa">فارسی</option></select></label></div>
+      <label class="native-only haptic-option"><input id="game-haptic-enabled" type="checkbox" checked><span>Vibration</span></label>
       <button id="game-menu-resume" type="button" class="game-menu-row resume"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l14-8z"/></svg><span><strong>Resume game</strong><small>Return to the arena</small></span></button>
       <button id="game-menu-shop" type="button" class="game-menu-row" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h16l-2 12H6L4 9Zm3 0 5-6 5 6M9 13v4m6-4v4"/></svg><span><strong>Survival Shop</strong><small id="game-menu-shop-status">Between-wave upgrades</small></span></button>
       <button id="audio-hud" type="button" class="game-menu-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9h4l5-4v14l-5-4H3zM16 8a6 6 0 0 1 0 8M19 5a10 10 0 0 1 0 14"/></svg><span><strong>Audio settings</strong><small>Music and sound effects</small></span></button>
@@ -804,6 +817,13 @@
     </section>
 
       <div class="start-form">
+        <div class="native-only server-box">
+          <label for="server-address">Multiplayer server</label>
+          <div class="server-entry"><input id="server-address" type="text" dir="ltr" inputmode="url" placeholder="192.168.1.5:3000" maxlength="253" autocomplete="off" autocapitalize="off" spellcheck="false"><button id="server-apply" type="button">Connect</button></div>
+          <select id="saved-servers" aria-label="Recent servers" dir="ltr"><option value="">Recent servers</option></select>
+          <small>Use the host computer's LAN address, or an HTTPS server URL.</small>
+          <p id="server-note" aria-live="polite"></p>
+        </div>
         <label for="name">Player name</label>
         <input id="name" dir="auto" maxlength="16" placeholder="Nickname" autocomplete="off" autocapitalize="off" spellcheck="false">
         <label id="mode-heading" for="start-mode">Game mode</label>
@@ -824,6 +844,7 @@
     <section id="start-settings-panel" hidden aria-label="Settings">
       <div class="start-settings-heading"><h2>Settings</h2><button id="start-back" type="button">Back</button></div>
       <div class="preference-row"><label><span>Theme</span><select data-preference="theme"><option value="light">Light</option><option value="dark">Dark</option></select></label><label><span>Language</span><select data-preference="language"><option value="en">English</option><option value="fa">فارسی</option></select></label></div>
+      <label class="native-only haptic-option"><input id="haptic-enabled" type="checkbox" checked><span>Vibration</span></label>
       <label for="skin-select" class="start-label">Tank color</label><select id="skin-select"></select>
       <div class="start-settings-actions"><button id="fullscreen-btn" type="button">Enter fullscreen</button><button id="audio-menu" type="button">♪ Audio settings</button></div>
       <details class="start-controls"><summary>Controls</summary><p class="small"><b>PC:</b> WASD/arrows move, mouse aims, click/Space/E fires, right-click or Shift uses secondary controls, C toggles auto-spin.<br>

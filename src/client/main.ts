@@ -1,6 +1,7 @@
 import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES, SERVER_TICK_HZ, TANK_SKINS } from '../shared/config';
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
+import { normalizeServer, serverSocket, nativeDevice, haptic, hapticsEnabled, setHaptics } from './mobile';
 import { GameAudio } from './audio';
 import { initializePreferences, setPreference, tr, seconds, language, digits, isolate, ratio, eliminationText } from './preferences';
 initializePreferences();
@@ -36,7 +37,12 @@ let ws: WebSocket | null = null;
 let selfId = -1;
 let playing = false;
 let joining = false;
-const RESUME_TOKEN_KEY = `diep-resume:${location.host}`;
+const isAndroid=!!nativeDevice();
+let serverOrigin=isAndroid?'':location.origin;
+if(isAndroid){try{serverOrigin=normalizeServer(localStorage.getItem('tank-server')??'')??'';}catch{}}
+let RESUME_TOKEN_KEY=`diep-resume:${serverOrigin}`;
+let reconnectTimer=0,connectTimer=0;
+document.body.classList.toggle('native-android',isAndroid);
 let resumeToken = '';
 let resumeOnReconnect = false;
 let resumeAttempt = false;
@@ -237,10 +243,14 @@ function showDeathReport(m: Extract<ServerMessage, { t: 'dead' }>) {
 function send(m: object) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); }
 
 function connect() {
+  window.clearTimeout(reconnectTimer);window.clearTimeout(connectTimer);
+  if(isAndroid&&!serverOrigin){statusEl.textContent=tr('Choose a server to play');playBtn.disabled=true;return;}
   statusEl.textContent = tr(resumeOnReconnect ? 'Restoring your tank…' : 'Connecting…');
   playBtn.disabled = true;
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  ws.onopen = () => {
+  const socket=new WebSocket(serverSocket(serverOrigin));ws=socket;
+  connectTimer=window.setTimeout(()=>{if(ws===socket&&socket.readyState===WebSocket.CONNECTING)socket.close();},8000);
+  socket.onopen = () => {
+    if(ws!==socket)return;window.clearTimeout(connectTimer);
     if (resumeOnReconnect && resumeToken) {
       joining = true;
       resumeAttempt = true;
@@ -252,21 +262,23 @@ function connect() {
       joining = false;
     }
   };
-  ws.onclose = () => {
+  socket.onclose = () => {
+    if(ws!==socket)return;window.clearTimeout(connectTimer);ws=null;
     const shouldResume = playing || joining || resumeOnReconnect;
     playing = false; joining = false; input.reset(); playBtn.disabled = true; frames.length = 0;
     if (shouldResume && resumeToken) {
       resumeOnReconnect = true;
-      menu.classList.add('hide');
+      if(isAndroid){menu.classList.remove('hide');toggleStartSettings(false);}else menu.classList.add('hide');
       statusEl.textContent = tr("Connection lost – restoring your tank…");
     } else {
       resumeOnReconnect = false;
       menu.classList.remove('hide');
       statusEl.textContent = tr("Disconnected – reconnecting…");
     }
-    setTimeout(connect, 1500);
+    reconnectTimer=window.setTimeout(connect,1500);
   };
-  ws.onmessage = (ev) => {
+  socket.onmessage = (ev) => {
+    if(ws!==socket)return;
     let m: ServerMessage;
     try { m = JSON.parse(ev.data as string); } catch { return; }
     if (m.t === 's') onSnapshot(m);
@@ -292,7 +304,7 @@ function connect() {
     }
     else if (m.t === 'feed') renderKillFeed(m);
     else if (m.t === 'dead') {
-      audio.cue('death');
+      audio.cue('death');haptic('death');
       playing = false; input.reset(); frames.length = 0; lastLv = 0;
       msgEl.textContent = '';
       showDeathReport(m);
@@ -319,6 +331,7 @@ function connect() {
 
 
 async function enterFullscreen() {
+  if(isAndroid)return;
   if (!document.fullscreenElement) {
     try {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
@@ -347,14 +360,54 @@ playBtn.addEventListener('click', play);
 nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !playBtn.disabled) play(); });
 try { nameEl.value = localStorage.getItem('nick') ?? ''; } catch { /* ignore */ }
 
-// LAN address helper for the host.
-fetch('/api/info').then((r) => r.json()).then((i: { addresses: string[]; port: number }) => {
+// LAN address helper for the browser host; the installed client uses a user-selected WebSocket server.
+if(!isAndroid)fetch('/api/info').then((r) => r.json()).then((i: { addresses: string[]; port: number }) => {
   if (!i.addresses.length) return;
   const el = $('lan');
   el.textContent = tr('Friends on the same hotspot/Wi-Fi can join at:')+' ';
   for (const a of i.addresses) { const c = document.createElement('code'); c.textContent = `http://${a}:${i.port}`; el.append(c, ' '); }
 }).catch(() => { /* optional */ });
 
+// Android server selection. Browser builds remain same-origin and have no native dependencies.
+const serverInput=$<HTMLInputElement>('server-address'),serverSelect=$<HTMLSelectElement>('saved-servers');
+const serverNote=$('server-note'),hapticCheck=$<HTMLInputElement>('haptic-enabled');
+let savedServers:string[]=[];
+if(isAndroid){try{const stored:unknown=JSON.parse(localStorage.getItem('tank-servers')??'[]');if(Array.isArray(stored))savedServers=stored.filter((v):v is string=>typeof v==='string').map(v=>normalizeServer(v)).filter((v):v is string=>!!v).slice(0,8);}catch{}}
+function updateServerOptions(){
+  serverSelect.replaceChildren();const first=document.createElement('option');first.value='';first.textContent=tr('Recent servers');serverSelect.append(first);
+  for(const origin of savedServers){const o=document.createElement('option');o.value=origin;o.textContent=origin;serverSelect.append(o);}
+  serverSelect.value=serverOrigin;
+}
+function applyServer(){
+  if(!isAndroid||playing)return;
+  const origin=normalizeServer(serverInput.value);
+  if(!origin){serverNote.textContent=tr('Enter a valid server address, for example 192.168.1.5:3000');return;}
+  if(origin!==serverOrigin||!ws||ws.readyState===WebSocket.CLOSED){
+    window.clearTimeout(reconnectTimer);window.clearTimeout(connectTimer);
+    const old=ws;ws=null;old?.close();
+    resumeToken='';resumeOnReconnect=false;resumeAttempt=false;joining=false;selfId=-1;frames.length=0;
+    clearCombatHistory();feedMode=undefined;lastLeaderboard=undefined;lastDeath=undefined;deathPanel.hidden=true;input.reset();
+    serverOrigin=origin;RESUME_TOKEN_KEY='diep-resume:'+origin;
+    savedServers=[origin,...savedServers.filter(v=>v!==origin)].slice(0,8);
+    try{localStorage.setItem('tank-server',origin);localStorage.setItem('tank-servers',JSON.stringify(savedServers));}catch{}
+    serverInput.value=origin;updateServerOptions();connect();
+  }
+  serverNote.textContent=tr('Server selected');
+}
+if(isAndroid){
+  serverInput.value=serverOrigin;updateServerOptions();
+  $('server-apply').addEventListener('click',applyServer);
+  serverInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();applyServer();serverInput.blur();}});
+  serverSelect.addEventListener('change',()=>{if(serverSelect.value){serverInput.value=serverSelect.value;applyServer();}});
+  hapticCheck.checked=hapticsEnabled();hapticCheck.addEventListener('change',()=>{setHaptics(hapticCheck.checked);if(hapticCheck.checked)haptic('pickup');});
+  const gameHaptics=$<HTMLInputElement>('game-haptic-enabled');gameHaptics.checked=hapticCheck.checked;
+  gameHaptics.addEventListener('change',()=>{hapticCheck.checked=gameHaptics.checked;setHaptics(gameHaptics.checked);if(gameHaptics.checked)haptic('pickup');});
+  hapticCheck.addEventListener('change',()=>gameHaptics.checked=hapticCheck.checked);
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){input.reset();if(playing)send({t:'input',mx:0,my:0,a:input.angle,f:0,secondary:0,spin:0});}
+    else if(!ws||ws.readyState===WebSocket.CLOSED)connect();
+  });
+}
 // ---------- snapshot interpolation ----------
 interface Frame { recv: number; snap: Snapshot; pm: Map<number, PlayerSnap>; bm: Map<number, number[]>; sm: Map<number, number[]>; zm: Map<number, ZombieSnap> }
 const frames: Frame[] = [];
@@ -370,6 +423,7 @@ function onSnapshot(s: Snapshot) {
     if (bullet[4] !== selfId || bullet[5] !== 0 || seenOwnBulletIds.has(bullet[0])) continue;
     seenOwnBulletIds.add(bullet[0]);
     const kick = Math.min(5.5, 1.5 + bullet[3] * 0.3);
+    if(playing&&kick>=4)haptic('shot');
     recoilCameraVX += Math.cos(input.angle) * kick * 18;
     recoilCameraVY += Math.sin(input.angle) * kick * 18;
   }
@@ -381,7 +435,7 @@ function onSnapshot(s: Snapshot) {
   const tickTime = s.tick * TICK_MS;
   const previous = frames[frames.length - 1];
   if(s.royale&&!playing){const rr=s.royale;$('royale-menu-status').textContent=rr.phase==='result'?tr('Winner: ','برنده: ')+(language==='fa'?isolate(rr.winner):rr.winner)+tr(' · next lobby in ',' · دور بعدی تا ')+seconds(rr.seconds):rr.phase==='active'?tr(rr.alive+' tanks left · round in progress',digits(rr.alive)+' تانک باقی‌مانده · دور در حال اجرا'):tr('Next round lobby open','آماده ورود به دور بعدی');}else $('royale-menu-status').textContent='';
-  if (playing) audio.snapshot(s, selfId, previous?.snap);
+  if (playing) {audio.snapshot(s, selfId, previous?.snap);if(previous&&s.me.hp<previous.snap.me.hp-0.5)haptic('hurt');}
   if (previous && s.tick <= previous.snap.tick) {
     if (s.tick === previous.snap.tick) return;
     frames.length = 0;
@@ -718,7 +772,7 @@ function updatePowerHud(s:Snapshot){
     text.append(title,detail);row.append(icon,text);pickupNotice.append(row);
   }
   pickupNotice.hidden=false;window.clearTimeout(pickupTimer);pickupTimer=window.setTimeout(()=>{pickupNotice.hidden=true;},2400);
-  audio.cue('reward');
+  audio.cue('reward');haptic('pickup');
 }
 function updateHud(m: SelfSnap, survival?:Snapshot['survival']) {
   updateSurvivalRewards(m);
@@ -1042,7 +1096,7 @@ function frame(now: number) {
 for(const select of Array.from(document.querySelectorAll<HTMLSelectElement>('[data-preference]')))select.addEventListener('change',()=>{
   const key=select.dataset.preference==='language'?'language':'theme';setPreference(key,select.value);
   if(key==='language'){
-    setSelectedMode(selectedMode);renderClassGuide();
+    setSelectedMode(selectedMode);renderClassGuide();if(isAndroid){updateServerOptions();serverNote.textContent='';}
     playBtn.textContent=tr(lastDeath&&!deathPanel.hidden?'Play again':'Play');
     fullscreenBtn.textContent=tr(document.fullscreenElement?'Fullscreen is on':'Enter fullscreen');
     if(!deathPanel.hidden&&lastDeath)showDeathReport(lastDeath);
@@ -1053,7 +1107,7 @@ for(const select of Array.from(document.querySelectorAll<HTMLSelectElement>('[da
     for(const o of Array.from(skinSelect.options))o.textContent=tr(o.value[0].toUpperCase()+o.value.slice(1));
     for(const tab of Array.from(shopTabs.querySelectorAll<HTMLButtonElement>('button'))){const name=tab.dataset.category??'All';const icon=shopCategories.find(c=>c[0]===name)?.[1]??'combo';tab.replaceChildren(shopIcon(icon),document.createTextNode(tr(name)));}
     hudKey='';optKey='';rewardKey='';shopKey='';powerKey='';
-    statusEl.textContent=playing||ws?.readyState===WebSocket.OPEN?tr('Connected'):tr('Connecting…');
+    statusEl.textContent=playing||ws?.readyState===WebSocket.OPEN?tr('Connected'):isAndroid&&!serverOrigin?tr('Choose a server to play'):tr('Connecting…');
     const snap=frames[frames.length-1]?.snap;if(snap){updateHud(snap.me,snap.survival);updatePowerHud(snap);}
     if(lastLeaderboard)renderLeaderboard(lastLeaderboard);
     if(!gameMenuPanel.hidden)updateGameMenu();

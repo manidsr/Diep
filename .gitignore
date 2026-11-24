@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.patch
 .env
+
+# Capacitor native project and app build outputs (generated)
+mobile/android/
+mobile/www/
+mobile/.build/

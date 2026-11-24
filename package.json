@@ -4,14 +4,18 @@
   "private": true,
   "type": "module",
   "description": "Diep-style tank arena for LAN / phone-hotspot play",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node scripts/build-client.mjs",
     "start": "npm run build && tsx src/server/index.ts",
     "start:only": "tsx src/server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"tests/*.test.ts\"",
-    "balance": "node --import tsx scripts/combat-balance.ts"
+    "balance": "node --import tsx scripts/combat-balance.ts",
+    "android:prepare": "npm run build && npm --prefix mobile run prepare:android",
+    "android:apk": "npm run android:prepare && npm --prefix mobile run apk"
   },
   "dependencies": {
     "ws": "^8.18.0"
