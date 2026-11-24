@@ -1,4 +1,4 @@
-import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES } from '../shared/config';
+import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES, SERVER_TICK_HZ } from '../shared/config';
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
 import { drawFrame, drawMinimap, drawSticks, tankPreviewDataUrl, type View } from './render';
@@ -301,7 +301,10 @@ fetch('/api/info').then((r) => r.json()).then((i: { addresses: string[]; port: n
 // ---------- snapshot interpolation ----------
 interface Frame { recv: number; snap: Snapshot; pm: Map<number, PlayerSnap>; bm: Map<number, number[]>; sm: Map<number, number[]>; zm: Map<number, ZombieSnap> }
 const frames: Frame[] = [];
-const INTERP_MS = 100;
+const TICK_MS = 1000 / SERVER_TICK_HZ;
+const INTERP_MS = 2 * TICK_MS;
+let clockOffset = 0;
+let lastRenderTickTime = -Infinity;
 
 function onSnapshot(s: Snapshot) {
   // New bullets owned by us trigger a short directional camera punch. Bigger rounds hit harder.
@@ -316,8 +319,23 @@ function onSnapshot(s: Snapshot) {
     seenOwnBulletIds.clear();
     for (const bullet of s.b) if (bullet[4] === selfId) seenOwnBulletIds.add(bullet[0]);
   }
+  const arrival = performance.now();
+  const tickTime = s.tick * TICK_MS;
+  const previous = frames[frames.length - 1];
+  if (previous && s.tick <= previous.snap.tick) {
+    if (s.tick === previous.snap.tick) return;
+    frames.length = 0;
+  }
+  if (!frames.length) {
+    clockOffset = arrival - tickTime;
+    lastRenderTickTime = -Infinity;
+  } else {
+    // Track the server clock slowly; packet arrival jitter must not change simulation spacing.
+    const error = arrival - tickTime - clockOffset;
+    clockOffset += Math.max(-2, Math.min(2, error * 0.05));
+  }
   frames.push({
-    recv: performance.now(), snap: s,
+    recv: tickTime, snap: s,
     pm: new Map(s.p.map((p) => [p.id, p])), bm: new Map(s.b.map((b) => [b[0], b])), sm: new Map(s.sh.map((x) => [x[0], x])),
     zm: new Map(s.z.map((zombie) => [zombie.id, zombie])),
   });
@@ -330,7 +348,8 @@ const lerpAng = (a: number, b: number, t: number) => a + ((((b - a + Math.PI) % 
 
 function sample(now: number): View | null {
   if (!frames.length) return null;
-  const rt = now - INTERP_MS;
+  const rt = Math.max(lastRenderTickTime, Math.min(now - clockOffset - INTERP_MS, frames[frames.length - 1].recv));
+  lastRenderTickTime = rt;
   let a = frames[0], b = frames[frames.length - 1];
   if (rt >= a.recv && rt < b.recv) {
     for (let i = 0; i < frames.length - 1; i++) if (frames[i].recv <= rt && rt < frames[i + 1].recv) { a = frames[i]; b = frames[i + 1]; break; }
@@ -719,14 +738,16 @@ window.visualViewport?.addEventListener('resize', resize);
 resize();
 
 const cam = { x: 1600, y: 1600 };
-let lastSent = '', lastSendT = 0;
+let lastSent = '', lastSendT = 0, lastInputPoll = -Infinity;
 
 function frame(now: number) {
   requestAnimationFrame(frame);
   input.update(W, H);
   // Sample/send intent at 60 Hz so the server gets the freshest input before each simulation step.
-  if (playing && now - lastSendT >= 1000 / 60) {
-    const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${input.angle.toFixed(2)},"f":${input.fire ? 1 : 0},"secondary":${input.secondary ? 1 : 0},"spin":${input.spin ? 1 : 0}}`;
+  if (!playing) { lastSent = ''; lastInputPoll = -Infinity; }
+  if (playing && now - lastInputPoll >= 1000 / 60 - 1) {
+    lastInputPoll = now;
+    const msg = `{"t":"input","mx":${input.mx.toFixed(2)},"my":${input.my.toFixed(2)},"a":${input.angle.toFixed(4)},"f":${input.fire ? 1 : 0},"secondary":${input.secondary ? 1 : 0},"spin":${input.spin ? 1 : 0}}`;
     if (msg !== lastSent || now - lastSendT > 500) {
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
       lastSent = msg; lastSendT = now;
