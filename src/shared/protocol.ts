@@ -102,9 +102,14 @@ export interface SelfSnap {
   cls: string; opts: string[]; fov: number; team: TeamId | null;
   rewards: RewardCardSnap[]; rewardTimer: number;
 }
+export interface CombatEffect {
+  tick: number; x: number; y: number; radius: number;
+  kind: 'damage' | 'destroy'; amount: number; color: string;
+}
 export interface Snapshot {
   t: 's';
   tick: number;
+  effects?: CombatEffect[];
   me: SelfSnap;
   p: PlayerSnap[];
   // id, x, y, radius, ownerId, projectile kind, direction angle, drone state (0 guard, 1 dive, 2 peel)

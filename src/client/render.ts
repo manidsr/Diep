@@ -1,8 +1,9 @@
 import { ARENA_SIZE, SURVIVAL_ARENA_SIZE, CLASSES, PLAYER_BASE_RADIUS, SHAPES, SHAPE_KINDS, TEAM_BASE_DEPTH } from '../shared/config';
-import type { DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
+import type { CombatEffect, DamagePoolSnap, DownedPlayerSnap, GameMode, HealthDropSnap, PlayerSnap, TeamId, XpDropSnap, ZombieSnap } from '../shared/protocol';
 import { STICK_RADIUS, type Input } from './input';
 
 export interface View {
+  effects?: (CombatEffect & { age: number })[];
   players: PlayerSnap[];
   bullets: [number, number, number, number, number, number, number, number][];
   shapes: [number, number, number, number, number, number, number, number, number, number][];
@@ -63,9 +64,55 @@ export function drawFrame(
   for (const drop of view.healthDrops) drawHealthDrop(ctx, drop);
   for (const zombie of view.zombies) drawZombie(ctx, zombie);
   for (const downed of view.downed) drawDownedPlayer(ctx, downed);
+  for (const bullet of view.bullets) drawBulletTrail(ctx, bullet, bullet[4] === selfId);
   for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
   for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true);
+  for (const effect of view.effects ?? []) drawCombatEffect(ctx, effect);
+  ctx.restore();
+}
+
+function drawBulletTrail(ctx: CanvasRenderingContext2D, bullet: View['bullets'][number], mine: boolean) {
+  const [, x, y, r, , kind, angle] = bullet;
+  if (kind !== 0 && kind !== 3 && kind !== 4) return;
+  const length = Math.min(65, Math.max(14, r * 4));
+  const color = kind === 0 ? (mine ? ME.fill : FOE.fill) : '#ffab55';
+  ctx.save(); ctx.translate(x, y); ctx.rotate(angle); ctx.lineCap = 'round';
+  for (let i = 3; i >= 1; i--) {
+    ctx.globalAlpha = 0.11 + (3 - i) * 0.08;
+    ctx.strokeStyle = color; ctx.lineWidth = Math.max(2, r * (1.15 - i * 0.19));
+    ctx.beginPath(); ctx.moveTo(-length * i / 3, 0); ctx.lineTo(-r * 0.5, 0); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawCombatEffect(ctx: CanvasRenderingContext2D, effect: CombatEffect & { age: number }) {
+  const { x, y, radius, age, kind, color, amount } = effect;
+  if (age < 0 || age >= 0.9) return;
+  const t = age / 0.9;
+  ctx.save(); ctx.translate(x, y);
+  ctx.globalAlpha *= 1 - t;
+  if (kind === 'damage') {
+    ctx.font = '900 ' + (amount >= 30 ? 23 : 17) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 3.5;
+    ctx.strokeStyle = '#30272b'; ctx.fillStyle = color;
+    const label = amount < 1 ? amount.toFixed(1) : String(Math.round(amount));
+    const offset = -radius * 0.65 - age * 65;
+    ctx.strokeText(label, 0, offset); ctx.fillText(label, 0, offset);
+  } else {
+    const size = Math.max(12, Math.min(radius, 80));
+    ctx.strokeStyle = color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, size * (0.45 + t * 2.2), 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 12; i++) {
+      const angle = i * Math.PI / 6 + x * 0.02;
+      const distance = size * (0.3 + t * (1.5 + (i % 4) * 0.28));
+      const fragment = Math.max(2, size * 0.19 * (1 - t * 0.7));
+      ctx.save(); ctx.translate(Math.cos(angle) * distance, Math.sin(angle) * distance);
+      ctx.rotate(angle + age * 8); ctx.fillStyle = color; ctx.strokeStyle = '#34343b'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(-fragment, -fragment * 0.6); ctx.lineTo(fragment, 0); ctx.lineTo(0, fragment); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+  }
   ctx.restore();
 }
 

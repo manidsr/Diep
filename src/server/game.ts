@@ -7,7 +7,7 @@ import {
 import {
   classOptions, deriveStats, levelFromXp, totalXpForLevel, type DerivedStats,
 } from '../shared/progression';
-import type { GameMode, RewardCardSnap, RewardRarity, Snapshot, TeamId, ZombieBossKind, ZombieBossPhase, ZombieKind, ZombieSnap, ZombieSpecialPhase } from '../shared/protocol';
+import type { CombatEffect, GameMode, RewardCardSnap, RewardRarity, Snapshot, TeamId, ZombieBossKind, ZombieBossPhase, ZombieKind, ZombieSnap, ZombieSpecialPhase } from '../shared/protocol';
 import { SpatialGrid } from './grid';
 
 type RewardOffer = { cards: RewardCardSnap[]; timeRemaining: number };
@@ -132,6 +132,7 @@ export class Game {
   xpDrops: XpDrop[] = [];
   damagePools: DamagePool[] = [];
   events: GameEvent[] = [];
+  private combatEffects: CombatEffect[] = [];
   wave = 0;
   zombieKills = 0;
   survivalElapsed = 0;
@@ -337,6 +338,7 @@ export class Game {
     if (this.mode === 'survival' && this.survivalGameOver) { this.tick++; return; }
     this.time += dt;
     this.tick++;
+    this.combatEffects = this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ);
     for (const p of this.players.values()) if (p.connected && p.alive && !p.downed) this.updatePlayer(p, dt);
     for (const s of this.shapes) this.updateShape(s, dt);
     if (this.mode === 'survival') for (const zombie of this.zombies) this.updateZombie(zombie, dt);
@@ -372,6 +374,7 @@ export class Game {
   }
 
   private resetSurvivalRun() {
+    this.combatEffects = [];
     for (const player of this.players.values()) {
       player.survivalPerks = {};
       player.rewardOffers = [];
@@ -526,7 +529,8 @@ export class Game {
       if (zombie.burnTick <= 0) {
         zombie.burnTick = 0.5;
         const burnDamage = (zombie.burnDps ?? 0) * 0.5;
-        zombie.hp -= burnDamage;
+        this.effect(zombie, burnDamage, '#ffb45e');
+      zombie.hp -= burnDamage;
         if (zombie.burnOwnerId != null) zombie.damageBy.set(zombie.burnOwnerId, (zombie.damageBy.get(zombie.burnOwnerId) ?? 0) + burnDamage);
         zombie.hitFlash = Math.max(zombie.hitFlash, 0.3);
       }
@@ -976,6 +980,7 @@ export class Game {
 
   private finalizePlayerDeath(player: Player) {
     if (!player.alive) return;
+    this.effect(player, 0, '#72caff', 'destroy');
     player.alive = false; player.downed = false; player.hp = 0;
     player.input.f = false; player.input.secondary = false; player.input.mx = 0; player.input.my = 0;
     this.bullets = this.bullets.filter((bullet) => bullet.owner !== player.id || bullet.kind === 'bullet');
@@ -1656,6 +1661,7 @@ export class Game {
       const shape = b.o as unknown as Shape, def = SHAPES[SHAPE_KINDS[shape.kind]];
       this.separate(A, shape as unknown as Player, dx, dy, distance, rr, A.r * A.r, shape.r * shape.r * 1.5);
       if (A.protT <= 0) this.hurtPlayer(A, def.bodyDps * dt, null, 'a shape');
+      this.effect(shape, A.d.bodyDps * dt, '#fff0a0');
       shape.hp -= A.d.bodyDps * dt; shape.lastHitBy = A.id;
       const nx = dx / distance, ny = dy / distance;
       const bodyImpact = clamp(Math.hypot(A.vx, A.vy) * 0.16 + A.d.bodyDps * 0.45, 14, 62);
@@ -1694,7 +1700,8 @@ export class Game {
       }
       const bodyDamage = A.d.bodyDps * dt * 0.55 * (this.isZombieProtected(zombie) ? 0.58 : 1);
       if (bodyDamage > 0) {
-        zombie.hp -= bodyDamage;
+        this.effect(zombie, bodyDamage, '#ffda83');
+      zombie.hp -= bodyDamage;
         zombie.damageBy.set(A.id, (zombie.damageBy.get(A.id) ?? 0) + bodyDamage);
         zombie.hitFlash = Math.max(zombie.hitFlash, 0.35);
         zombie.hitAngle = Math.atan2(dy, dx);
@@ -1709,6 +1716,7 @@ export class Game {
       if (bullet.kind === 'drone' && bullet.attackState && bullet.attackState !== 'dive') return;
       if (!this.projectileCanHit(bullet, shape.id)) return;
       if (bullet.kind === 'drone') bullet.hit.add(shape.id);
+      this.effect(shape, bullet.dmg, '#fff0a0');
       shape.hp -= bullet.dmg; shape.lastHitBy = bullet.owner;
       bullet.hp -= bullet.kind === 'drone' ? (firstDroneContact ? 1 : 0) : bullet.kind === 'trap' ? 1 : SHAPES[SHAPE_KINDS[shape.kind]].pierceCost;
       if (bullet.kind === 'drone') this.beginDroneRecovery(bullet, 0.85);
@@ -1729,6 +1737,7 @@ export class Game {
       if (bullet.kind === 'drone') bullet.hit.add(zombie.id);
       const owner = this.players.get(bullet.owner);
       const dealt = bullet.dmg * this.survivalDamageMultiplier(owner, zombie);
+      this.effect(zombie, dealt, '#ffda83');
       zombie.hp -= dealt;
       zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
       if (owner && this.mode === 'survival') {
@@ -1827,7 +1836,8 @@ export class Game {
     }
     if (!target) return;
     const chainDamage = damage * (0.14 + stacks * 0.06) * this.survivalDamageMultiplier(owner, target);
-    target.hp -= chainDamage;
+    this.effect(target, chainDamage, '#9eeaff');
+      target.hp -= chainDamage;
     target.damageBy.set(owner.id, (target.damageBy.get(owner.id) ?? 0) + chainDamage);
     this.applySurvivalHitEffects(owner, target, chainDamage, bullet);
     target.hitFlash = Math.max(target.hitFlash, 0.65);
@@ -1840,6 +1850,7 @@ export class Game {
     for (const zombie of this.zombies) {
       if (zombie === directHit || zombie.hp <= 0 || Math.hypot(zombie.x - bullet.x, zombie.y - bullet.y) > radius + zombie.r) continue;
       const dealt = splash * this.survivalDamageMultiplier(owner, zombie);
+      this.effect(zombie, dealt, '#ffda83');
       zombie.hp -= dealt; zombie.damageBy.set(bullet.owner, (zombie.damageBy.get(bullet.owner) ?? 0) + dealt);
       this.applySurvivalHitEffects(owner, zombie, dealt, bullet);
     }
@@ -1885,9 +1896,24 @@ export class Game {
     return true;
   }
 
+  private effect(target: { x: number; y: number; r: number; hp: number }, amount: number, color: string, kind: CombatEffect['kind'] = 'damage') {
+    const damage = Math.min(Math.max(0, target.hp), amount);
+    if (kind === 'damage' && damage <= 0) return;
+    // Coalesce rapid contact damage per target position within a short window.
+    const last = this.combatEffects[this.combatEffects.length - 1];
+    if (kind === 'damage' && last?.kind === kind && last.tick === this.tick &&
+        last.x === target.x && last.y === target.y && last.color === color) {
+      last.amount += damage;
+      return;
+    }
+    this.combatEffects.push({ tick: this.tick, x: target.x, y: target.y, radius: target.r, kind, amount: damage, color });
+    if (this.combatEffects.length > 240) this.combatEffects.shift();
+  }
+
   private hurtPlayer(p: Player, amount: number, byId: number | null, byName: string) {
     if (!p.connected || !p.alive || p.downed || amount <= 0) return;
     const reduced = this.mode === 'survival' ? amount * Math.max(0.68, 1 - this.perkCount(p, 'ironSkin') * 0.06) : amount;
+    this.effect(p, reduced, '#ff7777');
     p.hp -= reduced;
     p.damageTaken += reduced;
     const attacker = byId == null ? undefined : this.players.get(byId);
@@ -1914,6 +1940,7 @@ export class Game {
     }
     for (const zombie of this.zombies) {
       if (zombie.hp > 0) continue;
+      this.effect(zombie, 0, '#a1c76b', 'destroy');
       this.spawnHealthDrop(zombie); this.spawnXpDrop(zombie);
       if (zombie.kind === 'exploder') this.spawnExploderPool(zombie);
       if (zombie.kind === 'splitter') this.spawnSplitMinions(zombie);
@@ -1934,6 +1961,7 @@ export class Game {
     if (this.shapes.some((shape) => shape.hp <= 0)) {
       for (const shape of this.shapes) {
         if (shape.hp > 0) continue;
+        this.effect(shape, 0, SHAPES[SHAPE_KINDS[shape.kind]].color, 'destroy');
         const killer = shape.lastHitBy != null ? this.players.get(shape.lastHitBy) : undefined;
         if (killer?.alive && !killer.downed) {
           this.addXp(killer, SHAPES[SHAPE_KINDS[shape.kind]].xp);
@@ -2059,6 +2087,7 @@ export class Game {
     const focus = myClass.id === 'predator' && me.input.secondary ? 1.55 : 1;
     return {
       t: 's', tick: this.tick, mode: this.mode,
+      effects: this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ && near(effect.x, effect.y, effect.radius)),
       z: this.zombies.map((zombie) => ({
         id: zombie.id, x: r1(zombie.x), y: r1(zombie.y), r: r1(zombie.r),
         hp: r1(zombie.hp), mhp: r1(zombie.maxHp),
