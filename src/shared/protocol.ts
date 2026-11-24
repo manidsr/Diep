@@ -110,6 +110,7 @@ export interface SelfSnap {
   xp: number; xpCur: number; xpNext: number;
   cls: string; opts: string[]; fov: number; team: TeamId | null;
   rewards: RewardCardSnap[]; rewardTimer: number;
+  devShop?: boolean;
   coins?: number; shop?: {id:string; title:string; cost:number; description:string}[]; combos?: string[]; streak?: number; streakSerial?: number; powerups?: Partial<Record<Powerup,number>>;
 }
 export interface CombatEffect {

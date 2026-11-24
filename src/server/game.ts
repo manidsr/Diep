@@ -464,8 +464,9 @@ export class Game {
     if(has('droneWingman')&&has('rapidLoader'))out.push('Drone Army');
     return out;
   }
-  private shopOffers(p:Player){
-    if(this.mode!=='survival'||this.waveIntermission<=0||!p.alive||p.downed)return [];
+  private shopOffers(p:Player, developer=false){
+    if(this.mode!=='survival'||(!developer&&this.waveIntermission<=0)||!p.alive||p.downed||this.survivalGameOver)return [];
+    if(developer)return [{id:'heal',title:'Repair',cost:0,description:'Restore 40% health'},...SURVIVAL_PERKS.filter(k=>(p.survivalPerks[k.id]??0)<k.max).map(k=>({id:k.id,title:k.title,cost:0,description:k.description+' · '+(p.survivalPerks[k.id]??0)+'/'+k.max}))];
     const offers=[{id:'heal',title:'Repair',cost:8,description:'Restore 40% health'},
       {id:'rapidLoader',title:'Rapid Loader',cost:12,description:'One faster reload stack'},
       {id:'heavyRounds',title:'Heavy Rounds',cost:12,description:'One damage stack'},
@@ -478,9 +479,9 @@ export class Game {
       {id:'droneWingman',title:'Drone Wingman',cost:15,description:'Extra drone'}];
     return offers.filter(o=>o.id==='heal'?p.hp<p.maxHp: SURVIVAL_PERKS.some(k=>k.id===o.id&&(p.survivalPerks[o.id]??0)<k.max));
   }
-  buyShop(id:number,item:string):boolean{
+  buyShop(id:number,item:string,developer=false):boolean{
     const p=this.players.get(id);if(!p)return false;
-    const offer=this.shopOffers(p).find(o=>o.id===item);
+    const offer=this.shopOffers(p,developer).find(o=>o.id===item);
     if(!offer||(p.coins??0)<offer.cost)return false;
     p.coins=(p.coins??0)-offer.cost;
     if(item==='heal')p.hp=Math.min(p.maxHp,p.hp+p.maxHp*0.4);
@@ -2415,7 +2416,7 @@ export class Game {
 
   drainEvents(): GameEvent[] { const events = this.events; this.events = []; return events; }
 
-  snapshotFor(id: number): Snapshot | null {
+  snapshotFor(id: number, developer=false): Snapshot | null {
     const me = this.players.get(id);
     if (!me) return null;
     const near = (x: number, y: number, radius: number) =>
@@ -2453,7 +2454,7 @@ export class Game {
         hp: r1(me.hp), mhp: r1(me.maxHp), lv: me.level, xp: me.xp,
         xpCur: currentXp, xpNext: nextXp,
         cls: me.cls, opts: me.alive && !me.downed ? classOptions(me.cls, me.level) : [], fov: me.d.fovMul * focus,
-        coins:me.coins??0,shop:this.shopOffers(me),combos:this.combos(me),streak:me.streak??0,streakSerial:me.streakSerial??0,powerups:this.powerupStatus(me),
+        coins:me.coins??0,shop:this.shopOffers(me,developer),devShop:developer&&this.mode==='survival',combos:this.combos(me),streak:me.streak??0,streakSerial:me.streakSerial??0,powerups:this.powerupStatus(me),
         team: me.team, rewards: me.rewardOffers[0]?.cards ?? [], rewardTimer: r1(me.rewardOffers[0]?.timeRemaining ?? 0),
       },
       p: [...this.players.values()].filter((player) => player.connected && player.alive && !player.downed &&

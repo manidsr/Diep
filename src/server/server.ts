@@ -171,7 +171,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
         }
         case 'input': if (p) activeGame?.setInput(p.id, m); break;
         case 'skin': if(p)activeGame?.setSkin(p.id,m.id);break;
-        case 'shop': if(p)activeGame?.buyShop(p.id,m.id);break;
+        case 'shop': if(p)activeGame?.buyShop(p.id,m.id,devCheatsEnabled&&devCheatOwnerSession===c.sessionToken);break;
         case 'reward': if (p) activeGame?.chooseSurvivalReward(p.id, m.id); break;
         case 'class': if (p) activeGame?.chooseClass(p.id, m.id); break;
         case 'devClass':
@@ -258,7 +258,7 @@ export async function startServer(opts: { port?: number; host?: string; game?: G
         : null;
       for (const c of conns) {
         if (c.game !== world || c.playerId == null) continue;
-        const snap = world.snapshotFor(c.playerId);
+        const snap = world.snapshotFor(c.playerId,devCheatsEnabled&&devCheatOwnerSession===c.sessionToken);
         if (snap) send(c.ws, snap);
         if (leaderboard) send(c.ws, leaderboard);
       }

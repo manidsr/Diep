@@ -352,3 +352,26 @@ test('movement and drone-support cards improve real player and drone movement/da
     assert.equal(d.explosionRadius, 42);
   }
 });
+
+
+test('developer shop exposes free perks during active waves without changing normal purchases', () => {
+  const {game,player}=setup();
+  const normal=game.snapshotFor(player.id)!;
+  assert.equal(normal.me.shop?.length,0);
+  assert.equal(game.buyShop(player.id,'chainShot'),false);
+  const dev=game.snapshotFor(player.id,true)!;
+  assert.equal(dev.me.devShop,true);
+  assert.ok(dev.me.shop!.length>10);
+  assert.ok(dev.me.shop!.every(o=>o.cost===0));
+  assert.ok(game.buyShop(player.id,'chainShot',true));
+  assert.equal(player.survivalPerks.chainShot,1);
+  assert.equal(player.coins??0,0);
+  assert.ok(game.buyShop(player.id,'chainShot',true));
+  assert.ok(game.buyShop(player.id,'chainShot',true));
+  assert.equal(game.buyShop(player.id,'chainShot',true),false);
+  assert.equal(game.buyShop(player.id,'unknown',true),false);
+  assert.equal(game.snapshotFor(player.id)!.me.shop?.length,0);
+  const ffa=new Game(seeded(42),0,'ffa'), other=ffa.addPlayer('test')!;
+  assert.equal(ffa.buyShop(other.id,'chainShot',true),false);
+  assert.equal(ffa.snapshotFor(other.id,true)!.me.shop?.length,0);
+});
