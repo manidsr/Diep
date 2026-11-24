@@ -417,6 +417,18 @@
     .reward-card { min-height:80px; }
     body.evolution-open #reward-panel { top:calc(env(safe-area-inset-top) + 190px); }
   }
+  #audio-hud { display:none; position:fixed; z-index:13; left:max(10px,env(safe-area-inset-left)); bottom: max(12px,env(safe-area-inset-bottom)); background:#142131e8; color:white; border:1px solid #ffffff55; min-height:44px; border-radius:12px; font-weight:800; }
+  body.in-game #audio-hud { display:block; }
+  #audio-menu { background:#26374b; min-height:44px; margin-top:8px; }
+  #audio-panel { position:fixed; inset:0; z-index:60; display:grid; place-items:center; background:#060d17b8; padding:16px; touch-action:pan-y; }
+  #audio-panel[hidden] { display:none; }
+  .audio-card { width:min(340px,94vw); max-height:90dvh; overflow:auto; background:#172231; border:1px solid #52657b; padding:20px; border-radius:16px; box-shadow:0 15px 45px #0008; touch-action:pan-y; }
+  .audio-card h2 { margin:0 0 14px; font-size:22px; }
+  .audio-card label { display:block; margin:12px 0; font-weight:700; }
+  .audio-card input[type=range] { display:block; width:100%; height:40px; accent-color:#4bc4ef; touch-action:pan-y; }
+  .audio-card input[type=checkbox] { accent-color:#4bc4ef; width:20px; height:20px; vertical-align:middle; }
+  .audio-card button { min-height:44px; width:100%; margin-top:7px; background:#2469ad; font-weight:800; }
+  @media (pointer:coarse), (max-width:760px) { #audio-hud { top:calc(env(safe-area-inset-top) + 158px); bottom:auto; left:calc(env(safe-area-inset-left) + 8px); min-height:42px; font-size:11px; } }
 </style>
 </head>
 <body>
@@ -458,6 +470,17 @@
 <button id="evolve-toggle" type="button" aria-expanded="false">EVOLVE ↑</button>
 <div id="xp" class="hud"><div class="bar"><div class="fill" id="xpfill"></div></div><div class="txt" id="xptxt"></div></div>
 <div id="toast" class="hud"><div class="big" id="toastbig"></div><div class="sub" id="toastsub"></div></div>
+<button id="audio-hud" type="button" aria-label="Audio settings">♪ AUDIO</button>
+<div id="audio-panel" hidden>
+  <section class="audio-card" role="dialog" aria-modal="true" aria-label="Audio settings">
+    <h2>Audio settings</h2>
+    <label>Music<input id="music-volume" type="range" min="0" max="100" value="28"></label>
+    <label>Sound effects<input id="effects-volume" type="range" min="0" max="100" value="55"></label>
+    <label><input id="mute-audio" type="checkbox"> Mute all audio</label>
+    <button id="audio-test" type="button">Test sound</button>
+    <button id="audio-close" type="button">Done</button>
+  </section>
+</div>
 <div id="menu">
   <div class="card">
     <h1>Tank Arena</h1>
@@ -480,6 +503,7 @@
     <input id="name" maxlength="16" placeholder="Nickname" autocomplete="off" autocapitalize="off" spellcheck="false">
     <button id="play" disabled>Play</button>
     <button id="fullscreen-btn" type="button">Enter fullscreen</button>
+    <button id="audio-menu" type="button">♪ Audio settings</button>
     <p id="status" class="small">Connecting…</p>
     <p class="small"><b>PC:</b> WASD/arrows move, mouse aims, click/Space/E fires, right-click or Shift uses secondary controls, C toggles auto-spin.<br>
     <b>Phone:</b> left thumb moves, right thumb aims and fires.</p>

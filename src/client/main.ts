@@ -1,6 +1,7 @@
 import { CLASS_BY_ID, CLASS_IDS, TANK_SPECIALTIES, SERVER_TICK_HZ } from '../shared/config';
 import type { GameMode, PlayerSnap, SelfSnap, ServerMessage, Snapshot, ZombieSnap } from '../shared/protocol';
 import { Input } from './input';
+import { GameAudio } from './audio';
 import { drawFrame, drawMinimap, drawSticks, tankPreviewDataUrl, type View } from './render';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -10,6 +11,21 @@ const minimapCanvas = $<HTMLCanvasElement>('minimap');
 const minimapCtx = minimapCanvas.getContext('2d')!;
 const MINIMAP_SIZE = 176;
 const input = new Input(canvas);
+const audio = new GameAudio();
+const audioPanel = $('audio-panel');
+const musicSlider = $<HTMLInputElement>('music-volume'), effectsSlider = $<HTMLInputElement>('effects-volume');
+const muteAudio = $<HTMLInputElement>('mute-audio');
+musicSlider.value = String(Math.round(audio.musicVolume*100));
+effectsSlider.value = String(Math.round(audio.effectsVolume*100));
+muteAudio.checked = audio.muted;
+const saveAudio = () => audio.settings(Number(musicSlider.value)/100, Number(effectsSlider.value)/100, muteAudio.checked);
+for (const control of [musicSlider,effectsSlider,muteAudio]) control.addEventListener('input',saveAudio);
+for (const id of ['audio-menu','audio-hud']) $(id).addEventListener('click',() => { audioPanel.hidden = false; void audio.unlock(); });
+$('audio-close').addEventListener('click',() => { audioPanel.hidden = true; });
+$('audio-test').addEventListener('click',() => { void audio.unlock().then(() => audio.cue('heavy')); });
+document.addEventListener('pointerdown', () => { void audio.unlock(); }, { passive:true });
+document.addEventListener('keydown', () => { void audio.unlock(); });
+document.addEventListener('visibilitychange', () => audio.visibility());
 
 // ---------- connection ----------
 let ws: WebSocket | null = null;
@@ -219,6 +235,7 @@ function connect() {
     if (m.t === 's') onSnapshot(m);
     else if (m.t === 'lb') renderLeaderboard(m);
     else if (m.t === 'welcome') {
+      audio.reset();
       selfId = m.id; playing = true; joining = false; playBtn.disabled = false;
       resumeToken = m.resumeToken;
       resumeOnReconnect = false;
@@ -236,6 +253,7 @@ function connect() {
     }
     else if (m.t === 'feed') renderKillFeed(m);
     else if (m.t === 'dead') {
+      audio.cue('death');
       playing = false; input.reset(); frames.length = 0; lastLv = 0;
       msgEl.textContent = '';
       showDeathReport(m);
@@ -322,6 +340,7 @@ function onSnapshot(s: Snapshot) {
   const arrival = performance.now();
   const tickTime = s.tick * TICK_MS;
   const previous = frames[frames.length - 1];
+  if (playing) audio.snapshot(s, selfId, previous?.snap);
   if (previous && s.tick <= previous.snap.tick) {
     if (s.tick === previous.snap.tick) return;
     frames.length = 0;
@@ -773,6 +792,7 @@ function frame(now: number) {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const view = sample(now) ?? { players: [], bullets: [], shapes: [], zombies: [], downed: [], healthDrops: [], xpDrops: [], pools: [], mode: 'ffa' as GameMode };
+  audio.update(!playing || !$('survival-gameover').hidden ? 'menu' : view.mode !== 'survival' ? 'arena' : view.zombies.some(z => z.bossKind && z.hp > 0) ? 'boss' : 'survival');
   minimapCanvas.hidden = !playing || view.mode !== 'survival';
   minimapCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (!minimapCanvas.hidden) drawMinimap(minimapCtx, MINIMAP_SIZE, MINIMAP_SIZE, view, selfId);
