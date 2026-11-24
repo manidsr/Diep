@@ -122,12 +122,40 @@ function drawCombatEffect(ctx: CanvasRenderingContext2D, effect: CombatEffect & 
   ctx.save(); ctx.translate(x, y);
   ctx.globalAlpha *= 1 - t;
   if (kind === 'damage') {
-    ctx.font = '900 ' + (amount >= 30 ? 23 : 17) + 'px system-ui, sans-serif';
-    ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.lineWidth = 3.5;
-    ctx.strokeStyle = '#30272b'; ctx.fillStyle = color;
-    const label = amount < 1 ? amount.toFixed(1) : String(Math.round(amount));
-    const offset = -radius * 0.65 - age * 65;
-    ctx.strokeText(label, 0, offset); ctx.fillText(label, 0, offset);
+    if (amount <= 0) { ctx.restore(); return; }
+    const incoming = color === '#ff7777';
+    const heavy = amount >= 30;
+    // Stable lateral spread prevents successive hits from sharing the same path.
+    const hash = (Math.imul(effect.tick + 1, 2654435761) ^
+      Math.imul(Math.round(x * 10), 73856093) ^ Math.imul(Math.round(y * 10), 19349663)) >>> 0;
+    const drift = ((hash % 101) / 100 - 0.5) * 2;
+    const lane = (hash >>> 9) % 3 - 1;
+    const rise = 1 - Math.pow(1 - t, 2);
+    const pop = t < 0.12 ? 0.76 + 0.54 * Math.sin(t / 0.12 * Math.PI / 2)
+      : 1 + 0.30 * Math.exp(-(t - 0.12) * 14);
+    const fontSize = incoming ? 22 : Math.min(34, 19 + Math.log2(1 + amount / 8) * 3.4);
+    const label = (incoming ? '−' : '') + (amount < 1 ? (amount < 0.1 ? '<0.1' : amount.toFixed(1)) : String(Math.round(amount)));
+    ctx.globalAlpha = Math.min(1, (1 - t) / 0.28);
+    ctx.translate(lane * 9 + drift * rise * 25, -Math.max(16, radius * 0.85) - rise * 48);
+    ctx.scale(pop, pop);
+    ctx.font = '900 ' + fontSize + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#111820'; ctx.lineWidth = heavy ? 4.5 : 3.5;
+    ctx.fillStyle = incoming ? '#ff747e' : heavy && color === '#fff0a0' ? '#ffd45d' : color;
+    // A short offset shadow and contrasting outline remain readable over every arena color.
+    ctx.save(); ctx.globalAlpha *= 0.42; ctx.fillStyle = '#111820';
+    ctx.fillText(label, 0, 3); ctx.restore();
+    ctx.strokeText(label, 0, 0); ctx.fillText(label, 0, 0);
+    if (heavy && !incoming && t < 0.38) {
+      const half = ctx.measureText(label).width / 2 + 7;
+      ctx.globalAlpha *= 1 - t / 0.38;
+      ctx.strokeStyle = '#fff1b5'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      for (const side of [-1, 1]) {
+        const px = side * (half + rise * 9);
+        ctx.beginPath(); ctx.moveTo(px, -6); ctx.lineTo(px + side * 5, -10);
+        ctx.moveTo(px, 2); ctx.lineTo(px + side * 6, 4); ctx.stroke();
+      }
+    }
   } else {
     const size = Math.max(12, Math.min(radius, 80));
     // Seed once per destruction event (not per frame): every explosion is unique
