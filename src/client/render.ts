@@ -130,15 +130,54 @@ function drawCombatEffect(ctx: CanvasRenderingContext2D, effect: CombatEffect & 
     ctx.strokeText(label, 0, offset); ctx.fillText(label, 0, offset);
   } else {
     const size = Math.max(12, Math.min(radius, 80));
-    ctx.strokeStyle = color; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(0, 0, size * (0.45 + t * 2.2), 0, Math.PI * 2); ctx.stroke();
-    for (let i = 0; i < 12; i++) {
-      const angle = i * Math.PI / 6 + x * 0.02;
-      const distance = size * (0.3 + t * (1.5 + (i % 4) * 0.28));
-      const fragment = Math.max(2, size * 0.19 * (1 - t * 0.7));
-      ctx.save(); ctx.translate(Math.cos(angle) * distance, Math.sin(angle) * distance);
-      ctx.rotate(angle + age * 8); ctx.fillStyle = color; ctx.strokeStyle = '#34343b'; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.moveTo(-fragment, -fragment * 0.6); ctx.lineTo(fragment, 0); ctx.lineTo(0, fragment); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // Seed once per destruction event (not per frame): every explosion is unique
+    // while particle trajectories remain smooth and consistent across clients.
+    let seed = (Math.imul(Math.round(x * 100), 73856093) ^
+      Math.imul(Math.round(y * 100), 19349663) ^ Math.imul(effect.tick, 83492791)) >>> 0;
+    const random = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    const count = 9 + Math.floor(random() * 10);
+    const phase = random() * Math.PI * 2;
+    const ringScale = 1.7 + random() * 0.9;
+    const fade = ctx.globalAlpha;
+    ctx.globalAlpha = fade * Math.max(0, 1 - t * 2.5);
+    ctx.strokeStyle = color; ctx.lineWidth = Math.max(0.8, 3 * (1 - t));
+    ctx.beginPath(); ctx.arc(0, 0, size * (0.45 + t * ringScale), 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < count; i++) {
+      const angle = phase + i * Math.PI * 2 / count + (random() - 0.5) * 1.15;
+      const speed = 0.65 + random() * 3.3;
+      const start = random() * 0.55;
+      const scale = 0.06 + random() * 0.22;
+      const spin = (random() - 0.5) * 22;
+      const rotation = random() * Math.PI * 2;
+      const life = 0.38 + random() * 0.52;
+      const type = Math.floor(random() * 4);
+      const stretch = 0.6 + random() * 1.1;
+      const bright = random() < 0.2;
+      if (age >= life) continue;
+      const progress = age / life;
+      const travel = (1 - Math.exp(-age * 4)) / (1 - Math.exp(-3.6));
+      const distance = size * (start + travel * speed);
+      const fragment = Math.max(1, size * scale * (1 - progress * 0.65));
+      ctx.save();
+      ctx.globalAlpha = fade * Math.sqrt(1 - progress);
+      ctx.translate(Math.cos(angle) * distance, Math.sin(angle) * distance);
+      ctx.rotate(rotation + age * spin);
+      ctx.fillStyle = bright ? '#fff3cf' : color;
+      ctx.strokeStyle = '#34343b'; ctx.lineWidth = Math.min(1.5, fragment * 0.35);
+      ctx.beginPath();
+      if (type === 0) {
+        ctx.moveTo(-fragment, -fragment * 0.6); ctx.lineTo(fragment * stretch, 0); ctx.lineTo(0, fragment); ctx.closePath();
+      } else if (type === 1) {
+        ctx.rect(-fragment, -fragment * 0.45, fragment * stretch * 2, fragment * 0.9);
+      } else if (type === 2) {
+        ctx.moveTo(-fragment, 0); ctx.lineTo(0, -fragment * stretch); ctx.lineTo(fragment, 0); ctx.lineTo(0, fragment * 0.7); ctx.closePath();
+      } else {
+        ctx.arc(0, 0, fragment * 0.65, 0, Math.PI * 2);
+      }
+      ctx.fill(); if (fragment > 2) ctx.stroke();
       ctx.restore();
     }
   }
