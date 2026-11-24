@@ -116,13 +116,18 @@ export interface CombatEffect {
   tick: number; x: number; y: number; radius: number;
   kind: 'damage' | 'destroy'; amount: number; color: string;
 }
+/** Short-lived visual links. Endpoints come from actual server combat events. */
+export interface BeamSnap {
+  tick:number; x:number; y:number; tx:number; ty:number; color:string;
+  kind?:'arc'|'fork'|'laser'; root?:boolean;
+}
 export interface Snapshot {
   t: 's';
   tick: number;
   effects?: CombatEffect[];
   crates?: {id:number;x:number;y:number;r:number;kind:Powerup}[];
   explosiveIds?: number[];
-  beams?: {tick:number;x:number;y:number;tx:number;ty:number;color:string}[];
+  beams?: BeamSnap[];
   royale?: {phase:'lobby'|'active'|'result'; radius:number; seconds:number; alive:number; winner:string};
   survival?: { wave: number; theme: WaveTheme; remaining: number; intermission: number };
   me: SelfSnap;

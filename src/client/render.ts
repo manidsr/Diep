@@ -73,11 +73,71 @@ export function drawFrame(
   for (const bullet of view.bullets) drawProjectile(ctx, bullet, bullet[4] === selfId, view.players);
   for (const player of view.players) if (player.id !== selfId) drawTank(ctx, player, false,view.renderTick);
   for (const player of view.players) if (player.id === selfId) drawTank(ctx, player, true,view.renderTick);
-  for(const beam of view.beams??[]){if(beam.age<0||beam.age>0.18)continue;ctx.save();ctx.globalAlpha=1-beam.age/0.18;ctx.strokeStyle=beam.color;ctx.lineWidth=6;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(beam.x,beam.y);ctx.lineTo(beam.tx,beam.ty);ctx.stroke();ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.stroke();ctx.restore();}
+  for (const beam of view.beams??[]) drawCombatLink(ctx,beam);
   for (const effect of view.effects ?? []) drawCombatEffect(ctx, effect);
   ctx.restore();
   if (view.mode === 'survival') drawSurvivalOverlay(ctx, W, H, view);
   if(view.royale){const r=view.royale;ctx.save();ctx.textAlign='center';ctx.font='900 15px system-ui';ctx.lineWidth=4;ctx.strokeStyle='#242936';ctx.fillStyle='#fff0b0';const text=r.phase==='lobby'?(r.alive<2?'WAITING FOR 2 PLAYERS':'ROUND STARTS · '+r.seconds+'s'):r.phase==='result'?'WINNER · '+r.winner:'BATTLE ROYALE · '+r.alive+' LEFT · '+r.seconds+'s';ctx.strokeText(text,W/2,76);ctx.fillText(text,W/2,76);ctx.restore();}
+}
+
+/** Animated, outlined links; deterministic bends avoid random per-frame flicker. */
+function drawCombatLink(ctx:CanvasRenderingContext2D, beam:NonNullable<View['beams']>[number]){
+  const {x,y,tx,ty,age,color}=beam;
+  const kind=beam.kind??'laser', duration=kind==='arc'?0.42:kind==='fork'?0.28:0.18;
+  if(age<0||age>=duration)return;
+  const dx=tx-x,dy=ty-y,d=Math.hypot(dx,dy);
+  if(d<0.01)return;
+  const progress=Math.min(1,age/(kind==='arc'?0.075:kind==='fork'?0.055:0.025));
+  const fade=Math.min(1,(duration-age)/(duration*0.55));
+  const nx=-dy/d,ny=dx/d;
+  const points:{x:number;y:number}[]=[{x,y}];
+  if(kind==='arc'){
+    const segments=Math.max(3,Math.min(9,Math.ceil(d/23)));
+    let seed=(Math.imul(beam.tick+1,1664525)^Math.imul(Math.round(x*10),73856093)^Math.imul(Math.round(ty*10),19349663))>>>0;
+    for(let i=1;i<segments;i++){
+      seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+      const t=i/segments, bend=(i%2===0?1:-1)*(0.55+seed/4294967296*0.45)*Math.min(12,d*0.10)*Math.sin(t*Math.PI);
+      points.push({x:x+dx*t+nx*bend,y:y+dy*t+ny*bend});
+    }
+  }
+  points.push({x:tx,y:ty});
+  const end={x,y};
+  const trace=()=>{
+    ctx.beginPath();ctx.moveTo(x,y);
+    const at=progress*(points.length-1);
+    for(let i=1;i<points.length;i++){
+      const f=Math.max(0,Math.min(1,at-i+1));if(f<=0)break;
+      const a=points[i-1],b=points[i];end.x=a.x+(b.x-a.x)*f;end.y=a.y+(b.y-a.y)*f;
+      ctx.lineTo(end.x,end.y);if(f<1)break;
+    }
+  };
+  ctx.save();ctx.globalAlpha=fade;ctx.lineCap='round';ctx.lineJoin='round';
+  trace();
+  ctx.strokeStyle=kind==='arc'?'#456794':kind==='fork'?'#9b7138':'#4688b5';ctx.lineWidth=kind==='arc'?7:kind==='fork'?4.8:6;ctx.stroke();
+  ctx.strokeStyle=color;ctx.lineWidth=kind==='arc'?4.4:kind==='fork'?2.8:3.8;ctx.stroke();
+  ctx.strokeStyle='#f9fdff';ctx.lineWidth=kind==='fork'?1:1.6;ctx.stroke();
+  if(kind!=='laser'){
+    // The travelling head makes direction clear. End sparks sit at real hit points.
+    ctx.fillStyle='#f8fdff';ctx.beginPath();ctx.arc(end.x,end.y,kind==='arc'?3.8:2.3,0,Math.PI*2);ctx.fill();
+    const pulse=(age/duration);
+    if(beam.root!==false&&age<0.22){
+      ctx.strokeStyle=color;ctx.lineWidth=2.3;ctx.globalAlpha=fade*(1-age/0.22);
+      ctx.beginPath();ctx.arc(x,y,5+18*pulse,0,Math.PI*2);ctx.stroke();
+    }
+    if(kind==='arc'&&progress===1){
+      const p=Math.min(1,(age-0.075)/(duration-0.075));ctx.globalAlpha=fade;
+      ctx.strokeStyle=color;ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(tx,ty,6+p*16,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();
+      for(let i=0;i<4;i++){
+        const a=i*Math.PI/2+0.5;const r=9+p*9;
+        ctx.moveTo(tx+Math.cos(a)*r,ty+Math.sin(a)*r);
+        ctx.lineTo(tx+Math.cos(a)*(r+5),ty+Math.sin(a)*(r+5));
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 function drawSurvivalOverlay(ctx: CanvasRenderingContext2D, W: number, H: number, view: View) {

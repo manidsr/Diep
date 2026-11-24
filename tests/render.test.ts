@@ -51,3 +51,12 @@ test('touch control hints keep canvas drawing state isolated', () => {
 
   assert.equal(saveDepth(), 0, 'touch controls must not leak canvas drawing state into the next frame');
 });
+
+ test('chain and fork effects preserve canvas state throughout animation',()=>{
+  const {ctx,saveDepth}=mockCanvasContext();
+  for(const age of [0,0.04,0.09,0.2,0.41,0.5]){
+    const view:View={players:[],bullets:[],shapes:[],zombies:[],downed:[],healthDrops:[],xpDrops:[],pools:[],mode:'ffa',
+      beams:[{tick:10,x:100,y:100,tx:200,ty:140,color:'#9bdcff',kind:'arc',age},{tick:10,x:100,y:100,tx:150,ty:60,color:'#ffd174',kind:'fork',age}]};
+    drawFrame(ctx,800,600,{x:100,y:100},view,1);assert.equal(saveDepth(),0);
+  }
+});

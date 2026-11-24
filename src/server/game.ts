@@ -7,7 +7,7 @@ import {
 import {
   classOptions, deriveStats, levelFromXp, totalXpForLevel, type DerivedStats,
 } from '../shared/progression';
-import type { CombatEffect, WaveTheme, GameMode, RewardCardSnap, RewardRarity, Snapshot, TeamId, ZombieBossKind, ZombieBossPhase, ZombieKind, ZombieSnap, ZombieSpecialPhase } from '../shared/protocol';
+import type { BeamSnap, CombatEffect, WaveTheme, GameMode, RewardCardSnap, RewardRarity, Snapshot, TeamId, ZombieBossKind, ZombieBossPhase, ZombieKind, ZombieSnap, ZombieSpecialPhase } from '../shared/protocol';
 import { SpatialGrid } from './grid';
 
 type RewardOffer = { cards: RewardCardSnap[]; timeRemaining: number };
@@ -141,7 +141,11 @@ export class Game {
   private combatEffects: CombatEffect[] = [];
   crates: {id:number;x:number;y:number;r:number;kind:Powerup;life:number}[] = [];
   private nextCrate = 10;
-  private beams: {tick:number;x:number;y:number;tx:number;ty:number;color:string}[] = [];
+  private beams: BeamSnap[] = [];
+  private link(from:{x:number;y:number},to:{x:number;y:number},color:string,kind:BeamSnap['kind'],root=true){
+    this.beams.push({tick:this.tick,x:from.x,y:from.y,tx:to.x,ty:to.y,color,kind,root});
+    if(this.beams.length>220)this.beams.splice(0,this.beams.length-220);
+  }
   royalePhase: 'lobby'|'active'|'result' = 'lobby';
   private royaleTimer = 10;
   private royaleWinner = '';
@@ -359,7 +363,7 @@ export class Game {
     this.time += dt;
     this.tick++;
     if (this.mode === 'royale' && !this.updateRoyale(dt)) return;
-    this.beams = this.beams.filter(b=>this.tick-b.tick<=8);
+    this.beams = this.beams.filter(b=>this.tick-b.tick<=16);
     this.updateCrates(dt);
     this.combatEffects = this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ);
     for (const p of this.players.values()) if (p.connected && p.alive && p.hp>0 && !p.downed) this.updatePlayer(p, dt);
@@ -1260,9 +1264,9 @@ export class Game {
   private spawnSplitMinions(zombie: Zombie) {
     for (let i = 0; i < 2 && this.zombies.length < MAX_ZOMBIES; i++) {
       const angle = zombie.id * 0.71 + i * Math.PI, r = Math.max(10, zombie.r * 0.58), hp = Math.max(12, zombie.maxHp * 0.28);
-      this.zombies.push({ id: this.nextId++, kind: 'shambler',
-        x: clamp(zombie.x + Math.cos(angle) * (zombie.r + r + 5), r, this.arenaSize - r),
-        y: clamp(zombie.y + Math.sin(angle) * (zombie.r + r + 5), r, this.arenaSize - r),
+      const x=clamp(zombie.x+Math.cos(angle)*(zombie.r+r+5),r,this.arenaSize-r),y=clamp(zombie.y+Math.sin(angle)*(zombie.r+r+5),r,this.arenaSize-r);
+      this.link(zombie,{x,y},'#b6df83','fork',i===0);
+      this.zombies.push({ id: this.nextId++, kind: 'shambler', x,y,
         vx: Math.cos(angle) * 35, vy: Math.sin(angle) * 35, kvx: 0, kvy: 0, r, hp, maxHp: hp,
         speed: 90 + this.wave * 2, damage: 5 + this.wave * 0.7, xp: Math.max(2, Math.round(zombie.xp * 0.16)),
         angle, targetId: null, staggerT: 0, hitFlash: 0, hitAngle: 0,
@@ -1414,7 +1418,7 @@ export class Game {
         if(along>=0&&along<distance&&side<=t.r){nearest=t;distance=along;}
       }
       if(nearest){beam.tx=muzzleX+cx*distance;beam.ty=muzzleY+cy*distance;this.specialDamage(p,nearest.id,p.d.bulletDamage*perkDamage*critical);}
-      this.beams.push(beam);return;
+      this.link(beam,{x:beam.tx,y:beam.ty},beam.color,'laser');return;
     }
     const bullet: Bullet = {
       id: this.nextId++, owner: p.id, x: muzzleX, y: muzzleY,
@@ -1765,6 +1769,8 @@ export class Game {
     const speed = Math.max(260, Math.hypot(rocket.vx, rocket.vy) * 0.75);
     for (let i = 0; i < FIREWORK_PELLETS && this.bullets.length < MAX_BULLETS; i++) {
       const angle = baseAngle + (i / FIREWORK_PELLETS) * Math.PI * 2;
+      const reach=Math.max(28,Math.min(64,speed*0.085));
+      this.link(rocket,{x:rocket.x+Math.cos(angle)*reach,y:rocket.y+Math.sin(angle)*reach},'#ffd174','fork',i===0);
       this.bullets.push({
         id: this.nextId++, owner: rocket.owner, x: rocket.x, y: rocket.y,
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
@@ -2068,7 +2074,7 @@ export class Game {
     const owner=this.players.get(b.owner);if(!owner||!b.weapon)return;
     if(b.weapon==='tesla'){
       const next=this.weaponTargets(owner).filter(t=>t.id!==target.id&&Math.hypot(t.x-target.x,t.y-target.y)<150).sort((a,c)=>Math.hypot(a.x-target.x,a.y-target.y)-Math.hypot(c.x-target.x,c.y-target.y))[0];
-      if(next){this.specialDamage(owner,next.id,b.dmg*0.45);this.beams.push({tick:this.tick,x:target.x,y:target.y,tx:next.x,ty:next.y,color:'#9bdcff'});}
+      if(next){this.specialDamage(owner,next.id,b.dmg*0.45);this.link(target,next,'#82c9ff','arc');}
     }else if(b.weapon==='gravity'){
       for(const t of this.weaponTargets(owner)){
         const dx=target.x-t.x,dy=target.y-t.y,d=Math.hypot(dx,dy);
@@ -2142,6 +2148,7 @@ export class Game {
       target = zombie; nearest = distance;
     }
     if (!target) return;
+    this.link(directHit,target,this.combos(owner).includes('Frozen Storm')?'#9ce9ff':'#a5b4ff','arc');
     const chainDamage = damage * (0.14 + stacks * 0.06) * this.survivalDamageMultiplier(owner, target);
     this.effect(target, chainDamage, '#9eeaff');
       target.hp -= chainDamage;
@@ -2421,7 +2428,7 @@ export class Game {
       t: 's', tick: this.tick, mode: this.mode,
       crates:this.crates.filter(c=>near(c.x,c.y,c.r)).map(({id,x,y,r,kind})=>({id,x,y,r,kind})),
       explosiveIds:this.shapes.filter(s=>s.explosive&&near(s.x,s.y,s.r)).map(s=>s.id),
-      beams:this.beams.filter(b=>near(b.x,b.y,550)),
+      beams:this.beams.filter(b=>this.tick-b.tick<=16&&(near(b.x,b.y,100)||near(b.tx,b.ty,100))),
       ...(this.mode==='royale'?{royale:{phase:this.royalePhase,radius:this.royaleRadius,seconds:Math.ceil(this.royaleTimer),alive:[...this.players.values()].filter(p=>p.connected&&p.alive).length,winner:this.royaleWinner}}:{}),
       ...(this.mode === 'survival' ? { survival: { wave: this.wave, theme: this.waveTheme(), remaining: this.zombies.length + this.waveSpawnRemaining, intermission: this.waveIntermission } } : {}),
       effects: this.combatEffects.filter((effect) => this.tick - effect.tick <= SERVER_TICK_HZ && near(effect.x, effect.y, effect.radius)),

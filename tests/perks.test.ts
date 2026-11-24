@@ -157,6 +157,10 @@ test('Firework rockets burst into sixteen pellets on direct tank impact', () => 
   assert.ok(victim.hp < before, 'rocket impact deals direct damage');
   const pellets = game.bullets.filter((entry) => entry.owner === owner.id && entry.kind === 'bullet');
   assert.equal(pellets.length, 16);
+  const forks=game.snapshotFor(owner.id)!.beams!.filter(b=>b.kind==='fork');
+  assert.equal(forks.length,16);
+  assert.equal(forks.filter(b=>b.root).length,1);
+  for(const [i,link] of forks.entries()){const pellet=pellets[i];assert.equal(link.x,b.x);assert.equal(link.y,b.y);assert.ok(Math.abs(Math.sin(Math.atan2(link.ty-link.y,link.tx-link.x)-pellet.angle))<1e-6);}
   assert.ok(pellets.every((pellet) => pellet.hit.has(victim.id)));
   const after = victim.hp;
   core(game).collidePair({ k: 0, o: victim }, { k: 2, o: pellets[0]! }, DT);
@@ -179,6 +183,8 @@ test('lifesteal, burn, chain, splash and enemy-specific damage cards apply on re
     assert.ok(player.hp > oldHp);
     assert.ok((direct.burnT ?? 0) >= 3 && (direct.burnDps ?? 0) > 0);
     assert.ok(chain.hp < chain.maxHp);
+    const arc=game.snapshotFor(player.id)!.beams!.find(b=>b.kind==='arc');
+    assert.ok(arc);assert.deepEqual([arc.x,arc.y,arc.tx,arc.ty],[direct.x,direct.y,chain.x,chain.y]);
     const beforeBurn = direct.hp;
     c.updateZombie(direct, 0.51);
     assert.ok(direct.hp < beforeBurn);
